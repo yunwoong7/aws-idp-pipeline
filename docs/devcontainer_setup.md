@@ -34,7 +34,7 @@ Before you begin, please ensure you have the following software and configuratio
 Download and install Docker Desktop for your operating system. After installation, **make sure you start the application** so it runs in the background.
 
 <div align="center">   
-  <img src="assets/devcontainer-docker-running.png" alt="Devcontainer Docker Running" width="900"/> 
+  <img src="assets/devcontainer-running.png" alt="Devcontainer Docker Running" width="900"/> 
 </div>
 
 ### Step 2: Open the Project in VS Code

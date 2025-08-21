@@ -333,9 +333,23 @@ deploy_infrastructure() {
       return 1
     }
   else
-    print_info "Deploying all stacks"
-    eval "$deploy_cmd --all $deploy_args" || {
-      print_error "Failed to deploy all stacks"
+    # Deploy only base infrastructure stacks (exclude ECR/ECS)
+    local stacks=(
+      aws-idp-ai-vpc
+      aws-idp-ai-lambda-layer
+      aws-idp-ai-s3
+      aws-idp-ai-dynamodb
+      aws-idp-ai-opensearch
+      aws-idp-ai-indices-management
+      aws-idp-ai-document-management
+      aws-idp-ai-dynamodb-streams
+      aws-idp-ai-websocket-api
+      aws-idp-ai-workflow
+      aws-idp-ai-api-gateway
+    )
+    print_info "Deploying base stacks (excluding ECR/ECS): ${stacks[*]}"
+    eval "$deploy_cmd ${stacks[*]} $deploy_args" || {
+      print_error "Failed to deploy base infrastructure stacks"
       return 1
     }
   fi

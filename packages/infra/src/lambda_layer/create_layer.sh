@@ -27,7 +27,6 @@ mkdir -p "$PYTHON_DIR"
 # REQUIREMENTS="langchain_aws langchain_core langgraph pydantic aws_xray_sdk opensearch-py pillow"
 # REQUIREMENTS="pillow PyMuPDF PyPDF2"
 # REQUIREMENTS="opensearch-py"
-# REQUIREMENTS="boto3"
 REQUIREMENTS="boto3 opensearch-py pillow PyMuPDF PyPDF2"
 
 # install

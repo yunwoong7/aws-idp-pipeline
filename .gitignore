@@ -99,8 +99,10 @@ ref_src/
 # Frontend
 /packages/frontend/.next
 /packages/frontend/src/.next
+packages/frontend/tsconfig.tsbuildinfo
 
 # Infra
 /packages/infra/*.xlsx
 /packages/infra/cdk.out/
 /packages/infra/stack-outputs-backup.json
+/packages/infra/.eslintcache

@@ -4,7 +4,7 @@
       "command": "uv",
       "args": [
         "--directory",
-        "/Users/yunwoong/PersonalProjects/aws-idp-pipeline/packages/backend/src/mcp_client/server",
+        "/Users/yunwoong/PrototypingProjects/aws-idp-pipeline/packages/backend/src/mcp_client/server",
         "run",
         "basic_server.py"
       ]
@@ -14,7 +14,7 @@
       "args": [
         "-y",
         "@modelcontextprotocol/server-filesystem",
-        "/Users/yunwoong/PersonalProjects/aws-idp-pipeline/mcp-workspace"
+        "/Users/yunwoong/PrototypingProjects/aws-idp-pipeline/mcp-workspace"
       ]
     }
   }
