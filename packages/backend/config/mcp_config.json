@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "basic-server": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/Users/yunwoong/PersonalProjects/aws-idp-pipeline/packages/backend/src/mcp_client/server",
+        "run",
+        "basic_server.py"
+      ]
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/Users/yunwoong/PersonalProjects/aws-idp-pipeline/mcp-workspace"
+      ]
+    }
+  }
+}

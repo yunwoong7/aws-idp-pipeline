@@ -1,0 +1,94 @@
+{
+  "$schema": "./node_modules/nx/schemas/nx-schema.json",
+  "namedInputs": {
+    "default": [
+      "{projectRoot}/**/*",
+      "sharedGlobals",
+      {
+        "dependentTasksOutputFiles": "**/*",
+        "transitive": true
+      }
+    ],
+    "production": [
+      "default",
+      "!{projectRoot}/.eslintrc.json",
+      "!{projectRoot}/eslint.config.mjs",
+      "!{projectRoot}/**/?(*.)+(spec|test).[jt]s?(x)?(.snap)",
+      "!{projectRoot}/tsconfig.spec.json",
+      "!{projectRoot}/src/test-setup.[jt]s"
+    ],
+    "sharedGlobals": []
+  },
+  "plugins": [
+    {
+      "plugin": "@nx/js/typescript",
+      "options": {
+        "typecheck": {
+          "targetName": "typecheck"
+        },
+        "build": {
+          "targetName": "compile",
+          "configName": "tsconfig.lib.json",
+          "buildDepsName": "build-deps",
+          "watchDepsName": "watch-deps"
+        }
+      }
+    },
+    {
+      "plugin": "@nx/eslint/plugin",
+      "options": {
+        "targetName": "lint"
+      }
+    },
+    {
+      "plugin": "@nxlv/python",
+      "options": {
+        "packageManager": "uv"
+      }
+    }
+  ],
+  "targetDefaults": {
+    "@nx/eslint:lint": {
+      "cache": true,
+      "inputs": [
+        "default",
+        "{workspaceRoot}/eslint.config.mjs",
+        "{projectRoot}/eslint.config.mjs"
+      ]
+    },
+    "@nx/vite:test": {
+      "cache": true,
+      "inputs": ["default", "^production"],
+      "configurations": {
+        "update-snapshot": {
+          "args": "--update"
+        }
+      }
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "inputs": ["default"]
+    },
+    "lint": {
+      "cache": true,
+      "configurations": {
+        "fix": {
+          "fix": true
+        }
+      },
+      "inputs": [
+        "default",
+        "{workspaceRoot}/eslint.config.mjs",
+        "{projectRoot}/eslint.config.mjs"
+      ]
+    },
+    "compile": {
+      "cache": true,
+      "inputs": ["default"]
+    },
+    "build": {
+      "cache": true,
+      "inputs": ["default"]
+    }
+  }
+}

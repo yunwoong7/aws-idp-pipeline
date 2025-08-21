@@ -1,0 +1,413 @@
+import * as cdk from 'aws-cdk-lib';
+import * as ecs from 'aws-cdk-lib/aws-ecs';
+import * as ecsPatterns from 'aws-cdk-lib/aws-ecs-patterns';
+import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import * as ecr from 'aws-cdk-lib/aws-ecr';
+import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
+import * as logs from 'aws-cdk-lib/aws-logs';
+import * as iam from 'aws-cdk-lib/aws-iam';
+import * as s3 from 'aws-cdk-lib/aws-s3';
+
+import { Construct } from 'constructs';
+import { NagSuppressions } from 'cdk-nag';
+import { getSecurityConfig } from '../../config/loader.js';
+
+export interface EcsStackProps extends cdk.StackProps {
+  stage: string;
+  vpc: ec2.IVpc;
+  backendRepository: ecr.IRepository;
+  frontendRepository: ecr.IRepository;
+  apiGatewayUrl: string;
+}
+
+export class EcsStack extends cdk.Stack {
+  public readonly cluster: ecs.Cluster;
+  public readonly frontendService: ecsPatterns.ApplicationLoadBalancedFargateService;
+  public readonly backendService: ecsPatterns.ApplicationLoadBalancedFargateService;
+  public readonly loadBalancer: elbv2.IApplicationLoadBalancer;
+
+  constructor(scope: Construct, id: string, props: EcsStackProps) {
+    super(scope, id, props);
+
+    const { stage, vpc, backendRepository, frontendRepository, apiGatewayUrl } = props;
+
+    // ECS Cluster 생성
+    this.cluster = new ecs.Cluster(this, 'EcsCluster', {
+      clusterName: `aws-idp-cluster-${stage}`,
+      vpc,
+      containerInsights: true,
+    });
+
+    // S3 bucket for ALB access logs
+    const albLogsBucket = new s3.Bucket(this, 'AlbLogsBucket', {
+      bucketName: `aws-idp-alb-logs-${stage}-${cdk.Aws.ACCOUNT_ID}`,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      lifecycleRules: [
+        {
+          id: 'delete-old-access-logs',
+          expiration: cdk.Duration.days(30),
+        },
+      ],
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      enforceSSL: true,
+    });
+
+    // Task Execution Role (ECR, CloudWatch 권한)
+    const taskExecutionRole = new iam.Role(this, 'TaskExecutionRole', {
+      assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AmazonECSTaskExecutionRolePolicy'),
+      ],
+      inlinePolicies: {
+        ECSTaskExecutionPolicy: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'secretsmanager:GetSecretValue',
+                'ssm:GetParameter',
+                'ssm:GetParameters',
+                'ssm:GetParametersByPath',
+              ],
+              resources: [
+                `arn:aws:secretsmanager:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:secret:/aws-idp/${stage}/*`,
+                `arn:aws:ssm:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:parameter/aws-idp/${stage}/*`,
+              ],
+            }),
+          ],
+        }),
+      },
+    });
+
+    // Task Role (애플리케이션이 AWS 서비스 접근용)
+    const taskRole = new iam.Role(this, 'TaskRole', {
+      assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
+      inlinePolicies: {
+        ApplicationPolicy: new iam.PolicyDocument({
+          statements: [
+            // Bedrock 접근 권한
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'bedrock:InvokeModel',
+                'bedrock:InvokeModelWithResponseStream',
+              ],
+              resources: ['*'],
+            }),
+            // DynamoDB 접근 권한
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'dynamodb:GetItem',
+                'dynamodb:PutItem',
+                'dynamodb:Query',
+                'dynamodb:Scan',
+                'dynamodb:UpdateItem',
+                'dynamodb:DeleteItem',
+              ],
+              resources: [
+                `arn:aws:dynamodb:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:table/aws-idp-*`,
+              ],
+            }),
+            // S3 접근 권한
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                's3:GetObject',
+                's3:PutObject',
+                's3:DeleteObject',
+              ],
+              resources: [
+                `arn:aws:s3:::aws-idp-documents-*/*`,
+              ],
+            }),
+            // OpenSearch 접근 권한
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'es:ESHttpPost',
+                'es:ESHttpPut',
+                'es:ESHttpGet',
+                'es:ESHttpDelete',
+              ],
+              resources: [
+                `arn:aws:es:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:domain/aws-idp-*/*`,
+              ],
+            }),
+          ],
+        }),
+      },
+    });
+
+    // Frontend Fargate Service (ApplicationLoadBalancedFargateService 사용)
+    this.frontendService = new ecsPatterns.ApplicationLoadBalancedFargateService(this, 'FrontendService', {
+      cluster: this.cluster,
+      serviceName: `aws-idp-frontend-${stage}`,
+      cpu: 512,
+      memoryLimitMiB: 1024,
+      desiredCount: 1,
+      publicLoadBalancer: true,
+      openListener: false,
+      taskImageOptions: {
+        image: ecs.ContainerImage.fromEcrRepository(frontendRepository, 'latest'),
+        containerName: 'frontend',
+        containerPort: 3000,
+        executionRole: taskExecutionRole,
+        taskRole: taskRole,
+        logDriver: ecs.LogDrivers.awsLogs({
+          streamPrefix: 'frontend',
+          logRetention: logs.RetentionDays.ONE_WEEK,
+        }),
+        environment: {
+          NODE_ENV: 'production',
+          PORT: '3000',
+        },
+      },
+      listenerPort: 80,
+      protocol: elbv2.ApplicationProtocol.HTTP,
+      domainZone: undefined,
+    });
+
+    // ALB DNS 이름을 기반으로 백엔드 URL 생성 및 API Gateway URL과 함께 프론트엔드 환경변수에 추가
+    const albDnsName = this.frontendService.loadBalancer.loadBalancerDnsName;
+    const backendUrl = `http://${albDnsName}/api`;
+    
+    // 프론트엔드 태스크 정의의 컨테이너에 동적 URL 환경변수 추가
+    const frontendContainer = this.frontendService.taskDefinition.defaultContainer;
+    if (frontendContainer) {
+      frontendContainer.addEnvironment('NEXT_PUBLIC_ECS_BACKEND_URL', backendUrl);
+      frontendContainer.addEnvironment('NEXT_PUBLIC_API_BASE_URL', apiGatewayUrl);
+    }
+
+    // Backend Fargate Service (별도 ALB 대신 Frontend ALB에 리스너 규칙 추가)
+    const backendTaskDefinition = new ecs.FargateTaskDefinition(this, 'BackendTaskDefinition', {
+      cpu: 512,
+      memoryLimitMiB: 1024,
+      executionRole: taskExecutionRole,
+      taskRole: taskRole,
+    });
+
+    backendTaskDefinition.addContainer('backend', {
+      image: ecs.ContainerImage.fromEcrRepository(backendRepository, 'latest'),
+      logging: ecs.LogDrivers.awsLogs({
+        streamPrefix: 'backend',
+        logRetention: logs.RetentionDays.ONE_WEEK,
+      }),
+      environment: {
+        PYTHONPATH: '/app',
+        PYTHONUNBUFFERED: '1',
+        PROJECT_ROOT: '/app',
+        MCP_WORKSPACE_DIR: '/app/mcp-workspace',
+        STAGE: stage,
+        AWS_REGION: cdk.Aws.REGION,
+        AWS_DEFAULT_REGION: cdk.Aws.REGION,
+      },
+      portMappings: [
+        {
+          containerPort: 8000,
+          protocol: ecs.Protocol.TCP,
+        },
+      ],
+    });
+
+    // Backend ECS Service
+    const backendService = new ecs.FargateService(this, 'BackendFargateService', {
+      cluster: this.cluster,
+      serviceName: `aws-idp-backend-${stage}`,
+      taskDefinition: backendTaskDefinition,
+      desiredCount: 1,
+    });
+
+    // Type assertion for public property
+    this.backendService = backendService as any;
+
+    // Frontend ALB에 Backend용 Target Group과 리스너 규칙 추가
+    this.loadBalancer = this.frontendService.loadBalancer;
+
+    const backendTargetGroup = new elbv2.ApplicationTargetGroup(this, 'BackendTargetGroup', {
+      vpc,
+      port: 8000,
+      protocol: elbv2.ApplicationProtocol.HTTP,
+      targetType: elbv2.TargetType.IP,
+      healthCheck: {
+        enabled: true,
+        healthyHttpCodes: '200',
+        path: '/',
+        port: '8000',
+        protocol: elbv2.Protocol.HTTP,
+        timeout: cdk.Duration.seconds(10),
+        interval: cdk.Duration.seconds(30),
+        healthyThresholdCount: 2,
+        unhealthyThresholdCount: 5,
+      },
+    });
+
+    // Backend 서비스를 Target Group에 연결
+    backendTargetGroup.addTarget(backendService);
+
+    // Frontend ALB의 기본 리스너에 경로 기반 라우팅만 추가
+    const listener = this.frontendService.listener;
+    
+    // Backend API 경로 라우팅
+    listener.addAction('BackendRoutingAction', {
+      priority: 100,
+      conditions: [
+        elbv2.ListenerCondition.pathPatterns(['/api/*']),
+      ],
+      action: elbv2.ListenerAction.forward([backendTargetGroup]),
+    });
+
+    // ALB 액세스 로그 설정
+    this.frontendService.loadBalancer.logAccessLogs(albLogsBucket, 'alb-access-logs');
+
+    // 보안 그룹 설정: TOML 설정에서 IP whitelist 가져와서 명시적으로 허용
+    const securityConfig = getSecurityConfig();
+    const allowedCidrs = securityConfig.whitelist;
+
+    // VPC 내부 통신 허용
+    this.frontendService.loadBalancer.connections.allowFrom(
+      ec2.Peer.ipv4(vpc.vpcCidrBlock),
+      ec2.Port.tcp(80),
+      'Allow HTTP from VPC'
+    );
+
+    // Whitelist IP들만 허용
+    allowedCidrs.forEach((cidr: string, index: number) => {
+      this.frontendService.loadBalancer.connections.allowFrom(
+        ec2.Peer.ipv4(cidr),
+        ec2.Port.tcp(80),
+        `Allow HTTP from authorized network ${index + 1}: ${cidr}`
+      );
+    });
+
+
+    // CloudFormation Outputs
+    new cdk.CfnOutput(this, 'LoadBalancerDnsName', {
+      value: this.frontendService.loadBalancer.loadBalancerDnsName,
+      description: 'Application Load Balancer DNS Name',
+      exportName: `${id}-LoadBalancerDnsName`,
+    });
+
+    new cdk.CfnOutput(this, 'FrontendUrl', {
+      value: `http://${this.frontendService.loadBalancer.loadBalancerDnsName}`,
+      description: 'Frontend Application URL',
+      exportName: `${id}-FrontendUrl`,
+    });
+
+    new cdk.CfnOutput(this, 'BackendApiUrl', {
+      value: `http://${this.frontendService.loadBalancer.loadBalancerDnsName}/api`,
+      description: 'Backend API URL',
+      exportName: `${id}-BackendApiUrl`,
+    });
+
+    // CDK-NAG 억제
+    NagSuppressions.addResourceSuppressions(
+      taskExecutionRole,
+      [
+        {
+          id: 'AwsSolutions-IAM4',
+          reason: 'ECS Task Execution Role requires AWS managed policy for container operations',
+          appliesTo: ['Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'],
+        },
+        {
+          id: 'AwsSolutions-IAM5',
+          reason: 'Task execution role needs broad permissions for ECS operations and Secrets Manager access',
+          appliesTo: [
+            'Resource::*',
+            'Resource::arn:aws:secretsmanager:<AWS::Region>:<AWS::AccountId>:secret:/aws-idp/dev/*',
+            'Resource::arn:aws:ssm:<AWS::Region>:<AWS::AccountId>:parameter/aws-idp/dev/*',
+          ],
+        },
+      ]
+    );
+
+    // Task Execution Role Default Policy suppression
+    NagSuppressions.addResourceSuppressions(
+      taskExecutionRole.node.findChild('DefaultPolicy') as iam.Policy,
+      [
+        {
+          id: 'AwsSolutions-IAM5',
+          reason: 'Task execution role default policy needs wildcard permissions for Secrets Manager and SSM access',
+          appliesTo: ['Resource::*'],
+        },
+      ]
+    );
+
+    NagSuppressions.addResourceSuppressions(
+      taskRole,
+      [
+        {
+          id: 'AwsSolutions-IAM5',
+          reason: 'Task role needs permissions to access AWS services with dynamic resource names',
+        },
+      ]
+    );
+
+    NagSuppressions.addResourceSuppressions(
+      albLogsBucket,
+      [
+        {
+          id: 'AwsSolutions-S1',
+          reason: 'ALB access logs bucket does not need server access logging',
+        },
+      ]
+    );
+
+    // Frontend Service suppressions
+    NagSuppressions.addResourceSuppressions(
+      this.frontendService.loadBalancer.connections.securityGroups[0],
+      [
+        {
+          id: 'AwsSolutions-EC23',
+          reason: 'ALB security group allows internet access for web application (will be restricted in production)',
+        },
+      ]
+    );
+
+    NagSuppressions.addResourceSuppressions(
+      this.frontendService.taskDefinition,
+      [
+        {
+          id: 'AwsSolutions-ECS2',
+          reason: 'Task definition uses environment variables for non-sensitive configuration only',
+        },
+      ]
+    );
+
+    NagSuppressions.addResourceSuppressions(
+      this.frontendService.service,
+      [
+        {
+          id: '@aws-cdk/aws-ecs:minHealthyPercent',
+          reason: 'Default minHealthyPercent is acceptable for development environment',
+        },
+      ]
+    );
+
+    // Backend Task Definition suppressions
+    NagSuppressions.addResourceSuppressions(
+      backendTaskDefinition,
+      [
+        {
+          id: 'AwsSolutions-ECS2',
+          reason: 'Task definition uses environment variables for non-sensitive configuration only',
+        },
+      ]
+    );
+
+    NagSuppressions.addResourceSuppressions(
+      backendService,
+      [
+        {
+          id: '@aws-cdk/aws-ecs:minHealthyPercent',
+          reason: 'Default minHealthyPercent is acceptable for development environment',
+        },
+      ]
+    );
+
+    // Tag resources
+    cdk.Tags.of(this).add('Project', 'aws-idp-pipeline');
+    cdk.Tags.of(this).add('Environment', stage);
+  }
+}

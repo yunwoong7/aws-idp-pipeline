@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "basic-server": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/app/src/mcp_client/server",
+        "run",
+        "basic_server.py"
+      ]
+    }
+  }
+}

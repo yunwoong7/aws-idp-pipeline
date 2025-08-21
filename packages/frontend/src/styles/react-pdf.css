@@ -1,0 +1,45 @@
+/* React PDF 스타일 */
+.react-pdf__Document {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.react-pdf__Page {
+  max-width: calc(100% - 2em);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+  margin: 1em;
+}
+
+.react-pdf__Page__textContent {
+  border: 1px solid transparent;
+}
+
+.react-pdf__Page__textContent span {
+  color: transparent !important;
+}
+
+.react-pdf__Page__annotations {
+  border: 1px solid transparent;
+}
+
+/* 텍스트 레이어를 숨기되 검색은 가능하게 */
+.react-pdf__Page__textContent {
+  user-select: text;
+}
+
+/* 로딩 스타일 */
+.react-pdf__message {
+  padding: 20px;
+  color: #666;
+  text-align: center;
+}
+
+/* 에러 스타일 */
+.react-pdf__error {
+  padding: 20px;
+  color: #f56565;
+  text-align: center;
+  background-color: #fed7d7;
+  border-radius: 4px;
+}

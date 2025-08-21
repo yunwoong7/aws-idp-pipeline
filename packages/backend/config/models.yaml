@@ -1,0 +1,50 @@
+providers:
+  amazon:
+    name: Amazon
+    icon: amazon.svg
+    models:
+      nova-premier:
+        id: us.amazon.nova-premier-v1:0
+        name: Nova Premier
+        capabilities:
+          - text
+          - image
+        max_output_tokens: 5120
+      nova-pro:
+        id: us.amazon.nova-pro-v1:0
+        name: Nova Pro
+        capabilities:
+          - text
+          - image
+        max_output_tokens: 5120
+  anthropic:
+    name: Anthropic
+    icon: anthropic.svg
+    models:
+      claude-3.7-sonnet:
+        id: us.anthropic.claude-3-7-sonnet-20250219-v1:0
+        name: Claude 3.7 Sonnet
+        capabilities:
+          - text
+          - image
+        max_output_tokens: 64000
+      claude-3.5-sonnet-v2:
+        id: anthropic.claude-3-5-sonnet-20241022-v2:0
+        name: Claude 3.5 Sonnet v2
+        capabilities:
+          - text
+          - image
+        max_output_tokens: 8192
+      claude-3.5-haiku:
+        id: anthropic.claude-3-5-haiku-20241022-v1:0
+        name: Claude 3.5 Haiku
+        capabilities:
+          - text
+        max_output_tokens: 8192
+      claude-3-sonnet:
+        id: anthropic.claude-3-sonnet-20240229-v1:0
+        name: Claude 3 Sonnet
+        capabilities:
+          - text
+          - image
+        max_output_tokens: 4096

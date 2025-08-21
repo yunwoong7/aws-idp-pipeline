@@ -1,0 +1,92 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+
+# Learn more about building a configuration: https://promptfoo.dev/docs/configuration/guide
+
+description: " AWS IDP AI Chat Agent Evaluation"
+
+prompts:
+  # - "{{question}}"
+  # - "안녕하세요. {{question}}"
+  - " 도면 분석 AI 시스템에서 다음 질문에 답해주세요: {{question}}"
+
+providers:
+  # Simplified agent providers for evaluation
+  - file://./promptfoo_simple_agent.py:claude_sonnet_3_5
+  - file://./promptfoo_simple_agent.py:amazon_nova
+  
+  # Real agent providers (uncomment when environment is properly set up)
+  # - file://./promptfoo_chat_agent.py:claude_sonnet_3_5
+  # - file://./promptfoo_chat_agent.py:amazon_nova
+
+tests:
+  # Basic functionality tests
+  - vars:
+      question: "안녕하세요"
+    assert:
+      - type: icontains
+        value: ""
+      - type: latency
+        threshold: 10000  # 10초
+      - type: javascript
+        value: output.length > 0
+
+  # Engineering/technical analysis test
+  - vars:
+      question: "뭘 할 수 있어?"
+    assert:
+      - type: icontains
+        value: "도면 분석"
+
+  # Tool availability tests
+  # - vars:
+  #     question: "어떤 도구들을 사용할 수 있나요?"
+  #   assert:
+  #     - type: icontains
+  #       value: "도구"
+  #     - type: javascript
+  #       value: output.length > 50
+
+  # # Korean language support test
+  # - vars:
+  #     question: "도면 분석을 도와주세요"
+  #   assert:
+  #     - type: icontains
+  #       value: "도면"
+  #     - type: llm-rubric
+  #       value: "응답이 한국어로 작성되었고 도면 분석과 관련된 도움을 제공하는지 확인"
+
+  # # Mathematical capability test
+  # - vars:
+  #     question: "2 + 2는 얼마인가요?"
+  #   assert:
+  #     - type: icontains
+  #       value: "4"
+  #     - type: llm-rubric
+  #       value: "수학적 계산이 정확한지 확인"
+
+  # # Professional context test
+  # - vars:
+  #     question: "건설 프로젝트에서 도면 검토 시 주의사항은 무엇인가요?"
+  #   assert:
+  #     - type: icontains
+  #       value: "도면"
+  #     - type: llm-rubric
+  #       value: "건설 및 도면 검토와 관련된 전문적인 조언을 제공하는지 확인"
+
+  # # Response quality test
+  # - vars:
+  #     question: "PDF 문서 분석 기능에 대해 설명해주세요"
+  #   assert:
+  #     - type: llm-rubric
+  #       value: "응답이 도움이 되고 정보성이 있으며 전문적인지 확인"
+  #     - type: javascript
+  #       value: output.length > 100
+
+  # # Error handling test
+  # - vars:
+  #     question: ""
+  #   assert:
+  #     - type: not-empty
+  #     - type: llm-rubric
+  #       value: "빈 입력에 대해 적절하게 처리하고 도움을 제공하는지 확인"
+

@@ -1,0 +1,287 @@
+"""
+Document analysis tools for MCP server - Refactored with API-First approach
+"""
+import requests
+import asyncio
+from typing import Dict, Any, Optional
+from config import get_app_config
+from .response_formatter import format_api_response
+
+# Get configuration
+conf = get_app_config()
+API_BASE_URL = conf['api_base_url']
+
+
+def _sync_http_request(url: str, params: dict = None, timeout: int = 30) -> requests.Response:
+    """Separate synchronous HTTP request function"""
+    return requests.get(url, params=params, timeout=timeout)
+
+
+async def get_document_info_api(index_id: str, document_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Call document info API - pure API call and return original response
+    """
+    try:
+        document_detail_url = f"{API_BASE_URL}/api/documents/{document_id}"
+        
+        # Add query parameters
+        params = {}
+        if index_id:
+            params['index_id'] = index_id
+        
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None, 
+            _sync_http_request,
+            document_detail_url,
+            params,
+            30
+        )
+        
+        if response.status_code == 404:
+            return {
+                'success': False,
+                'error': f'Document ID {document_id} not found.',
+                'data': None
+            }
+        
+        if response.status_code != 200:
+            return {
+                'success': False,
+                'error': f'Document info API call failed: {response.status_code}',
+                'data': None
+            }
+        
+        api_response = response.json()
+        
+        # Return original API response as much as possible
+        if 'document_id' in api_response:
+            # If it's direct document data, wrap it in standard format
+            return {
+                'success': True,
+                'data': {
+                    'document': api_response,
+                    'total_count': 1
+                }
+            }
+        else:
+            # If it's already wrapped response, return it as is
+            return api_response
+        
+    except Exception as e:
+        print(f"Error in document info API call: {e}")
+        return {
+            'success': False,
+            'error': f'Error in document info API call: {str(e)}',
+            'data': None
+        }
+
+
+async def get_document_analysis_api(document_id: str, filter_final: bool = True, index_id: str = None) -> Optional[Dict[str, Any]]:
+    """
+    Call document analysis API - pure API call and return original response
+    
+    Args:   
+        document_id: Document ID
+        filter_final: If True, only return final_ai_response (default: True for optimization)
+        index_id: Index ID for access control
+    """
+    try:
+        opensearch_url = f"{API_BASE_URL}/api/opensearch/documents/{document_id}"
+        
+        # Add query parameters
+        params = {}
+        if filter_final:
+            params['filter_final'] = 'true'
+        if index_id:
+            params['index_id'] = index_id
+        
+        response = requests.get(opensearch_url, params=params, timeout=30)
+        
+        if response.status_code != 200:
+            return {
+                'success': False,
+                'error': f'Document analysis API call failed: {response.status_code}',
+                'data': None
+            }
+        
+        # Return original API response as much as possible
+        return response.json()
+        
+    except Exception as e:
+        print(f"Error in document analysis API call: {e}")
+        return {
+            'success': False,
+            'error': f'Error in document analysis API call: {str(e)}',
+            'data': None
+        }
+
+
+async def get_page_analysis_details_api(index_id: str, document_id: str, segment_index: int, filter_final: bool = True) -> Optional[Dict[str, Any]]:
+    """
+    Call page analysis details API - pure API call and return original response
+    
+    Args:
+        index_id: Index ID for access control
+        document_id: Document ID
+        segment_index: Segment index
+        filter_final: If True, only return final_ai_response (default: True for optimization)
+        index_id: Index ID for access control
+    """
+    try:
+        url = f"{API_BASE_URL}/api/opensearch/documents/{document_id}/segments/{segment_index}"
+        
+        print(f"📋 Page analysis API call: {url}")
+        
+        # Add query parameters
+        params = {}
+        if filter_final:
+            params['filter_final'] = 'true'
+        if index_id:
+            params['index_id'] = index_id
+        
+        response = requests.get(url, params=params, timeout=30)
+        
+        if response.status_code == 200:
+            # Return original API response as much as possible
+            return response.json()
+        else:
+            print(f"📋 API call failed: {response.status_code}")
+            # Fallback: Filter only the page from the document analysis
+            fallback_result = await get_document_analysis_api(document_id, filter_final, index_id)
+            if fallback_result and fallback_result.get('success'):
+                # Add metadata to handle page filtering in response_formatter
+                fallback_result['_fallback_segment_index'] = segment_index
+                return fallback_result
+            else:
+                return {
+                    'success': False,
+                    'error': f'Segment analysis API call failed: {response.status_code}',
+                    'data': None
+                }
+            
+    except Exception as e:
+        print(f"📋 Error in segment analysis API call: {str(e)}")
+        return {
+            'success': False,
+            'error': f'Error in segment analysis API call: {str(e)}',
+            'data': None
+        }
+
+
+# ============================================================================
+# MCP Tool Functions
+# ============================================================================
+
+async def get_document_info(index_id: str = None, document_id: str = None):
+    """
+    Get basic information about a specific document including metadata, file details, and summary.
+    If you don't know the document_id, you can use the document_list tool to view the document list.
+    
+    Args:
+        index_id: Index ID to retrieve (Ex. 3d8ab04c-af9c-4cde-b962-a4cd7f1104b7)
+        document_id: Document ID to retrieve (Ex.3d8ab04c-af9c-4cde-b962-a4cd7f1104b7)
+    
+    Returns:
+        Formatted response with API data, references, and LLM guide
+    """
+    if not index_id:
+        return {
+            "success": False,
+            "error": "Index ID is required. Provide as parameter or set in LangGraph state.",
+            "data": None
+        }
+    if not document_id:
+        return {
+            "success": False,
+            "error": "Document ID is required. Provide as parameter or set in LangGraph state.",
+            "data": None
+        }
+    
+    print(f"📄 Retrieving document info: index_id={index_id}, document_id={document_id}")
+    
+    # API call
+    api_response = await get_document_info_api(index_id, document_id)
+    
+    # Useeresponsepformatterpto createastandardizederesponseto createastandardizederesponseto create standardized response
+    return format_api_response(api_response, 'get_document_info')
+
+
+async def get_document_analysis(index_id: str = None, document_id: str = None, filter_final: bool = True):
+    """
+    Get the comprehensive analysis result of a specific document including all pages and analysis data.
+    Use this tool when you want to get the comprehensive analysis result of a specific document including all pages and analysis data.
+    
+    Args:
+        index_id: Index ID for access control
+        document_id: Document ID to retrieve (Ex.3d8ab04c-af9c-4cde-b962-a4cd7f1104b7)
+        filter_final: If True, only return final_ai_response for optimization (default: True)
+    
+    Returns:
+        Formatted response with API data, references, and LLM guide
+    """
+    if not index_id:
+        return {
+            "success": False,
+            "error": "Index ID is required. Provide as parameter or set in LangGraph state.",
+            "data": None
+        }
+    
+    if not document_id:
+        return {
+            "success": False,
+            "error": "Document ID is required. Provide as parameter or set in LangGraph state.",
+            "data": None
+        }
+    
+    print(f"📊 Retrieving document analysis: index_id={index_id}, document_id={document_id}, filter_final={filter_final}")
+    
+    # API call
+    api_response = await get_document_analysis_api(document_id, filter_final, index_id)
+    
+    # Useeresponsepformatter to createastandardizederesponseto createastandardizederesponseto create standardized response
+    return format_api_response(api_response, 'get_document_analysis')
+
+
+async def get_page_analysis_details(index_id: str = None, document_id: str = None, segment_index: int = None, filter_final: bool = True):
+    """
+    Get detailed analysis results for a specific page of a document.
+    Use this tool when you want to get the detailed analysis result of a specific page of a document.
+    
+    Args:
+        index_id: Index ID for access control
+        document_id: Document ID to retrieve 
+        segment_index: Segment index (0-based) to get analysis for (Ex. 0, 1, 2, ...).
+        filter_final: If True, only return final_ai_response for optimization (default: True)
+    
+    Returns:
+        Formatted response with API data, references, and LLM guide
+    """
+    if not index_id:
+        return {
+            "success": False,
+            "error": "Index ID is required. Provide as parameter or set in LangGraph state.",
+            "data": None
+        }
+    
+    if not document_id:
+        return {
+            "success": False,
+            "error": "Document ID is required. Provide as parameter or set in LangGraph state.",
+            "data": None
+        }
+        
+    if segment_index is None:
+        return {
+            "success": False,
+            "error": "Segment index is required.",
+            "data": None
+        }
+    
+    print(f"📋 Retrieving page analysis: index_id={index_id}, document_id={document_id}, segment_index={segment_index}, filter_final={filter_final}")
+    
+    # API call
+    api_response = await get_page_analysis_details_api(index_id, document_id, segment_index, filter_final)
+    
+    # Useeresponsepformatter to createastandardizederesponseto createastandardizederesponseto create standardized response
+    return format_api_response(api_response, 'get_page_analysis_details')

@@ -1,0 +1,97 @@
+{
+  "name": "@aws-idp-ai-analytics/infra",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "packages/infra/src",
+  "projectType": "application",
+  "tags": [],
+  "targets": {
+    "bootstrap": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "packages/infra",
+        "command": "cdk bootstrap"
+      }
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          "nx run aws-idp-ai-analytics/infra:compile",
+          "nx run aws-idp-ai-analytics/infra:lint",
+          "nx run aws-idp-ai-analytics/infra:test",
+          "nx run aws-idp-ai-analytics/infra:synth"
+        ],
+        "parallel": false
+      }
+    },
+    "cdk": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "packages/infra",
+        "command": "cdk"
+      }
+    },
+    "compile": {
+      "executor": "nx:run-commands",
+      "outputs": ["{workspaceRoot}/dist/packages/infra/tsc"],
+      "options": {
+        "command": "tsc --build tsconfig.lib.json",
+        "cwd": "{projectRoot}"
+      }
+    },
+    "deploy": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "packages/infra",
+        "command": "cdk deploy --require-approval=never"
+      }
+    },
+    "deploy-ci": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "packages/infra",
+        "command": "cdk deploy --require-approval=never --app ../../dist/packages/infra/cdk.out"
+      }
+    },
+    "destroy": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "packages/infra",
+        "command": "cdk destroy --require-approval=never"
+      }
+    },
+    "destroy-ci": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "packages/infra",
+        "command": "cdk destroy --require-approval=never --app ../../dist/packages/infra/cdk.out"
+      }
+    },
+    "synth": {
+      "cache": true,
+      "executor": "nx:run-commands",
+      "inputs": ["default"],
+      "outputs": ["{workspaceRoot}/dist/packages/infra/cdk.out"],
+      "dependsOn": ["^build", "compile"],
+      "options": {
+        "cwd": "packages/infra",
+        "command": "cdk synth"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "echo 'No tests to run for infra package'"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "outputs": ["{options.outputFile}"],
+      "options": {
+        "lintFilePatterns": ["{projectRoot}/src/**/*.{ts,tsx,js,jsx}"],
+        "cache": true,
+        "cacheLocation": "{workspaceRoot}/tmp/eslint-cache/infra"
+      }
+    }
+  }
+}

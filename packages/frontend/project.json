@@ -1,0 +1,37 @@
+{
+  "name": "@aws-idp-ai-analytics/frontend",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "packages/frontend/src",
+  "projectType": "library",
+  "tags": [],
+  "targets": {
+    "dev": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "next dev",
+        "cwd": "packages/frontend"
+      }
+    },
+    "build": {
+      "dependsOn": ["lint", "compile", "test"]
+    },
+    "compile": {
+      "executor": "nx:run-commands",
+      "outputs": ["{workspaceRoot}/dist/packages/frontend/tsc"],
+      "options": {
+        "command": "tsc --build tsconfig.lib.json",
+        "cwd": "{projectRoot}"
+      }
+    },
+    "test": {
+      "executor": "@nx/vite:test",
+      "outputs": ["{options.reportsDirectory}"],
+      "options": {
+        "reportsDirectory": "../../coverage/packages/frontend"
+      }
+    }
+  },
+  "metadata": {
+    "generator": "ts#project"
+  }
+}
