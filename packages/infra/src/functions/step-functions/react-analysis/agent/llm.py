@@ -29,9 +29,9 @@ def get_llm(
         model_kwargs: Additional arguments to pass to the model
     """
     # Set default parameters
-    model_id = model_id or os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-3-5-sonnet-20241022-v2:0")
+    model_id = model_id or os.environ.get("BEDROCK_MODEL_ID", "us.anthropic.claude-3-7-sonnet-20250219-v1:0")
     temp = temperature or float(os.environ.get("TEMPERATURE", "0.3"))
-    tokens = max_tokens or int(os.environ.get("MAX_TOKENS", "4096"))
+    tokens = max_tokens or int(os.environ.get("MAX_TOKENS", "64000"))
     region_name = region or os.environ.get("MODEL_REGION", "us-west-2")
     
     # Detailed model setup logging

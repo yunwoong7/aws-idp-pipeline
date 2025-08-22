@@ -31,7 +31,7 @@ def get_app_config() -> Dict[str, Any]:
         raise e
     
     config = {
-        'model_id': os.getenv("MODEL_ID", "anthropic.claude-3-5-sonnet-20241022-v2:0"),
+        'model_id': os.getenv("MODEL_ID", "us.anthropic.claude-3-7-sonnet-20250219-v1:0"),
         'port': os.getenv("MCP_PORT", "8765"),
         'api_base_url': os.getenv("API_BASE_URL", "http://localhost:8000"),
         'project_state_file': os.path.join(tempfile.gettempdir(), "mcp_project_state.json"),

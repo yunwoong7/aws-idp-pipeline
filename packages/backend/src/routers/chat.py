@@ -49,7 +49,7 @@ class ChatRequest(BaseModel):
     """chat request model"""
     message: str
     stream: bool = True
-    model_id: str = "anthropic.claude-3-5-sonnet-20241022-v2:0"
+    model_id: str = "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
     index_id: Optional[str] = None
     thread_id: Optional[str] = None
 
@@ -91,16 +91,16 @@ def get_user_model() -> str:
     try:
         if not os.path.exists(USER_MODEL_FILE):
             logger.debug("user model setting not found, return default value")
-            return "anthropic.claude-3-5-sonnet-20241022-v2:0"
+            return "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
         
         with open(USER_MODEL_FILE, "r") as f:
             data = json.load(f)
-            model_id = data.get("model_id", "anthropic.claude-3-5-sonnet-20241022-v2:0")
+            model_id = data.get("model_id", "us.anthropic.claude-3-7-sonnet-20250219-v1:0")
             logger.debug(f"user model load success: {model_id}")
             return model_id
     except Exception as e:
         logger.error(f"user model load failed: {e}")
-        return "anthropic.claude-3-5-sonnet-20241022-v2:0"
+        return "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
 
 def process_slash_command(message: str, files: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """
@@ -154,7 +154,7 @@ async def chat(
     request: Request,
     message: str = Form(None),
     stream: bool = Form(True),
-    model_id: str = Form("anthropic.claude-3-5-sonnet-20241022-v2:0"),
+    model_id: str = Form("us.anthropic.claude-3-7-sonnet-20250219-v1:0"),
     index_id: Optional[str] = Form(None),
     document_id: Optional[str] = Form(None),
     segment_id: Optional[str] = Form(None),
@@ -831,7 +831,7 @@ async def chat(
 async def chat_stream(
     request: Request,
     message: str = Form(None),
-    model_id: str = Form("anthropic.claude-3-5-sonnet-20241022-v2:0"),
+    model_id: str = Form("us.anthropic.claude-3-7-sonnet-20250219-v1:0"),
     index_id: Optional[str] = Form(None),
     thread_id: Optional[str] = Form(None),
     files: Optional[List[UploadFile]] = File(None)
@@ -857,7 +857,7 @@ async def chat_stream(
     if "application/json" in content_type:
         request_data = await request.json()
         message = request_data.get("message", "")
-        model_id = request_data.get("model_id", "anthropic.claude-3-5-sonnet-20241022-v2:0")
+        model_id = request_data.get("model_id", "us.anthropic.claude-3-7-sonnet-20250219-v1:0")
         index_id = request_data.get("index_id")
         thread_id = request_data.get("thread_id")
         files = []  # JSON requests don't have files
@@ -1141,8 +1141,8 @@ async def reinit_agent(request: ReinitRequest = None):
                 except Exception as shutdown_error:
                     logger.warning(f"Failed to shutdown existing agent during fallback: {shutdown_error}")
             
-            model_id = "anthropic.claude-3-5-sonnet-20241022-v2:0"
-            agent = ReactAgent(model_id=model_id, max_tokens=4096, mcp_json_path=MCP_CONFIG_PATH)
+            model_id = "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
+            agent = ReactAgent(model_id=model_id, max_tokens=64000, mcp_json_path=MCP_CONFIG_PATH)
             # start agent
             await agent.startup()
             

@@ -238,8 +238,8 @@ def generate_summary_with_llm(content: str, media_type: str, file_name: str) -> 
         import boto3
         
         # Get Bedrock configuration
-        model_id = os.environ.get('BEDROCK_SUMMARY_MODEL_ID', 'anthropic.claude-3-5-sonnet-20241022-v2:0')
-        max_tokens = int(os.environ.get('BEDROCK_SUMMARY_MAX_TOKENS', '4000'))
+        model_id = os.environ.get('BEDROCK_SUMMARY_MODEL_ID', 'us.anthropic.claude-3-7-sonnet-20250219-v1:0')
+        max_tokens = int(os.environ.get('BEDROCK_SUMMARY_MAX_TOKENS', '64000'))
         
         bedrock_runtime = boto3.client('bedrock-runtime')
         
