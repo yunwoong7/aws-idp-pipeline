@@ -68,7 +68,8 @@ def get_llm(
     temp = temperature or float(os.environ.get("TEMPERATURE", 0.3))
     tokens = max_tokens or int(os.environ.get("MAX_TOKENS", 4096))
     region_name = region or os.environ.get("AWS_REGION", "us-west-2")
-    profile_name = profile_name or os.environ.get("AWS_PROFILE", "default")
+    # ECS에서는 AWS_PROFILE이 없음 (Task Role 사용)
+    profile_name = profile_name or os.environ.get("AWS_PROFILE")
     role_arn = os.environ.get("AWS_BEDROCK_ROLE_ARN", "")
 
     logger.info(f"initialize Bedrock model: {colorama.Fore.CYAN}{model_id}{colorama.Style.RESET_ALL}, temperature={colorama.Fore.CYAN}{temp}{colorama.Style.RESET_ALL}, max_tokens={colorama.Fore.CYAN}{tokens}{colorama.Style.RESET_ALL}, region={colorama.Fore.CYAN}{region_name}{colorama.Style.RESET_ALL}")
@@ -100,12 +101,37 @@ def get_llm(
     else:
         # model parameter configuration
         model_params = {
-            "credentials_profile_name": profile_name,
             "model": model_id,
             "region_name": region_name,
             "temperature": temp,
             "max_tokens": tokens,
         }
+
+        # ECS/컨테이너 환경 감지 (여러 환경 변수 확인)
+        container_env_checks = {
+            'AWS_EXECUTION_ENV': os.environ.get('AWS_EXECUTION_ENV'),
+            'ECS_CONTAINER_METADATA_URI': os.environ.get('ECS_CONTAINER_METADATA_URI'),
+            'ECS_CONTAINER_METADATA_URI_V4': os.environ.get('ECS_CONTAINER_METADATA_URI_V4'),
+            'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI': os.environ.get('AWS_CONTAINER_CREDENTIALS_RELATIVE_URI'),
+            'dockerenv_exists': os.path.exists('/.dockerenv'),
+        }
+        
+        is_container_env = any(container_env_checks.values())
+        logger.info(f"Container environment check: {container_env_checks}")
+        logger.info(f"Is container environment: {is_container_env}")
+        logger.info(f"Profile name: {profile_name}")
+        
+        if is_container_env:
+            logger.info("Using container credentials (Task Role or Instance Profile)")
+            # Explicitly create a client to prevent boto3 from using AWS_PROFILE from env
+            session = boto3.Session()
+            bedrock_client = session.client("bedrock-runtime", region_name=region_name)
+            model_params["client"] = bedrock_client
+        elif profile_name:
+            model_params["credentials_profile_name"] = profile_name
+            logger.info(f"Using AWS profile: {profile_name}")
+        else:
+            logger.info("Using default AWS credentials chain (no profile specified)")
     
     # add callbacks
     if callbacks:

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { Home, Bot, Settings, Layers, ImageIcon } from "lucide-react";
 import { useBranding } from "@/contexts/branding-context";
@@ -37,15 +38,17 @@ function BrandingLogo({ logoUrl, companyName }: BrandingLogoProps) {
   }
   
   return (
-    <img
+    <Image
       src={logoUrl}
       alt={companyName}
+      width={48}
+      height={48}
       className="h-12 w-12 object-contain"
-      onError={(e) => {
+      onError={() => {
         console.log('🚫 Image load error:', logoUrl);
         setImageError(true);
       }}
-      onLoad={() => {
+      onLoadingComplete={() => {
         console.log('✅ Image loaded successfully:', logoUrl);
       }}
     />

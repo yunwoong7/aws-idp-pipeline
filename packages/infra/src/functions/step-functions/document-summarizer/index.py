@@ -8,6 +8,7 @@ import logging
 import os
 from typing import Dict, Any, List
 from datetime import datetime, timezone
+from botocore.exceptions import ClientError
 
 # Common module imports
 from common import (
@@ -24,6 +25,11 @@ logger.setLevel(logging.INFO)
 # Initialize common services
 db_service = DynamoDBService()
 opensearch_service = OpenSearchService()
+
+
+class SkipSummaryError(Exception):
+    """Raised when summary generation should be skipped (e.g., context limit)."""
+    pass
 
 def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
     """
@@ -53,17 +59,21 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         summary_result = generate_document_summary(document_id, index_id)
         
         if summary_result:
-            logger.info(f"✅ Document summary generation complete: {document_id}")
+            if summary_result.get('skipped'):
+                logger.warning(f"⚠️ Document summary skipped due to context limit: {document_id}")
+            else:
+                logger.info(f"✅ Document summary generation complete: {document_id}")
             
             # Update document status to final completion
             update_document_final_status(document_id, True)
             
             return {
                 'success': True,
-                'message': 'Document summary generation complete',
+                'message': 'Document summary skipped due to context limit' if summary_result.get('skipped') else 'Document summary generation complete',
                 'document_id': document_id,
                 'index_id': index_id,
-                'summary_length': len(summary_result.get('summary', ''))
+                'summary_length': len(summary_result.get('summary', '')),
+                'skipped': summary_result.get('skipped', False)
             }
         else:
             logger.error(f"❌ Document summary generation failed: {document_id}")
@@ -151,8 +161,24 @@ def generate_document_summary(document_id: str, index_id: str) -> Dict[str, Any]
         combined_content = create_combined_content_for_llm(segment_contents, media_type, file_name)
         
         # Generate summary using LLM
-        summary = generate_summary_with_llm(combined_content, media_type, file_name)
+        summary_skipped = False
+        try:
+            summary = generate_summary_with_llm(combined_content, media_type, file_name)
+        except SkipSummaryError as se:
+            # Context limit exceeded (input length + max_tokens)
+            logger.warning(f"⚠️ Skipping summary generation due to context limit: {str(se)}")
+            summary = ""
+            summary_skipped = True
         
+        if summary_skipped:
+            # Treat as success without updating summary
+            return {
+                'summary': summary,
+                'segment_count': len(segment_contents),
+                'total_content_length': sum(len(s['content_combined']) for s in segment_contents),
+                'skipped': True
+            }
+
         if summary:
             # Update Documents table with summary
             success = update_document_summary(document_id, summary)
@@ -161,7 +187,8 @@ def generate_document_summary(document_id: str, index_id: str) -> Dict[str, Any]
                 return {
                     'summary': summary,
                     'segment_count': len(segment_contents),
-                    'total_content_length': sum(len(s['content_combined']) for s in segment_contents)
+                    'total_content_length': sum(len(s['content_combined']) for s in segment_contents),
+                    'skipped': False
                 }
         
         return None
@@ -257,11 +284,19 @@ def generate_summary_with_llm(content: str, media_type: str, file_name: str) -> 
         
         # Call Bedrock
         logger.info(f"🤖 Calling Bedrock model: {model_id}")
-        response = bedrock_runtime.invoke_model(
-            modelId=model_id,
-            body=json.dumps(request_body)
-        )
-        
+        try:
+            response = bedrock_runtime.invoke_model(
+                modelId=model_id,
+                body=json.dumps(request_body)
+            )
+        except ClientError as ce:
+            code = (ce.response.get('Error') or {}).get('Code')
+            message = (ce.response.get('Error') or {}).get('Message', '')
+            # Detect context limit overflow and signal skip
+            if code == 'ValidationException' and 'context limit' in message:
+                raise SkipSummaryError(message)
+            raise
+
         # Parse response
         response_body = json.loads(response['body'].read())
         summary = response_body['content'][0]['text']
@@ -269,6 +304,9 @@ def generate_summary_with_llm(content: str, media_type: str, file_name: str) -> 
         logger.info(f"✅ LLM summary generated: {len(summary)} chars")
         return summary
         
+    except SkipSummaryError:
+        # Bubble up to caller to handle as "skipped"
+        raise
     except Exception as e:
         logger.error(f"❌ LLM summary generation error: {str(e)}")
         return ""

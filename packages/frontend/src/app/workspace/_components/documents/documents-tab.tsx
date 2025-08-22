@@ -153,7 +153,7 @@ export function DocumentsTab({ indexId, onSelectDocument, onAttachToChat, onAnal
   } = useWebSocket({
     indexId,
     autoConnect: true,
-    enabled: false, // 웹소켓 비활성화
+    enabled: true,
     onMessage: handleWebSocketMessage,
     onConnect: () => {
       console.log('WebSocket connected in documents-tab');
@@ -319,9 +319,16 @@ export function DocumentsTab({ indexId, onSelectDocument, onAttachToChat, onAnal
             </div>
             
             {/* WebSocket Status */}
-            <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-black/30" title="실시간 업데이트 (비활성화)">
-              <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
-              <span className="text-xs text-gray-400">Disabled</span>
+            <div
+              className="flex items-center gap-2 px-2 py-1 rounded-md bg-black/30"
+              title={wsError ? `오류: ${wsError}` : (wsConnecting ? '실시간 업데이트: 연결 중' : (wsConnected ? '실시간 업데이트: 연결됨' : '실시간 업데이트: 미연결'))}
+            >
+              <div
+                className={`w-2 h-2 rounded-full ${wsConnecting ? 'bg-yellow-400 animate-pulse' : (wsConnected ? 'bg-green-400' : (wsError ? 'bg-red-400' : 'bg-gray-400'))}`}
+              ></div>
+              <span className="text-xs text-gray-400">
+                {wsConnecting ? 'Connecting' : (wsConnected ? 'Live' : (wsError ? 'Error' : 'Idle'))}
+              </span>
             </div>
           </div>
         </div>

@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { GlowingEffect } from "@/components/ui/glowing-effect";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useAlert } from "@/components/ui/alert";
 import {
     Trash2,
     Eye,
@@ -36,6 +37,7 @@ export function DocumentItem({
     indexId
 }: DocumentItemProps) {
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const { showWarning, AlertComponent } = useAlert();
 
     const handleDeleteClick = () => {
         setShowDeleteConfirm(true);
@@ -178,7 +180,13 @@ export function DocumentItem({
                         <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => onAnalyze?.(document)}
+                            onClick={() => {
+                                if (document.status !== 'completed') {
+                                    showWarning('Document Not Ready', 'This document is not ready for analysis. Only completed documents can be analyzed.');
+                                    return;
+                                }
+                                onAnalyze?.(document);
+                            }}
                             className="bg-transparent border-purple-500/30 text-purple-400 hover:bg-purple-500/20 hover:border-purple-400 hover:text-purple-300 transition-all duration-200 h-8 text-xs px-3"
                         >
                             <BarChart3 className="w-3 h-3 mr-1" />
@@ -218,6 +226,9 @@ export function DocumentItem({
                 cancelText="Cancel"
                 variant="destructive"
             />
+            
+            {/* Alert Component */}
+            {AlertComponent}
         </Card>
     );
 } 

@@ -16,12 +16,33 @@ async function getApiBaseUrl(): Promise<string> {
 }
 
 async function getBackendUrl(): Promise<string> {
+  // 클라이언트(브라우저)
+  if (isBrowser() && typeof window !== 'undefined' && window.location) {
+    const isLocalHost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+    if (isLocalHost) {
+      const localEnv = process.env.NEXT_PUBLIC_LOCAL_BACKEND_URL;
+      const localBase = (localEnv && localEnv.startsWith('http')) ? localEnv : 'http://localhost:8000';
+      console.log('🏠 Using local backend base URL:', localBase);
+      return localBase;
+    }
+    const originBase = window.location.origin;
+    console.log('🌐 Using runtime origin as backend base URL:', originBase);
+    return originBase;
+  }
+
+  // 서버 런타임(Next.js Node 서버)
   const ecsUrl = process.env.NEXT_PUBLIC_ECS_BACKEND_URL;
   if (ecsUrl && ecsUrl !== 'http://localhost:8000') {
-    console.log('🌐 Using ECS backend URL:', ecsUrl);
+    console.log('🧰 Using server env backend base URL:', ecsUrl);
     return ecsUrl;
   }
-  console.log('🏠 Using local backend URL: http://localhost:8000');
+  const localEnv = process.env.NEXT_PUBLIC_LOCAL_BACKEND_URL;
+  if (localEnv && localEnv.startsWith('http')) {
+    console.log('🧰 Using server local backend base URL:', localEnv);
+    return localEnv;
+  }
+
+  console.log('🏠 Using default local backend base URL: http://localhost:8000');
   return 'http://localhost:8000';
 }
 

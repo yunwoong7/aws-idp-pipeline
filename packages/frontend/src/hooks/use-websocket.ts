@@ -70,8 +70,10 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
 
   // WebSocket URL 생성
   const getWebSocketUrl = useCallback(() => {
-    const baseUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'wss://v56n5yzapb.execute-api.us-west-2.amazonaws.com/dev';
+    const baseUrl = process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'wss://lmu7b0u1s5.execute-api.us-west-2.amazonaws.com/dev';
     const params = new URLSearchParams();
+    console.log('WebSocket environment URL:', process.env.NEXT_PUBLIC_WEBSOCKET_URL);
+    console.log('WebSocket base URL:', baseUrl);
     
     if (indexId) {
       params.append('index_id', indexId);
@@ -116,11 +118,37 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       const url = getWebSocketUrl();
       console.log('WebSocket: Connecting to', url);
       
+      // 브라우저 WebSocket 지원 확인
+      if (typeof WebSocket === 'undefined') {
+        throw new Error('WebSocket is not supported in this browser');
+      }
+      
+      // WebSocket 연결 시도 (추가 옵션 없이)
+      console.log('WebSocket: Creating WebSocket instance');
       const ws = new WebSocket(url);
       wsRef.current = ws;
+      
+      // 브라우저 호환성 체크
+      console.log('WebSocket: Browser support check', {
+        WebSocketSupported: typeof WebSocket !== 'undefined',
+        protocol: ws.protocol,
+        extensions: ws.extensions,
+        binaryType: ws.binaryType
+      });
+      
+      // 연결 타임아웃 설정 (10초)
+      const connectionTimeout = setTimeout(() => {
+        if (ws.readyState === WebSocket.CONNECTING) {
+          console.error('WebSocket: Connection timeout');
+          ws.close();
+          setError('WebSocket 연결 시간 초과');
+          setIsConnecting(false);
+        }
+      }, 10000);
 
       ws.onopen = () => {
-        console.log('WebSocket: Connected');
+        clearTimeout(connectionTimeout);
+        console.log('WebSocket: Connected successfully');
         setIsConnected(true);
         setIsConnecting(false);
         setError(null);
@@ -157,6 +185,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       };
 
       ws.onclose = (event) => {
+        clearTimeout(connectionTimeout);
         console.log('WebSocket: Disconnected', {
           code: event.code,
           reason: event.reason,
@@ -207,12 +236,27 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       };
 
       ws.onerror = (event) => {
+        clearTimeout(connectionTimeout);
         console.error('WebSocket: Connection failed', {
           url: getWebSocketUrl(),
           readyState: ws.readyState,
-          event
+          event,
+          timestamp: new Date().toISOString(),
+          userAgent: navigator.userAgent
         });
-        setError('WebSocket 연결에 실패했습니다');
+        
+        // 더 자세한 에러 정보 로깅
+        if (event instanceof ErrorEvent) {
+          console.error('WebSocket ErrorEvent:', {
+            message: event.message,
+            filename: event.filename,
+            lineno: event.lineno,
+            colno: event.colno,
+            error: event.error
+          });
+        }
+        
+        setError(`WebSocket 연결 실패: ${ws.readyState === 3 ? 'CLOSED' : 'UNKNOWN_STATE'}`);
         setIsConnecting(false);
         
         onError?.(event);
@@ -279,22 +323,31 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   // 인덱스 변경 시 재연결
   useEffect(() => {
     if (enabled && autoConnect && indexId) {
+      // 이미 같은 인덱스로 연결되어 있으면 재연결하지 않음
+      const currentUrl = getWebSocketUrl();
+      if (wsRef.current?.url === currentUrl && wsRef.current?.readyState === WebSocket.OPEN) {
+        console.log('WebSocket: Already connected to same index, skipping reconnection');
+        return;
+      }
+      
       // 기존 연결이 있으면 먼저 해제
       if (wsRef.current) {
+        console.log('WebSocket: Disconnecting existing connection for new index');
         disconnect();
       }
       
-      // 새 인덱스로 연결
+      // 새 인덱스로 연결 (디바운스)
       const timer = setTimeout(() => {
+        console.log('WebSocket: Connecting to new index:', indexId);
         connect();
-      }, 100);
+      }, 500); // 500ms 지연으로 빠른 재연결 방지
       
       return () => clearTimeout(timer);
     } else if (!indexId || !enabled) {
       // 인덱스가 없거나 비활성화되면 연결 해제
       disconnect();
     }
-  }, [indexId, autoConnect, enabled, connect, disconnect]);
+  }, [indexId, autoConnect, enabled]);
 
   // 컴포넌트 언마운트 시 정리
   useEffect(() => {

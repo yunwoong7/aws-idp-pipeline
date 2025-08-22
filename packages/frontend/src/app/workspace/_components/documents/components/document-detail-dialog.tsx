@@ -360,16 +360,16 @@ export function DocumentDetailDialog({
         }
       }}
     >
-      <div className="flex h-[90vh] w-[90vw] bg-gradient-to-br from-slate-900/95 via-gray-900/95 to-slate-900/95 backdrop-blur-xl border border-white/20 rounded-xl overflow-hidden shadow-[0_8px_32px_rgb(0_0_0/0.4)]">
+      <div className="flex h-[90vh] w-[90vw] bg-gradient-to-br from-gray-900/95 via-gray-800/95 to-gray-900/95 backdrop-blur-xl border border-white/20 rounded-xl overflow-hidden shadow-[0_8px_32px_rgb(0_0_0/0.4)]">
         
         {/* Left Panel - Document Info */}
-        <div className="w-1/3 bg-gradient-to-br from-slate-900/90 via-gray-900/90 to-slate-800/90 backdrop-blur-sm border-r border-white/10 flex flex-col">
+        <div className="w-1/3 backdrop-blur-sm border-r border-white/10 flex flex-col">
           {/* Header */}
           <div className="p-6 border-b border-white/10">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-lg bg-purple-500/20 backdrop-blur-sm border border-purple-400/20 flex items-center justify-center">
-                  <FileText className="h-6 w-6 text-purple-400" />
+                <div className="w-12 h-12 rounded-lg bg-white/5 backdrop-blur-sm border border-white/10 flex items-center justify-center">
+                  <FileText className="h-6 w-6 text-gray-300" />
                 </div>
                 <div>
                   <h2 className="text-lg font-semibold text-white">Document Details</h2>
@@ -380,7 +380,7 @@ export function DocumentDetailDialog({
                 variant="ghost" 
                 size="sm"
                 onClick={onClose}
-                className="text-white/70 hover:text-white hover:bg-white/10 border border-white/20 hover:border-white/30"
+                className="text-white/70 hover:text-white hover:bg-white/10 border border-white/10 hover:border-white/30"
               >
                 <X className="h-4 w-4" />
               </Button>
@@ -392,7 +392,7 @@ export function DocumentDetailDialog({
             {/* Basic Information */}
             <div className="space-y-4">
               <h3 className="text-white font-medium text-base flex items-center gap-2">
-                <Database className="h-4 w-4 text-purple-400" />
+                <Database className="h-4 w-4 text-gray-300" />
                 Basic Information
               </h3>
               
@@ -409,11 +409,7 @@ export function DocumentDetailDialog({
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label className="text-white/60 text-xs">File Type</Label>
-                    <Badge className={`mt-1 ${
-                      document.file_type === 'pdf' 
-                        ? 'bg-red-500/20 text-red-400 border-red-500/30'
-                        : 'bg-blue-500/20 text-blue-400 border-blue-500/30'
-                    }`}>
+                    <Badge className={`mt-1 bg-white/5 text-gray-200 border-white/20`}>
                       {document.file_type.toUpperCase()}
                     </Badge>
                   </div>
@@ -557,7 +553,7 @@ export function DocumentDetailDialog({
             {(document.file_type === 'pdf' || document.file_type === 'application/pdf') && (
               <Button 
                 onClick={onShowPdfViewer}
-                className="w-full bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-700 hover:to-violet-700 text-white"
+                className="w-full bg-white/10 hover:bg-white/20 text-white border border-white/10"
               >
                 <Eye className="h-4 w-4 mr-2" />
                 Open PDF Viewer
@@ -568,7 +564,7 @@ export function DocumentDetailDialog({
         </div>
 
         {/* Right Panel - Preview */}
-        <div className="flex-1 flex flex-col bg-gradient-to-br from-gray-900/90 via-slate-900/90 to-gray-800/90 backdrop-blur-sm">
+        <div className="flex-1 flex flex-col backdrop-blur-sm">
           
           {/* Controls Header */}
           <div className="p-4 border-b border-white/10 flex items-center justify-between">
@@ -580,7 +576,7 @@ export function DocumentDetailDialog({
                   size="sm"
                   onClick={() => onSegmentChange?.(selectedSegment - 1)}
                   disabled={selectedSegment <= 0}
-                  className="h-8 w-8 p-0 border-white/20 text-white/80 hover:text-white hover:bg-white/10"
+                  className="h-8 w-8 p-0 border-white/10 text-white/80 hover:text-white hover:bg-white/10"
                 >
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
@@ -591,7 +587,7 @@ export function DocumentDetailDialog({
                     const newSegment = parseInt(e.target.value);
                     onSegmentChange?.(newSegment);
                   }}
-                  className="bg-white/10 border border-white/20 rounded px-3 py-1 text-white text-sm focus:outline-none focus:border-purple-400/50"
+                  className="bg-white/10 border border-white/10 rounded px-3 py-1 text-white text-sm focus:outline-none focus:border-white/40"
                 >
                   {Array.from({ length: totalSegments }, (_, i) => (
                     <option key={i} value={i} className="bg-gray-800">
@@ -609,7 +605,7 @@ export function DocumentDetailDialog({
                   size="sm"
                   onClick={() => onSegmentChange?.(selectedSegment + 1)}
                   disabled={selectedSegment >= totalSegments - 1}
-                  className="h-8 w-8 p-0 border-white/20 text-white/80 hover:text-white hover:bg-white/10"
+                  className="h-8 w-8 p-0 border-white/10 text-white/80 hover:text-white hover:bg-white/10"
                 >
                   <ChevronRight className="h-4 w-4" />
                 </Button>
@@ -624,7 +620,7 @@ export function DocumentDetailDialog({
                   size="sm"
                   onClick={onZoomOut}
                   disabled={imageZoom <= 0.25}
-                  className="h-8 w-8 p-0 border-white/20 text-white/80 hover:text-white hover:bg-white/10"
+                  className="h-8 w-8 p-0 border-white/10 text-white/80 hover:text-white hover:bg-white/10"
                 >
                   <ZoomOut className="h-4 w-4" />
                 </Button>
@@ -636,11 +632,11 @@ export function DocumentDetailDialog({
                   size="sm"
                   onClick={onZoomIn}
                   disabled={imageZoom >= 3}
-                  className="h-8 w-8 p-0 border-white/20 text-white/80 hover:text-white hover:bg-white/10"
+                  className="h-8 w-8 p-0 border-white/10 text-white/80 hover:text-white hover:bg-white/10"
                 >
                   <ZoomIn className="h-4 w-4" />
                 </Button>
-                <div className="w-px bg-white/20 mx-1 h-4"></div>
+                <div className="w-px bg-white/10 mx-1 h-4"></div>
                 <Button
                   variant="outline"
                   size="sm"
@@ -648,7 +644,7 @@ export function DocumentDetailDialog({
                     console.log('Rotate left clicked');
                     onRotateLeft?.();
                   }}
-                  className="h-8 w-8 p-0 border-white/20 text-white/80 hover:text-white hover:bg-white/10"
+                  className="h-8 w-8 p-0 border-white/10 text-white/80 hover:text-white hover:bg-white/10"
                 >
                   <RotateCcw className="h-4 w-4" />
                 </Button>
@@ -659,7 +655,7 @@ export function DocumentDetailDialog({
                     console.log('Rotate right clicked');
                     onRotateRight?.();
                   }}
-                  className="h-8 w-8 p-0 border-white/20 text-white/80 hover:text-white hover:bg-white/10"
+                  className="h-8 w-8 p-0 border-white/10 text-white/80 hover:text-white hover:bg-white/10"
                 >
                   <RotateCw className="h-4 w-4" />
                 </Button>
@@ -670,7 +666,7 @@ export function DocumentDetailDialog({
                     console.log('Reset image clicked');
                     onResetImage?.();
                   }}
-                  className="h-8 w-8 p-0 border-white/20 text-white/80 hover:text-white hover:bg-white/10"
+                  className="h-8 w-8 p-0 border-white/10 text-white/80 hover:text-white hover:bg-white/10"
                   title="초기화"
                 >
                   <X className="h-4 w-4" />
@@ -680,7 +676,7 @@ export function DocumentDetailDialog({
           </div>
 
           {/* Preview Content */}
-          <div className="flex-1 bg-white/5 rounded-xl border border-white/10 m-4 overflow-hidden relative">
+          <div className="flex-1 bg-white/5 rounded-lg border border-white/10 m-4 overflow-hidden relative">
             {isVideoFile ? (
               // Video player
               <div className="h-full flex items-center justify-center relative">

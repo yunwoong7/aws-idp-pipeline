@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.2.0
+---
+Added WebSocket functionality
+Fixed ECS deployment issues
+
 ## v0.1.0
 ---
 - initial project setup and configuration

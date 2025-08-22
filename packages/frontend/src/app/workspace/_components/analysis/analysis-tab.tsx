@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import Image from "next/image";
 import ReactDOM from "react-dom";
 import { BarChart3, FileText, Loader2, X, Search, Hash, MessageCircle, Users, SendIcon, Sparkles, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,9 +10,11 @@ import { useDocuments } from "@/hooks/use-documents";
 import { useDocumentDetail } from "@/hooks/use-document-detail";
 
 import { Document } from "@/types/document.types";
+import { AnalysisPopup } from "@/components/common/analysis-popup";
 import { ChatBackground } from "@/components/ui/chat-background";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ResizablePanel } from "@/components/ui/resizable-panel";
+import { useAlert } from "@/components/ui/alert";
 import { DocumentPreview } from "./components/document-preview";
 import { ChatInterface } from "./components/chat-interface";
 import { motion, AnimatePresence } from "framer-motion";
@@ -55,6 +58,9 @@ interface AnalysisTabProps {
 }
 
 export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persistentState, onStateUpdate }: AnalysisTabProps) {
+  // Alert hook for status warnings
+  const { showWarning, AlertComponent } = useAlert();
+  
   // Debug indexId
   useEffect(() => {
     console.log('🏗️ indexId in AnalysisTab:', {
@@ -108,10 +114,10 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
   const imageZoom = persistentState?.imageZoom ?? 1;
   const imageRotation = persistentState?.imageRotation ?? 0;
   const imagePosition = persistentState?.imagePosition ?? { x: 0, y: 0 };
-  const messages = persistentState?.messages ?? [];
+  const messages = useMemo(() => persistentState?.messages ?? [], [persistentState?.messages]);
   const input = persistentState?.input ?? "";
-  const attachments = persistentState?.attachments ?? [];
-  const attachedContent = persistentState?.attachedContent ?? [];
+  const attachments = useMemo(() => persistentState?.attachments ?? [], [persistentState?.attachments]);
+  const attachedContent = useMemo(() => persistentState?.attachedContent ?? [], [persistentState?.attachedContent]);
   const selectedSegment = persistentState?.selectedSegment ?? hookSelectedSegment ?? 0;
   const isChatStarted = persistentState?.isChatStarted ?? false;
   
@@ -165,7 +171,7 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
         imagePosition: { x: 0, y: 0 }
       });
     }
-  }, [hookSelectedDocument?.document_id, persistentState?.selectedDocument?.document_id]);
+  }, [hookSelectedDocument?.document_id, persistentState?.selectedDocument?.document_id, onStateUpdate, hookSelectedDocument]);
 
   // Force refresh analysis data if document is selected but no analysis data
   useEffect(() => {
@@ -173,7 +179,7 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
       console.log('🔄 Force refreshing analysis data for:', selectedDocument.file_name);
       hookViewDocument(selectedDocument);
     }
-  }, [selectedDocument?.document_id, analysisData?.length, analysisLoading, hookViewDocument]);
+  }, [selectedDocument, selectedDocument?.document_id, analysisData, analysisData?.length, analysisLoading, hookViewDocument]);
 
   // Reset image state when document changes
   useEffect(() => {
@@ -206,7 +212,7 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
       // Only sync when localMessages is empty (initial load)
       setLocalMessages(messages);
     }
-  }, [messages.length, isStreaming, localMessages.length]);
+  }, [messages, messages.length, isStreaming, localMessages.length]);
   
   // Sync persistent state when streaming ends
   useEffect(() => {
@@ -215,7 +221,7 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
       console.log('📤 Syncing localMessages to persistent state:', localMessages.length, 'vs', messages.length);
       onStateUpdate?.({ messages: localMessages });
     }
-  }, [isStreaming, localMessages.length, messages.length]);
+  }, [isStreaming, localMessages, localMessages.length, messages.length, onStateUpdate]);
 
   // UI state
   const [zoomedImage, setZoomedImage] = useState<ZoomedImageState>({ isOpen: false, imageData: "", mimeType: "" });
@@ -248,24 +254,6 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
       console.error('❌ Failed to reset chat:', error);
     }
   }, [onStateUpdate]);
-
-  // 문서 선택 핸들러
-  const handleDocumentSelect = useCallback((document: Document) => {
-    console.log('📄 Document selected:', document);
-    
-    // 현재 선택된 문서가 있고 다른 문서를 선택하려고 할 때
-    if (selectedDocument && selectedDocument.document_id !== document.document_id) {
-      // 채팅 메시지가 있는 경우에만 확인 다이얼로그 표시
-      if (localMessages.length > 0 || messages.length > 0) {
-        setPendingDocument(document);
-        setShowConfirmDialog(true);
-        return;
-      }
-    }
-    
-    // 문서 선택 처리 (직접 선택 또는 메시지가 없는 경우)
-    selectDocument(document);
-  }, [selectedDocument, localMessages, messages]);
 
   // 실제 문서 선택 처리 함수
   const selectDocument = useCallback(async (document: Document) => {
@@ -305,6 +293,30 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
       alert('채팅 초기화에 실패했습니다. 다시 시도해주세요.');
     }
   }, [selectedDocument, localMessages, messages, onStateUpdate, hookViewDocument]);
+
+  // 문서 선택 핸들러
+  const handleDocumentSelect = useCallback((document: Document) => {
+    console.log('📄 Document selected:', document);
+    
+    // Check if document is ready for analysis
+    if (document.status !== 'completed') {
+      showWarning('Document Not Ready', 'This document is not ready for analysis. Only completed documents can be analyzed.');
+      return;
+    }
+    
+    // 현재 선택된 문서가 있고 다른 문서를 선택하려고 할 때
+    if (selectedDocument && selectedDocument.document_id !== document.document_id) {
+      // 채팅 메시지가 있는 경우에만 확인 다이얼로그 표시
+      if (localMessages.length > 0 || messages.length > 0) {
+        setPendingDocument(document);
+        setShowConfirmDialog(true);
+        return;
+      }
+    }
+    
+    // 문서 선택 처리 (직접 선택 또는 메시지가 없는 경우)
+    selectDocument(document);
+  }, [selectedDocument, localMessages, messages, selectDocument, showWarning]);
 
   // 확인 다이얼로그 확인 처리
   const handleConfirmDocumentChange = useCallback(() => {
@@ -557,6 +569,12 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
 
   // Send message handler (from page-backup.tsx)
   const handleSendMessage = useCallback(async (message?: string) => {
+    // Check if selected document is ready for analysis
+    if (selectedDocument && selectedDocument.status !== 'completed') {
+      showWarning('Document Not Ready', 'This document is not ready for analysis. Only completed documents can be analyzed.');
+      return;
+    }
+    
     const inputText = String(message || input || "");
     
     if (!inputText.trim() && attachedContent.length === 0 && attachments.length === 0) return;
@@ -934,7 +952,7 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
       setIsStreaming(false);
       onStateUpdate?.({ attachments: [] });
     }
-  }, [input, attachedContent, isChatStarted, attachments, indexId]);
+  }, [input, attachedContent, isChatStarted, attachments, indexId, onStateUpdate, selectedDocument, selectedSegmentId, showWarning]);
 
   // Remove attached content handler
   const handleRemoveAttachedContent = (id: string) => {
@@ -1363,7 +1381,7 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
                 
                 <div className="relative bg-white dark:bg-gray-900 rounded-xl overflow-hidden shadow-2xl">
                   <div className="relative max-w-full max-h-[85vh] mx-auto">
-                    <img 
+                    <Image 
                       src={(() => {
                         if (zoomedImage.imageData.startsWith('http://') || zoomedImage.imageData.startsWith('https://')) {
                           return zoomedImage.imageData;
@@ -1372,6 +1390,9 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
                         }
                       })()}
                       alt="Zoomed image"
+                      width={1600}
+                      height={1200}
+                      unoptimized
                       className="max-w-full max-h-[85vh] object-contain mx-auto block"
                       onClick={(e: React.MouseEvent) => e.stopPropagation()}
                     />
@@ -1517,214 +1538,17 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
         variant="destructive"
       />
 
-      {/* 분석 결과 팝업 */}
-      {analysisPopup.isOpen && ReactDOM.createPortal(
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="relative bg-slate-900 border border-white/10 rounded-xl shadow-2xl max-w-4xl w-full mx-4 max-h-[80vh] overflow-hidden">
-            {/* Header */}
-            <div className={`px-6 py-4 border-b border-white/10 ${
-              analysisPopup.type === 'bda' ? 'bg-gradient-to-r from-blue-900/30 to-blue-800/30' :
-              analysisPopup.type === 'pdf' ? 'bg-gradient-to-r from-green-900/30 to-green-800/30' :
-              'bg-gradient-to-r from-purple-900/30 to-purple-800/30'
-            }`}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className={`w-3 h-3 rounded-full ${
-                    analysisPopup.type === 'bda' ? 'bg-blue-400' :
-                    analysisPopup.type === 'pdf' ? 'bg-green-400' :
-                    'bg-purple-400'
-                  }`}></div>
-                  <h3 className="text-lg font-semibold text-white">
-                    {analysisPopup.type === 'bda' ? 'BDA 분석 결과' :
-                     analysisPopup.type === 'pdf' ? 'PDF 분석 결과' :
-                     'AI 분석 결과'}
-                    <span className="text-sm font-normal text-white/60 ml-2">
-                      (Segment {selectedSegment + 1})
-                    </span>
-                  </h3>
-                  <Badge variant="outline" className={`${
-                    analysisPopup.type === 'bda' ? 'text-blue-300 border-blue-400/30 bg-blue-500/10' :
-                    analysisPopup.type === 'pdf' ? 'text-green-300 border-green-400/30 bg-green-500/10' :
-                    'text-purple-300 border-purple-400/30 bg-purple-500/10'
-                  }`}>
-                    {(() => {
-                      // Get count for current segment only
-                      const segmentItems = analysisData.filter((item: any) => {
-                        const matchesTool = analysisPopup.type === 'bda' ? item.tool_name === 'bda_indexer' :
-                                          analysisPopup.type === 'pdf' ? item.tool_name === 'pdf_text_extractor' :
-                                          item.tool_name === 'ai_analysis';
-                        const itemSegmentIndex = (typeof item.segment_index === 'number' ? item.segment_index : undefined) ??
-                                               (typeof item.page_index === 'number' ? item.page_index : undefined);
-                        return matchesTool && itemSegmentIndex === selectedSegment;
-                      });
-                      return segmentItems.length;
-                    })()}개
-                  </Badge>
-                </div>
-                <button
-                  onClick={() => setAnalysisPopup({ type: null, isOpen: false })}
-                  className="p-2 hover:bg-white/10 rounded-lg transition-colors"
-                >
-                  <X className="h-5 w-5 text-white/60 hover:text-white" />
-                </button>
-              </div>
-            </div>
-
-            {/* Content */}
-            <div className="p-6 overflow-y-auto max-h-[60vh]">
-              {(() => {
-                console.log('🎨 Popup analysisData:', analysisData);
-                
-                if (!Array.isArray(analysisData) || analysisData.length === 0) {
-                  return (
-                    <p className="text-center text-white/60">분석 데이터를 불러오는 중이거나 데이터가 없습니다.</p>
-                  );
-                }
-
-                // Filter analysis items by tool type and current segment
-                const collectAnalysisItems = (toolType: 'bda_indexer' | 'pdf_text_extractor' | 'ai_analysis') => {
-                  const filteredItems = analysisData.filter((item: any) => {
-                    const matchesTool = item.tool_name === toolType;
-                    const itemSegmentIndex = (typeof item.segment_index === 'number' ? item.segment_index : undefined) ??
-                                           (typeof item.page_index === 'number' ? item.page_index : undefined);
-                    const matchesSegment = itemSegmentIndex === selectedSegment;
-                    return matchesTool && matchesSegment;
-                  });
-                  console.log(`📋 collectAnalysisItems - ${toolType} items for segment ${selectedSegment}:`, filteredItems.length);
-                  return filteredItems;
-                };
-                
-                return (
-                  <div className="space-y-4">
-                    {analysisPopup.type === 'bda' && (
-                      <div className="space-y-3">
-                        <h4 className="text-md font-medium text-blue-300 mb-3">BDA 구조적 데이터 분석</h4>
-                        {(() => {
-                          const bdaItems = collectAnalysisItems('bda_indexer');
-                          return bdaItems.length > 0 ? (
-                            bdaItems.map((item: any, i: number) => (
-                              <div key={`bda-${item.segment_id}-${i}`} className="p-4 bg-blue-500/10 rounded-lg border border-blue-400/20">
-                                <div className="flex items-center justify-between mb-2">
-                                  <span className="font-medium text-blue-300">
-                                    BDA 분석 #{i + 1}
-                                    <span className="text-xs text-blue-400/60 ml-2">
-                                      (Segment {(item.segment_index || 0) + 1})
-                                    </span>
-                                  </span>
-                                  <span className="text-xs text-blue-400/60">
-                                    {item.created_at ? formatAnalysisTime(new Date(item.created_at)) : '분석 완료'}
-                                  </span>
-                                </div>
-                                <div className="text-sm text-blue-100 mb-2">
-                                  <strong>분석 쿼리:</strong> {item.analysis_query || 'N/A'}
-                                </div>
-                                <div className="text-sm text-blue-100 whitespace-pre-wrap">
-                                  {item.content || '내용이 없습니다.'}
-                                </div>
-                              </div>
-                            ))
-                                                  ) : (
-                          <p className="text-center text-blue-400/60">Segment {selectedSegment + 1}에 BDA 분석 결과가 없습니다.</p>
-                          );
-                        })()}
-                      </div>
-                    )}
-
-                    {analysisPopup.type === 'pdf' && (
-                      <div className="space-y-3">
-                        <h4 className="text-md font-medium text-green-300 mb-3">PDF 텍스트 추출 분석</h4>
-                        {(() => {
-                          const pdfItems = collectAnalysisItems('pdf_text_extractor');
-                          return pdfItems.length > 0 ? (
-                            pdfItems.map((item: any, i: number) => (
-                              <div key={`pdf-${item.segment_id}-${i}`} className="p-4 bg-green-500/10 rounded-lg border border-green-400/20">
-                                <div className="flex items-center justify-between mb-2">
-                                  <span className="font-medium text-green-300">
-                                    PDF 분석 #{i + 1}
-                                    <span className="text-xs text-green-400/60 ml-2">
-                                      (Segment {(item.segment_index || 0) + 1})
-                                    </span>
-                                  </span>
-                                  <span className="text-xs text-green-400/60">
-                                    {item.created_at ? formatAnalysisTime(new Date(item.created_at)) : '분석 완료'}
-                                  </span>
-                                </div>
-                                <div className="text-sm text-green-100 mb-2">
-                                  <strong>분석 쿼리:</strong> {item.analysis_query || 'N/A'}
-                                </div>
-                                <div className="text-sm text-green-100 whitespace-pre-wrap">
-                                  {item.content || '내용이 없습니다.'}
-                                </div>
-                              </div>
-                            ))
-                                                  ) : (
-                          <div className="p-4 bg-green-500/10 rounded-lg border border-green-400/20">
-                            <p className="text-center text-green-400/60">Segment {selectedSegment + 1}에 PDF 텍스트 추출 결과가 없습니다.</p>
-                            <p className="text-center text-green-400/40 text-xs mt-1">
-                              이 세그먼트는 동영상이므로 PDF 텍스트 추출이 적용되지 않았습니다.
-                            </p>
-                          </div>
-                          );
-                        })()}
-                      </div>
-                    )}
-
-                    {analysisPopup.type === 'ai' && (
-                      <div className="space-y-3">
-                        <h4 className="text-md font-medium text-purple-300 mb-3">AI 콘텐츠 분석</h4>
-                        {(() => {
-                          const aiItems = collectAnalysisItems('ai_analysis');
-                          return aiItems.length > 0 ? (
-                            aiItems.map((item: any, i: number) => (
-                              <div key={`ai-${item.segment_id}-${i}`} className="p-4 bg-purple-500/10 rounded-lg border border-purple-400/20">
-                                <div className="flex items-center justify-between mb-2">
-                                  <span className="font-medium text-purple-300">
-                                    AI 분석 #{i + 1}
-                                    <span className="text-xs text-purple-400/60 ml-2">
-                                      (Segment {(item.segment_index || 0) + 1})
-                                    </span>
-                                  </span>
-                                  <span className="text-xs text-purple-400/60">
-                                    {item.created_at ? formatAnalysisTime(new Date(item.created_at)) : '분석 완료'}
-                                  </span>
-                                </div>
-                                <div className="text-sm text-purple-100 mb-2">
-                                  <strong>분석 쿼리:</strong> {item.analysis_query || 'N/A'}
-                                </div>
-                                <div className="text-sm text-purple-100 whitespace-pre-wrap max-h-64 overflow-y-auto">
-                                  {item.content || '내용이 없습니다.'}
-                                </div>
-                              </div>
-                            ))
-                                                  ) : (
-                          <p className="text-center text-purple-400/60">Segment {selectedSegment + 1}에 AI 분석 결과가 없습니다.</p>
-                          );
-                        })()}
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-            </div>
-
-            {/* Footer */}
-            <div className="px-6 py-4 border-t border-white/10 bg-slate-800/50">
-              <div className="flex justify-between items-center">
-                <div className="text-sm text-white/60">
-                  {selectedDocument?.file_name || '문서 없음'}
-                </div>
-                <button
-                  onClick={() => setAnalysisPopup({ type: null, isOpen: false })}
-                  className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-white text-sm transition-colors"
-                >
-                  닫기
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
+      {/* 분석 결과 팝업: 공용 AnalysisPopup 사용 */}
+      <AnalysisPopup
+        isOpen={analysisPopup.isOpen}
+        type={analysisPopup.type}
+        selectedSegment={selectedSegment}
+        analysisData={analysisData}
+        onClose={() => setAnalysisPopup({ type: null, isOpen: false })}
+      />
+      
+      {/* Alert Component */}
+      {AlertComponent}
     </div>
   );
 }
