@@ -81,6 +81,7 @@ class State(BaseModel):
     message_history: List[Dict] = Field(default_factory=list)
     tool_references: Annotated[List[Dict[str, Any]], replace_tool_references] = Field(default_factory=list)
     tool_content: Optional[str] = Field(default="", description="Tool execution result content")
+    tool_attachments: Annotated[List[Dict[str, Any]], replace_tool_references] = Field(default_factory=list)
     
     # 대화 요약 관리
     conversation_summary: Optional[str] = Field(default="", description="대화 요약 내용")

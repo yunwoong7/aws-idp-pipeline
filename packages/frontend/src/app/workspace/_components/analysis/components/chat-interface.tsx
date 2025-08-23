@@ -567,7 +567,7 @@ export function ChatInterface({
         return (
             <div 
                 key={toolItem.id} 
-                className="mt-3 mb-2"
+                className="mt-2 mb-1"
             >
                 <div className="relative group">
                     <div className="relative backdrop-blur-lg bg-white/[0.02] border border-white/[0.06] rounded-xl shadow-lg overflow-hidden transition-shadow duration-300 group-hover:shadow-cyan-500/10">
@@ -698,7 +698,7 @@ export function ChatInterface({
                                         <>
                                             {/* Result header with collapse button */}
                                             <div 
-                                                className="flex items-center gap-2 mb-3 cursor-pointer hover:bg-white/[0.02] rounded-lg p-2 -m-2 transition-colors"
+                                                className="flex items-center gap-2 mb-2 mt-2 cursor-pointer hover:bg-white/[0.02] rounded-lg p-2 -m-2 transition-colors"
                                                 onMouseDown={(e) => e.preventDefault()}
                                                 onClick={(e) => {
                                                     e.stopPropagation();
@@ -1380,7 +1380,7 @@ export function ChatInterface({
                                                                         return null;
                                                                     }
                                                                    return (
-                                                                       <div key={item.id} className="mt-4 mb-4">
+                                                                       <div key={item.id} className="mt-2 mb-2">
                                                                            <div className="bg-blue-900/20 rounded-md p-3 text-xs border border-blue-700/50 shadow-lg">
                                                                                <div className="font-medium text-blue-300 mb-1 flex justify_between items-center">
                                                                                    <div className="flex items-center gap-2">
@@ -1473,7 +1473,7 @@ export function ChatInterface({
                                                                );
                                                            })}
                                                            {lastToolResultIndex >= 0 && trailingText && (
-                                                               <div className="mt-2">
+                                                               <div className="mt-1">
                                                                    <MarkdownRenderer content={trailingText} />
                                                                </div>
                                                            )}
@@ -1596,7 +1596,7 @@ export function ChatInterface({
                                     value={input}
                                     onChange={(e) => setInput(e.target.value)}
                                     onKeyDown={(e) => {
-                                        if (e.key === 'Enter' && !e.shiftKey && !isComposing) {
+                                        if (e.key === 'Enter' && !e.shiftKey && !isComposing && !isStreaming) {
                                             e.preventDefault();
                                             onSendMessage();
                                         }
@@ -1604,7 +1604,6 @@ export function ChatInterface({
                                     onCompositionStart={() => setIsComposing(true)}
                                     onCompositionEnd={() => setIsComposing(false)}
                                     placeholder="어떤 문서를 분석해드릴까요?"
-                                    disabled={isStreaming}
                                     className="bg-transparent flex-1 outline-none text-white placeholder:text-white/50 pl-4"
                                     ref={externalTextareaRef as unknown as React.RefObject<HTMLInputElement>}
                                 />

@@ -9,6 +9,7 @@ from tools.document_analyzer import get_document_analysis, get_page_analysis_det
 # from tools.document_list import get_documents_list
 from tools.basic_tools import add, echo
 from tools.user_content_manager import add_user_content_to_page, remove_user_content_from_page
+from tools.document_analyzer import get_segment_image_attachment
 
 # Set logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -28,6 +29,8 @@ mcp.add_tool(get_document_info)
 mcp.add_tool(hybrid_search)
 mcp.add_tool(get_document_analysis)
 mcp.add_tool(get_page_analysis_details)
+# Register segment image attachment tool
+mcp.add_tool(get_segment_image_attachment)
 # mcp.add_tool(get_documents_list)
 mcp.add_tool(add)
 mcp.add_tool(echo)

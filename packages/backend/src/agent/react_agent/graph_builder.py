@@ -2,6 +2,7 @@
 GraphBuilder - LangGraph structure builder and manager class
 """
 import logging
+import os
 from typing import Dict, Any, Literal, List
 from datetime import datetime, timezone
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, BaseMessage
@@ -22,6 +23,7 @@ from .state_manager import (
 )
 from .error_handler import global_error_handler
 from .config import config_manager
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +46,63 @@ class GraphBuilder:
         self.health_checker = health_checker
         self.mcp_service = mcp_service
         self.execution_state = {}
+
+    async def _fetch_attachments_from_references(self, state: State) -> List[Dict[str, Any]]:
+        """Fetch small image attachments from tool_references using Document API.
+        - Only uses references that carry metadata.segment_id
+        - Calls /api/segments/{segment_id}/image to get base64
+        - Applies strict limits to avoid token overflow
+        """
+        try:
+            api_base = os.getenv('DOC_API_BASE_URL') or os.getenv('API_BASE_URL')
+            if not api_base:
+                return []
+
+            refs = getattr(state, 'tool_references', []) or []
+            if not isinstance(refs, list) or not refs:
+                return []
+
+            max_attach = int(os.getenv('REF_IMAGE_MAX_ATTACH', '1'))
+            max_b64_len = int(os.getenv('REF_IMAGE_MAX_BASE64_LEN', str(500_000)))
+
+            selected: List[Dict[str, Any]] = []
+            for ref in refs:
+                if not isinstance(ref, Dict):
+                    continue
+                meta = ref.get('metadata', {}) if isinstance(ref.get('metadata'), dict) else {}
+                segment_id = meta.get('segment_id') or ref.get('segment_id')
+                if not segment_id:
+                    continue
+                url = f"{api_base}/api/segments/{segment_id}/image"
+                try:
+                    r = requests.get(url, timeout=15)
+                    if r.status_code != 200:
+                        continue
+                    payload = r.json()
+                    data = payload.get('data') or payload
+                    image_b64 = data.get('image_data')
+                    mime_type = data.get('mime_type', 'image/png')
+                    if not image_b64 or not isinstance(image_b64, str):
+                        continue
+                    if len(image_b64) > max_b64_len:
+                        # skip overly large images to protect context
+                        continue
+                    selected.append({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": mime_type,
+                            "data": image_b64,
+                        }
+                    })
+                    if len(selected) >= max_attach:
+                        break
+                except Exception:
+                    continue
+
+            return selected
+        except Exception:
+            return []
 
     def build(self, checkpointer) -> StateGraph:
         """
@@ -133,7 +192,11 @@ class GraphBuilder:
         if state.conversation_summary:
             summary_context = f"\n\n[Previous conversation summary]\n{state.conversation_summary}"
 
-        # create prompt
+        # create prompt (apply safe length to CONTENT)
+        SAFE_CONTENT = content_text or ""
+        if len(SAFE_CONTENT) > 32000:
+            SAFE_CONTENT = SAFE_CONTENT[:32000]
+            logger.info("CONTENT truncated to 32000 chars for safety")
         full_prompt = prompt_manager.get_prompt(
             "agent_profile", 
             DATETIME=datetime.now(tz=timezone.utc).isoformat(),
@@ -142,7 +205,7 @@ class GraphBuilder:
             SEGMENT_ID=segment_id,
             QUERY=user_query,
             CONVERSATION_HISTORY=summary_context,
-            CONTENT=content_text,
+            CONTENT=SAFE_CONTENT,
             REFERENCES=references_text
         )
         
@@ -167,6 +230,38 @@ class GraphBuilder:
         # if there is no HumanMessage, add instruction
         if not last_human_replaced:
             prompt_messages.append(HumanMessage(content=instruction))
+
+        # If previous tool produced LLM-ready attachments, inject them as a new HumanMessage before calling model
+        try:
+            # 1) Optional direct tool attachments
+            tool_attachments = getattr(state, 'tool_attachments', []) or []
+            enable_imgs = os.getenv('ENABLE_TOOL_IMAGE_ATTACHMENTS_TO_LLM', 'false').lower() == 'true'
+            if enable_imgs and tool_attachments:
+                MAX_ATTACH = 1
+                filtered: List[dict] = []
+                for att in tool_attachments:
+                    if not isinstance(att, dict):
+                        continue
+                    src = att.get('source', {}) if isinstance(att.get('source'), dict) else {}
+                    data_str = src.get('data', '')
+                    if isinstance(data_str, str) and len(data_str) > 500_000:
+                        continue
+                    filtered.append(att)
+                    if len(filtered) >= MAX_ATTACH:
+                        break
+                if filtered:
+                    prompt_messages.append(HumanMessage(content=filtered))
+                    logger.info(f"Injected tool attachments into model call: {len(filtered)}/{len(tool_attachments)} items (env-enabled)")
+
+            # 2) If there are image references, fetch base64 on-demand (logic-level, not via MCP content)
+            enable_ref_fetch = os.getenv('ENABLE_REF_IMAGE_FETCH_TO_LLM', 'false').lower() == 'true'
+            if enable_ref_fetch:
+                fetched = await self._fetch_attachments_from_references(state)
+                if fetched:
+                    prompt_messages.append(HumanMessage(content=fetched))
+                    logger.info(f"Injected fetched reference images: {len(fetched)} items")
+        except Exception as _:
+            pass
 
         # get MCP tools
         tools = await self.health_checker.get_tools_with_health_check()

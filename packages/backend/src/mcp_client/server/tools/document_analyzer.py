@@ -4,6 +4,7 @@ Document analysis tools for MCP server - Refactored with API-First approach
 import requests
 import asyncio
 from typing import Dict, Any, Optional
+import base64
 from config import get_app_config
 from .response_formatter import format_api_response
 
@@ -213,7 +214,7 @@ async def get_document_analysis(index_id: str = None, document_id: str = None, f
     Use this tool when you want to get the comprehensive analysis result of a specific document including all pages and analysis data.
     
     Args:
-        index_id: Index ID for access control
+        index_id: Index ID for access control (Have to be provided)
         document_id: Document ID to retrieve (Ex.3d8ab04c-af9c-4cde-b962-a4cd7f1104b7)
         filter_final: If True, only return final_ai_response for optimization (default: True)
     
@@ -285,3 +286,72 @@ async def get_page_analysis_details(index_id: str = None, document_id: str = Non
     
     # Useeresponsepformatter to createastandardizederesponseto createastandardizederesponseto create standardized response
     return format_api_response(api_response, 'get_page_analysis_details')
+
+
+async def get_segment_image_attachment(index_id: str = None, document_id: str = None, segment_id: str = None):
+    """
+    Retrieve a segment image as base64 from API and return LLM-ready attachment.
+    - Calls GET /api/segments/{segment_id}/image
+    - Builds attachments compatible with process_attachments format so the LLM can see the image
+    """
+    if not segment_id:
+        return {
+            "success": False,
+            "error": "segment_id is required",
+            "data": None
+        }
+
+    try:
+        url = f"{API_BASE_URL}/api/segments/{segment_id}/image"
+        params = {}
+        if index_id:
+            params['index_id'] = index_id
+        if document_id:
+            params['document_id'] = document_id
+
+        resp = requests.get(url, params=params, timeout=30)
+        if resp.status_code != 200:
+            return {
+                "success": False,
+                "error": f"Segment image API call failed: {resp.status_code}",
+                "data": None
+            }
+
+        payload = resp.json()
+        data = payload.get('data') or payload
+
+        # Do NOT include base64 attachments by default to avoid token overflow
+        attachments = []
+
+        # Build UI references using S3 URI so frontend can render securely without passing base64 to LLM
+        references = []
+        image_uri = data.get('image_uri')
+        if image_uri:
+            references.append({
+                'type': 'image',
+                'title': 'Segment Image',
+                'display_name': 'Segment Image',
+                'value': image_uri,
+                'image_uri': image_uri,
+                'document_id': data.get('document_id', ''),
+                'metadata': {
+                    'segment_id': data.get('segment_id', segment_id),
+                }
+            })
+
+        # Standard formatted tool response
+        tool_data = {
+            "success": True,
+            "data": data,
+            "attachments": attachments,
+            "references": references,
+        }
+
+        return format_api_response(tool_data, 'get_segment_image_attachment')
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Error in segment image tool: {str(e)}",
+            "data": None
+        }

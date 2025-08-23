@@ -174,13 +174,13 @@ export const useDocumentDetail = (indexId: string, externalSelectedDocument?: Do
 
     // 현재 선택된 세그먼트의 이미지 URL을 계산 (이미 로드된 것을 재사용)
     const currentPageImageUrl = useMemo(() => {
-        console.log('🖼️ [useDocumentDetail] Calculating currentSegmentImageUrl:', {
-            selectedSegment: effectiveSelectedSegment,
-            hasPageImages: !!effectiveSelectedDocument?.page_images,
-            pageImagesLength: effectiveSelectedDocument?.page_images?.length,
-            pageImages: effectiveSelectedDocument?.page_images,
-            analysisDataLength: analysisData?.length,
-        });
+        // console.log('🖼️ [useDocumentDetail] Calculating currentSegmentImageUrl:', {
+        //     selectedSegment: effectiveSelectedSegment,
+        //     hasPageImages: !!effectiveSelectedDocument?.page_images,
+        //     pageImagesLength: effectiveSelectedDocument?.page_images?.length,
+        //     pageImages: effectiveSelectedDocument?.page_images,
+        //     analysisDataLength: analysisData?.length,
+        // });
 
         // 1) Try from selectedDocument.page_images (for backward compatibility with page-based documents)
         if (effectiveSelectedDocument?.page_images && effectiveSelectedDocument.page_images.length > 0) {
@@ -190,7 +190,7 @@ export const useDocumentDetail = (indexId: string, externalSelectedDocument?: Do
             });
             if (pageImage) {
                 const finalUrl = pageImage.image_uri || pageImage.image_url || pageImage.file_uri || pageImage.image_file_uri || null;
-                console.log('🖼️ [useDocumentDetail] Final currentSegmentImageUrl(from page_images):', finalUrl);
+                // console.log('🖼️ [useDocumentDetail] Final currentSegmentImageUrl(from page_images):', finalUrl);
                 return finalUrl;
             }
         }
@@ -204,12 +204,12 @@ export const useDocumentDetail = (indexId: string, externalSelectedDocument?: Do
             });
             if (match) {
                 const finalUrl = (match as any).image_file_uri || (match as any).image_path || match.file_uri || null;
-                console.log('🖼️ [useDocumentDetail] Final currentSegmentImageUrl(from analysisData):', finalUrl);
+                // console.log('🖼️ [useDocumentDetail] Final currentSegmentImageUrl(from analysisData):', finalUrl);
                 return finalUrl;
             }
         }
 
-        console.log('🖼️ [useDocumentDetail] No matching image found for segment:', effectiveSelectedSegment);
+        // console.log('🖼️ [useDocumentDetail] No matching image found for segment:', effectiveSelectedSegment);
         return null;
     }, [effectiveSelectedDocument?.page_images, effectiveSelectedSegment, analysisData]);
 

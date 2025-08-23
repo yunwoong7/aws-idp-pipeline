@@ -27,7 +27,7 @@ interface BrandingLogoProps {
 function BrandingLogo({ logoUrl, companyName }: BrandingLogoProps) {
   const [imageError, setImageError] = useState(false);
   
-  console.log('🖼️ BrandingLogo render:', { logoUrl, companyName, imageError });
+  // console.log('🖼️ BrandingLogo render:', { logoUrl, companyName, imageError });
   
   if (!logoUrl || imageError) {
     return (

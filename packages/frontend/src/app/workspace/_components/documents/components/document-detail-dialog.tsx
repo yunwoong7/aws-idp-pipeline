@@ -328,13 +328,13 @@ export function DocumentDetailDialog({
   const currentSegmentCounts = getSegmentCounts(analysisData, selectedSegment);
 
   // Debug: 세그먼트 네비게이션 표시 조건 확인
-  console.log('🔍 [DocumentDetailDialog] Segment navigation debug:', {
-    totalSegments,
-    document: !!document,
-    showNavigation: totalSegments > 1,
-    analysisDataLength: analysisData.length,
-    selectedSegment
-  });
+  // console.log('🔍 [DocumentDetailDialog] Segment navigation debug:', {
+  //   totalSegments,
+  //   document: !!document,
+  //   showNavigation: totalSegments > 1,
+  //   analysisDataLength: analysisData.length,
+  //   selectedSegment
+  // });
 
   if (!document || !open) return null;
 

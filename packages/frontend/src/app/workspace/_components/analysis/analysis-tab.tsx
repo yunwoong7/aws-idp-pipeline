@@ -275,7 +275,8 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
           messages: [],
           input: "",
           attachments: [],
-          attachedContent: []
+          attachedContent: [],
+          isChatStarted: false // hero 화면이 나오도록 초기화
         });
         
         console.log('✅ Chat reinitialized successfully');
@@ -617,6 +618,13 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
       attachments: []
     });
     setIsStreaming(true);
+    
+    // 전송 후 입력 필드에 포커스
+    setTimeout(() => {
+      if (inputRef.current) {
+        inputRef.current.focus();
+      }
+    }, 100);
     
     try {
       const response = await chatApi.sendMessage({
@@ -983,6 +991,13 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
     } finally {
       setIsStreaming(false);
       onStateUpdate?.({ attachments: [] });
+      
+      // 스트리밍 종료 후 입력 필드에 포커스
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+        }
+      }, 200);
     }
   }, [input, attachedContent, isChatStarted, attachments, indexId, onStateUpdate, selectedDocument, selectedSegmentId, showWarning]);
 

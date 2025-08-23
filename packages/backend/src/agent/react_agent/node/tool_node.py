@@ -23,13 +23,14 @@ class CustomToolNode:
         
         # Extract tool results from the messages
         tool_messages = result.get("messages", [])
-        tool_references, tool_content = self._extract_references_and_content(tool_messages)
+        tool_references, tool_content, tool_attachments = self._extract_references_and_content(tool_messages)
         
         # Update state with extracted results
         updated_state = {
             **result,
             "tool_references": tool_references,
-            "tool_content": tool_content
+            "tool_content": tool_content,
+            "tool_attachments": tool_attachments
         }
         
         logger.info(f"Tool execution complete - references: {len(tool_references)}, content length: {len(tool_content) if tool_content else 0}")
@@ -40,6 +41,7 @@ class CustomToolNode:
         """Extract references and content from tool execution results"""
         extracted_references = []
         extracted_content_parts = []
+        extracted_attachments = []
         
         logger.info(f"Extracting references and content from {len(tool_messages)} tool messages")
         
@@ -60,10 +62,20 @@ class CustomToolNode:
                                 # If JSON parsing fails, treat as plain text
                                 pass
                     
-                    # If content is a dictionary, look for references and content fields
+                    # If content is a dictionary, look for references, attachments and content fields
                     if isinstance(content, dict):
                         # Check if it has nested data structure (like hybrid_search result)
                         data = content.get("data", content)
+                        # Extract attachments if provided by tool (LLM-ready)
+                        if "attachments" in data and isinstance(data["attachments"], list):
+                            for att in data["attachments"]:
+                                # Expecting process_attachments format item for image: {"type":"image","source":{"type":"base64","media_type":...,"data":...}}
+                                if isinstance(att, dict) and att.get("type") == "image" and isinstance(att.get("source"), dict):
+                                    extracted_attachments.append(att)
+                        elif "attachments" in content and isinstance(content["attachments"], list):
+                            for att in content["attachments"]:
+                                if isinstance(att, dict) and att.get("type") == "image" and isinstance(att.get("source"), dict):
+                                    extracted_attachments.append(att)
                         
                         # Extract references
                         if "references" in data:
@@ -151,27 +163,23 @@ class CustomToolNode:
                                         ref["metadata"]["source"] = "tool_execution"
                                         extracted_references.append(ref)
                         
-                        # Extract content
+                        # Extract textual content only (avoid dumping entire dict with base64)
                         if "content" in data:
                             content_data = data["content"]
                             if isinstance(content_data, list):
                                 for item in content_data:
-                                    if item:
-                                        extracted_content_parts.append(str(item))
+                                    if isinstance(item, str) and item.strip():
+                                        extracted_content_parts.append(item)
                             elif isinstance(content_data, str) and content_data.strip():
                                 extracted_content_parts.append(content_data)
                         elif "content" in content:
                             content_data = content["content"]
                             if isinstance(content_data, list):
                                 for item in content_data:
-                                    if item:
-                                        extracted_content_parts.append(str(item))
+                                    if isinstance(item, str) and item.strip():
+                                        extracted_content_parts.append(item)
                             elif isinstance(content_data, str) and content_data.strip():
                                 extracted_content_parts.append(content_data)
-                        
-                        # If no specific content field, use the whole result as content
-                        elif content:
-                            extracted_content_parts.append(str(content))
                     
                     # If content is plain text, add it to content parts
                     elif isinstance(content, str) and content.strip():
@@ -182,7 +190,12 @@ class CustomToolNode:
         
         # Combine content parts
         combined_content = "\n\n".join(extracted_content_parts) if extracted_content_parts else ""
+        # Enforce length limit to prevent token overflow
+        MAX_CONTENT_LEN = 32000
+        if len(combined_content) > MAX_CONTENT_LEN:
+            combined_content = combined_content[:MAX_CONTENT_LEN]
+            logger.info(f"Tool content truncated to {MAX_CONTENT_LEN} characters to avoid overflow")
         
         logger.info(f"Extraction complete - references: {len(extracted_references)}, content: {len(combined_content)} chars")
         
-        return extracted_references, combined_content
+        return extracted_references, combined_content, extracted_attachments

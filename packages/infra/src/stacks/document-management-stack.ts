@@ -345,6 +345,11 @@ export class DocumentManagementStack extends cdk.Stack {
         path: '/api/get-presigned-url',
         methods: [apigw.HttpMethod.POST],
       },
+      // GET /api/segments/{segment_id}/image - Retrieve segment image (base64)
+      {
+        path: '/api/segments/{segment_id}/image',
+        methods: [apigw.HttpMethod.GET],
+      },
     ];
 
     // Add routes using ApiGatewayRoutes construct

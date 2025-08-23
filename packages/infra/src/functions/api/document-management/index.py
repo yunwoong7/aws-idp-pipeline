@@ -44,7 +44,8 @@ from handlers.document_handlers import (
     handle_upload_complete
 )
 from handlers.segment_handlers import (
-    handle_get_segment_detail
+    handle_get_segment_detail,
+    handle_get_segment_image
 )
 from handlers.opensearch_handlers import (
     handle_opensearch_status,
@@ -152,6 +153,10 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         # Document management APIs (project-independent)
         if response is None:
             # Document management endpoints (no project_id required)
+            # GET /api/segments/{segment_id}/image - Return base64 image by segment_id
+            if http_method == 'GET' and '/api/segments/' in path and path.endswith('/image'):
+                response = handle_get_segment_image(event)
+            
             if http_method == 'POST' and '/upload-large' in path:
                 # POST /api/documents/upload-large - 대용량 파일 업로드 Pre-signed URL 생성
                 response = handle_generate_upload_presigned_url(event)

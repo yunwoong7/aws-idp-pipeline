@@ -1,6 +1,6 @@
 <h2 align="center">Devcontainer Setup Guide</h2>
 
-This guide provides a detailed, step-by-step walkthrough for setting up your development environment. This is the **highly recommended** method as it ensures a consistent, isolated, and fully configured environment. Following the steps up to **Step 6** will result in a complete local development setup. The optional **Step 7** describes how to deploy the entire application to AWS ECS for a public-facing environment.
+This guide provides a detailed, step-by-step walkthrough for setting up your development environment. This is the **highly recommended** method as it ensures a consistent, isolated, and fully configured environment. Following the steps up to **Step 6** will result in a complete local development setup. The optional **Step 7** describes how to deploy the entire application to AWS ECS for an externally accessible runtime environment.
 
 ---
 
@@ -76,7 +76,7 @@ cd packages/infra
 
 > **Deployment Time & Verification**
 > *   The infrastructure deployment can take **40 to 60 minutes** to complete. The majority of this time is spent provisioning the Amazon OpenSearch cluster.
-> *   **After deployment is successful**, please navigate to the **AWS OpenSearch Console**. Verify that the `nori` (Korean morphological analyzer) plugin is correctly installed on your domain.
+> *   **After deployment is successful**, go to the **AWS OpenSearch Console** and verify that the `nori` (Korean morphological analyzer) plugin is correctly installed on your domain. Installing the plugin package may take an additional **10–20 minutes**.
 
 ### Step 5: Run the Application Locally
 
@@ -162,4 +162,4 @@ cd packages/infra
 
 ---
 
-**Deployment Complete!** Whether you are running locally or have deployed to ECS, your AWS IDP environment is now fully operational.
+**Deployment Complete!** You can now test the AWS IDP environment either locally or in the ECS environment.
