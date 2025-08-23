@@ -448,11 +448,11 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
     let totalCounts = { bda: 0, pdf: 0, ai: 0 };
     
     analysisData.forEach((item: any, index: number) => {
-      console.log(`🔍 Item ${index}:`, {
-        tool_name: item.tool_name,
-        opensearch_doc_id: item.opensearch_doc_id,
-        content_preview: item.content?.substring(0, 100) + '...'
-      });
+      // console.log(`🔍 Item ${index}:`, {
+      //   tool_name: item.tool_name,
+      //   opensearch_doc_id: item.opensearch_doc_id,
+      //   content_preview: item.content?.substring(0, 100) + '...'
+      // });
       
       // Count based on tool_name
       if (item.tool_name === 'bda_indexer') {
@@ -664,6 +664,21 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
               
               if (dataStr === '[DONE]') {
                 console.log('🏁 Stream completed');
+                
+                // Mark current message as completed
+                if (currentMessageId) {
+                  setLocalMessages(prev => prev.map(msg => 
+                    msg.id === currentMessageId 
+                      ? { ...msg, isStreaming: false }
+                      : msg
+                  ));
+                }
+                
+                // Process any remaining buffer before exiting
+                if (buffer.trim()) {
+                  console.log('📦 Processing remaining buffer:', buffer);
+                  // Process remaining buffer here if needed
+                }
                 return;
               }
               
@@ -749,8 +764,7 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
                       const existingTool = currentContentItems.find(item => 
                         item.type === 'tool_use' && (
                           (toolUseId && item.id === toolUseId) ||
-                          (!toolUseId && item.name === chunk.name) ||
-                          (!toolUseId && !chunk.name && item.tempKey === toolUseKey)
+                          (item.tempKey === toolUseKey)
                         )
                       );
                       
@@ -763,38 +777,56 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
                       // Accumulate input if provided
                       if (chunk.input !== undefined) {
                         const currentInput = accumulatedToolInputs.get(toolUseKey) || '';
-                        accumulatedToolInputs.set(toolUseKey, currentInput + chunk.input);
+                        const newInput = currentInput + chunk.input;
+                        accumulatedToolInputs.set(toolUseKey, newInput);
+                        
+                        // Try to validate if the accumulated input forms valid JSON
+                        try {
+                          JSON.parse(newInput);
+                          // If valid JSON, we can use it directly
+                        } catch (error) {
+                          // Still accumulating, not complete JSON yet
+                          console.log(`⚠️ Accumulating tool input for ${toolUseKey}, length: ${newInput.length}`);
+                        }
                       }
                       
                       // Only create/update if we have meaningful data
                       if (chunk.name || accumulatedToolInputs.has(toolUseKey)) {
+                        const finalInput = accumulatedToolInputs.get(toolUseKey) || chunk.input || '';
                         const toolUse = {
                           id: toolUseId,
                           type: "tool_use" as const,
                           name: chunk.name || existingTool?.name || '도구 실행 중',
-                          input: accumulatedToolInputs.get(toolUseKey) || chunk.input || '',
+                          input: finalInput,
                           tempKey: toolUseKey,
                           timestamp: Date.now()
                         };
                         
-                        console.log('🔧 Processing tool_use chunk:', toolUse);
+                        console.log('🔧 Processing tool_use chunk:', {
+                          toolUseKey,
+                          chunkInput: chunk.input,
+                          accumulatedInput: accumulatedToolInputs.get(toolUseKey),
+                          finalInput: finalInput,
+                          inputLength: finalInput.length
+                        });
                         
-                        const updatedContentItems = [...currentContentItems];
-                        const existingIndex = updatedContentItems.findIndex(item => item.id === toolUseId);
-                        
-                        if (existingIndex >= 0) {
-                          updatedContentItems[existingIndex] = toolUse;
+                        // Compute next contentItems from the latest local snapshot, then set state once
+                        const nextContentItems = [...currentContentItems];
+                        const existingIndexLocal = nextContentItems.findIndex(item => item.id === toolUseId || item.tempKey === toolUseKey);
+                        if (existingIndexLocal >= 0) {
+                          nextContentItems[existingIndexLocal] = toolUse;
                         } else {
-                          updatedContentItems.push(toolUse);
+                          nextContentItems.push(toolUse);
                         }
-                        
-                        setLocalMessages(prev => prev.map(msg => 
-                          msg.id === currentMessageId 
-                            ? { ...msg, contentItems: updatedContentItems }
+
+                        setLocalMessages(prev => prev.map(msg => (
+                          msg.id === currentMessageId
+                            ? { ...msg, contentItems: nextContentItems }
                             : msg
-                        ));
-                        
-                        currentContentItems = updatedContentItems;
+                        )));
+
+                        // Sync local working array for subsequent chunk processing
+                        currentContentItems = nextContentItems;
                       }
                     }
                     

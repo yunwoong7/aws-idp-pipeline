@@ -3,6 +3,7 @@ from langchain_core.messages import BaseMessage
 from pydantic import BaseModel, Field
 from langgraph.graph.message import add_messages
 import operator
+import os
 
 def replace_tool_references(left: List[Dict[str, Any]], right: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
@@ -56,11 +57,11 @@ def manage_conversation_history(left: List[BaseMessage], right: List[BaseMessage
     # 4. 최종 메시지 구성: 시스템 메시지 + 일반 대화
     combined = final_system_messages + combined_conversation
     
-    # 5. 메시지 수 제한 (시스템 메시지는 제외하고 일반 대화만 제한)
-    MAX_CONVERSATION_MESSAGES = 10
-    if len(combined_conversation) > MAX_CONVERSATION_MESSAGES:
-        # 시스템 메시지는 유지하고 일반 대화만 제한
-        recent_conversation = combined_conversation[-MAX_CONVERSATION_MESSAGES:]
+    # 5. Message count limit (exclude system messages, limit only regular conversation)
+    max_messages = int(os.getenv("AGENT_MAX_CONVERSATION_MESSAGES", "10"))
+    if len(combined_conversation) > max_messages:
+        # Keep system messages and limit only regular conversation
+        recent_conversation = combined_conversation[-max_messages:]
         combined = final_system_messages + recent_conversation
     
     return combined

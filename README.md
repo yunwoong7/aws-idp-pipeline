@@ -104,8 +104,8 @@ You can set up your development environment in one of two ways. The Devcontainer
 
 | Method                      | Description                                                                                             | Guide                                             |
 | --------------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| **Devcontainer (Recommended)** | A fully containerized environment with all dependencies pre-installed. Requires Docker and VS Code. | [**Devcontainer Setup Guide**](docs/devcontainer_setup.md) |
-| **Manual Local Setup**      | Manually install dependencies on your local machine. For advanced users or specific needs.              | [**Manual Setup Guide**](docs/manual_setup.md)         |
+| **Manual Local Setup**      | Manually install dependencies on your local machine. For advanced users or specific needs.              | [**Manual Setup Guide**](docs/manual_setup.md) / [**Kor**](docs/manual_setup_kr.md)         |
+| **Devcontainer** | A fully containerized environment with all dependencies pre-installed. Requires Docker and VS Code. | [**Devcontainer Setup Guide**](docs/devcontainer_setup.md) / [**Kor**](docs/devcontainer_setup_kr.md) |
 
 After setting up your environment using one of the guides above, proceed with the infrastructure deployment.
 

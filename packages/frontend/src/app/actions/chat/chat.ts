@@ -119,36 +119,21 @@ function processChunk(
           console.log(`🔧 Updated tool accumulation for ${toolKey}: name="${existing.name}", input="${existing.input}"`);
         }
         
-        // check if it's a complete tool use (name and complete JSON input)
-        const accumulated = accumulatedToolUses.get(toolKey)!;
-        if (accumulated.name && accumulated.input) {
-          // check if JSON is complete
-          try {
-            JSON.parse(accumulated.input);
-            // create tool use item
-            const toolUseItem: ToolUseContentItem = {
-              id: accumulated.id,
-              type: 'tool_use',
-              name: accumulated.name,
-              input: accumulated.input,
-              timestamp: accumulated.timestamp,
-              requiresApproval: true, // all tools require approval
-              approved: false,
-              collapsed: true,
-            };
-            console.log('🔧 ✅ Enqueuing complete tool_use item:', toolUseItem);
-            console.log('🔧 ✅ Tool input content:', accumulated.input);
-            console.log('🔧 ✅ Tool input length:', accumulated.input.length);
-            controller.enqueue(toolUseItem);
-            
-            // remove from accumulated state
-            accumulatedToolUses.delete(toolKey);
-          } catch (e) {
-            // if JSON is incomplete, continue accumulation
-            console.log(`🔧 ⏳ Incomplete tool_use JSON for ${toolKey}, continuing accumulation: "${accumulated.input}"`);
-          }
-        } else {
-          console.log(`🔧 ⏳ Waiting for more tool data: name="${accumulated.name}", input="${accumulated.input}"`);
+        // Enqueue the current accumulated snapshot as a streaming update (no JSON parsing here)
+        {
+          const acc = accumulatedToolUses.get(toolKey)!;
+          const toolUseItem: ToolUseContentItem = {
+            id: acc.id, // keep id stable for this index
+            type: 'tool_use',
+            name: acc.name,
+            input: acc.input,
+            timestamp: acc.timestamp,
+            requiresApproval: false, // streaming updates do not request approval
+            approved: false,
+            collapsed: true,
+          };
+          console.log('🔧 ⏩ Enqueuing streaming tool_use snapshot:', toolUseItem);
+          controller.enqueue(toolUseItem);
         }
         break;
         

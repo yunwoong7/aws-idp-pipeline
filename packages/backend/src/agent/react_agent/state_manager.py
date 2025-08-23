@@ -6,6 +6,7 @@ import logging
 from typing import List, Any
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from .state.model import State
+from .config import config_manager
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,8 @@ def should_summarize(state: State) -> bool:
     Returns:
         whether summary is needed
     """
-    SUMMARIZATION_THRESHOLD = int(os.getenv("SUMMARIZATION_THRESHOLD", "12"))
+    config = config_manager.config
+    summarization_threshold = config.summarization_threshold
     
     current_count = len(state.messages)
     
@@ -30,8 +32,9 @@ def should_summarize(state: State) -> bool:
     
     # check if there are enough new messages since the last summary (minimum 6)
     messages_since_last_summary = current_count - state.last_summarization_at
+    minimum_new_messages = max(6, summarization_threshold // 2)  # Dynamic minimum based on threshold
     
-    return current_count >= SUMMARIZATION_THRESHOLD and messages_since_last_summary >= 6
+    return current_count >= summarization_threshold and messages_since_last_summary >= minimum_new_messages
 
 
 def get_messages_for_summarization(state: State) -> List[BaseMessage]:

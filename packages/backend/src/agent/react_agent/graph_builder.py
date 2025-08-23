@@ -20,6 +20,8 @@ from .state_manager import (
     create_summary_prompt,
     remove_image_data_from_content
 )
+from .error_handler import global_error_handler
+from .config import config_manager
 
 logger = logging.getLogger(__name__)
 
@@ -185,13 +187,19 @@ class GraphBuilder:
             async def call_model():
                 return await model_with_tools.ainvoke(prompt_messages)
             
-            response = await retry_with_backoff(call_model, max_retries=2, timeout=60.0)
+            config = config_manager.config
+            response = await retry_with_backoff(
+                call_model, 
+                max_retries=config.max_retries, 
+                timeout=config.model_timeout
+            )
             
         except Exception as e:
             logger.error(f"Model call failed: {str(e)}")
-            response = AIMessage(
-                content=f"Sorry, I couldn't find an answer within the specified number of steps. Please try again later. (Error: {str(e)})"
-            )
+            # Use error handler for better error management
+            context = {"thread_id": thread_id, "tools_count": len(tools), "prompt_size": len(str(prompt_messages))}
+            error_response = global_error_handler.handle_error(e, context)
+            response = error_response
 
         # if last step and tool calls are needed, process
         if state.is_last_step and response.tool_calls:

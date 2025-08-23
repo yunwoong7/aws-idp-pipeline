@@ -20,9 +20,13 @@ from .state.model import InputState, State
 from .prompt import prompt_manager
 from .checkpoint import init_checkpointer, cleanup_checkpointer_data
 from .graph_builder import GraphBuilder
+from .metrics import get_metrics
+from .logger_config import get_agent_logger
 from .conversation_manager import ConversationManager
 from .health_checker import MCPHealthChecker
-from .utils import normalize_content
+from .utils.core_utils import normalize_content
+from .error_handler import global_error_handler, handle_errors
+from .config import config_manager
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +38,7 @@ class ReactAgent:
     
     def __init__(self, model_id: str = "", max_tokens: int = 4096, mcp_json_path: str = "", reload_prompt: bool = False):
         """
-        Initialize ReactAgent
+        Initialize ReactAgent with improved configuration and error handling
         
         Args:
             model_id: Model ID to use
@@ -47,26 +51,59 @@ class ReactAgent:
         load_dotenv()
         tracer_provider = setup_phoenix()
         
-        # Model and default settings
-        self.model_id = model_id
-        self.mcp_json_path = mcp_json_path
-        self.model = get_llm(model_id=self.model_id, max_tokens=max_tokens, tracer_provider=tracer_provider)
-        self.debug_mode = os.getenv("DEBUG_MODE", "False").lower() == "true"
+        # Use configuration manager for settings
+        config = config_manager.config
+        if model_id:
+            config.model_id = model_id
+        if mcp_json_path:
+            config.mcp_json_path = mcp_json_path
+        if max_tokens != 4096:
+            config.max_tokens = max_tokens
+        
+        # Model and settings from config
+        self.config = config
+        self.model_id = config.model_id or model_id
+        self.mcp_json_path = config.mcp_json_path or mcp_json_path
+        self.model = get_llm(
+            model_id=self.model_id, 
+            max_tokens=config.max_tokens, 
+            tracer_provider=tracer_provider
+        )
+        self.debug_mode = config.debug_mode
+        self.error_handler = global_error_handler
 
-        # Clear prompt cache
+        # Clear prompt cache if requested
         if reload_prompt:
             prompt_manager.clear_cache()
             logger.info("Prompt cache cleared")
         
-        # Create instance of specialized class
-        self.mcp_service = MCPService(mcp_json_path)
+        # Create instances with configuration
+        self.mcp_service = MCPService(self.mcp_json_path)
         self.health_checker = MCPHealthChecker(self.mcp_service)
-        self.convo_manager = ConversationManager(debug_mode=self.debug_mode)
+        
+        # Use configuration for conversation manager
+        memory_config = config.get_memory_limits()
+        self.convo_manager = ConversationManager(
+            debug_mode=self.debug_mode,
+            max_threads=memory_config["max_threads"],
+            max_messages_per_thread=memory_config["max_messages_per_thread"]
+        )
         self.graph_builder = GraphBuilder(self.model, self.health_checker, self.mcp_service)
         
         # Runtime state
         self.checkpointer = None
         self.graph = None
+        
+        # Initialize metrics and logging
+        self.metrics = get_metrics()
+        self.agent_logger = get_agent_logger("ReactAgent")
+        
+        logger.info(f"ReactAgent initialized with config: threads={memory_config['max_threads']}, messages_per_thread={memory_config['max_messages_per_thread']}")
+        self.agent_logger.log_memory_usage(
+            memory_config['max_threads'], 
+            memory_config['max_messages_per_thread'], 
+            0
+        )
 
     async def startup(self):
         """
@@ -99,8 +136,10 @@ class ReactAgent:
                 
         except Exception as e:
             logger.error(f"ReactAgent start failed: {str(e)}")
-            # 헬스 상태 업데이트
+            # Update health status and handle error
             self.health_checker.set_unhealthy(str(e))
+            error_response = self.error_handler.handle_error(e, {"phase": "startup"})
+            logger.info(f"Error handled during startup: {error_response.content}")
             raise e
 
     async def shutdown(self):

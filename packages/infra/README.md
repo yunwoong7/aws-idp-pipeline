@@ -126,7 +126,7 @@ stateDiagram-v2
 
 ```
 
-## Deployment
+# Deployment
 
 For detailed deployment instructions, please refer to the setup guides in the root `docs` folder:
 - [**Devcontainer Setup Guide**](../../docs/devcontainer_setup.md) (Recommended)

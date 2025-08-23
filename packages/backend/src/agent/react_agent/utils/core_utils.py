@@ -1,55 +1,138 @@
 """
-ReAct Agent core utility functions
+ReAct Agent core utility functions - Enhanced version
 """
 import asyncio
 import logging
-from typing import List, Callable, Any
+import time
+import json
+import re
+from typing import List, Callable, Any, Dict, Optional, Union, TypeVar
 from pathlib import Path
-import os
+from functools import wraps
+from datetime import datetime
 from langchain_core.messages import BaseMessage, SystemMessage
 
 logger = logging.getLogger(__name__)
 
-# 타임아웃 및 재시도 설정 (환경변수에서 읽기)
-DEFAULT_TIMEOUT = float(os.getenv("DEFAULT_TIMEOUT", "300.0"))
-MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
-RETRY_DELAY = float(os.getenv("RETRY_DELAY", "1.0"))
+T = TypeVar('T')
 
 
-async def retry_with_backoff(
-    func: Callable, 
-    max_retries: int = MAX_RETRIES, 
-    delay: float = RETRY_DELAY, 
-    timeout: float = DEFAULT_TIMEOUT
-) -> Any:
-    """
-    지수 백오프를 사용한 재시도 로직
+class ContentNormalizer:
+    """Utility class for content normalization"""
     
-    Args:
-        func: 실행할 함수
-        max_retries: 최대 재시도 횟수
-        delay: 초기 지연 시간
-        timeout: 타임아웃 시간
+    @staticmethod
+    def normalize_content(content: Any) -> str:
+        """
+        Normalize various content types to string format - Enhanced version
         
-    Returns:
-        함수 실행 결과
-    """
-    for attempt in range(max_retries + 1):
-        try:
-            # 타임아웃 적용
-            result = await asyncio.wait_for(func(), timeout=timeout)
-            return result
-        except asyncio.TimeoutError:
-            logger.warning(f"Timeout occurred (attempt {attempt + 1}/{max_retries + 1})")
-            if attempt == max_retries:
-                raise Exception(f"Operation timed out after {max_retries + 1} attempts")
-        except Exception as e:
-            logger.warning(f"Error occurred (attempt {attempt + 1}/{max_retries + 1}): {str(e)}")
-            if attempt == max_retries:
-                raise e
+        Args:
+            content: Content to normalize (str, dict, list, etc.)
             
-            # 지수 백오프
-            await asyncio.sleep(delay * (2 ** attempt))
+        Returns:
+            Normalized string content
+        """
+        if content is None:
+            return ""
+        
+        if isinstance(content, str):
+            return content.strip()
+        
+        if isinstance(content, dict):
+            # Handle different dictionary structures
+            if "text" in content:
+                return str(content["text"]).strip()
+            elif "type" in content and content["type"] == "text" and "text" in content:
+                return str(content["text"]).strip()
+            else:
+                return str(content).strip()
+        
+        if isinstance(content, list):
+            # Extract text from list of content items
+            text_parts = []
+            for item in content:
+                if isinstance(item, dict):
+                    if item.get("type") == "text" and "text" in item:
+                        text_parts.append(str(item["text"]))
+                    elif "text" in item:
+                        text_parts.append(str(item["text"]))
+                elif isinstance(item, str):
+                    text_parts.append(item)
+                else:
+                    text_parts.append(str(item))
+            return " ".join(text_parts).strip()
+        
+        return str(content).strip()
+
+
+class RetryHandler:
+    """Enhanced retry handler with exponential backoff"""
+    
+    @staticmethod
+    async def retry_with_backoff(
+        func: Callable,
+        max_retries: int = 3,
+        base_delay: float = 1.0,
+        max_delay: float = 60.0,
+        exponential_base: float = 2.0,
+        timeout: Optional[float] = None,
+        exceptions: tuple = (Exception,)
+    ) -> Any:
+        """
+        Enhanced retry function with exponential backoff
+        
+        Args:
+            func: Function to retry
+            max_retries: Maximum number of retry attempts
+            base_delay: Base delay in seconds
+            max_delay: Maximum delay in seconds
+            exponential_base: Base for exponential backoff
+            timeout: Total timeout in seconds
+            exceptions: Exceptions to catch and retry on
+            
+        Returns:
+            Result of the function call
+            
+        Raises:
+            Last exception if all retries fail
+        """
+        last_exception = None
+        start_time = time.time()
+        
+        for attempt in range(max_retries + 1):
+            try:
+                # Check timeout
+                if timeout and (time.time() - start_time) > timeout:
+                    raise TimeoutError(f"Operation timed out after {timeout} seconds")
+                
+                # Apply timeout to individual call if specified
+                if timeout:
+                    remaining_time = timeout - (time.time() - start_time)
+                    if remaining_time <= 0:
+                        raise TimeoutError("No time remaining for retry")
+                    
+                    return await asyncio.wait_for(func(), remaining_time)
+                else:
+                    return await func()
+                        
+            except exceptions as e:
+                last_exception = e
+                
+                if attempt == max_retries:
+                    logger.error(f"All retry attempts failed. Last error: {str(e)}")
+                    raise e
+                
+                # Calculate delay with exponential backoff
+                delay = min(base_delay * (exponential_base ** attempt), max_delay)
+                logger.warning(f"Attempt {attempt + 1} failed: {str(e)}. Retrying in {delay:.2f}s")
+                
+                await asyncio.sleep(delay)
+        
+        if last_exception:
+            raise last_exception
+
+
+# Legacy support
+retry_with_backoff = RetryHandler.retry_with_backoff
 
 
 def manage_conversation_history(messages: List[BaseMessage], max_messages: int = 10) -> List[BaseMessage]:
@@ -92,20 +175,91 @@ def manage_conversation_history(messages: List[BaseMessage], max_messages: int =
     return final_messages
 
 
-def normalize_content(content: Any) -> str:
-    """
-    메시지 내용을 문자열로 정규화
+class ValidationUtils:
+    """Utility class for validation operations"""
     
-    Args:
-        content: 메시지 내용 (string, list, 또는 기타)
+    @staticmethod
+    def validate_thread_id(thread_id: str) -> bool:
+        """
+        Validate thread ID format
         
-    Returns:
-        정규화된 문자열 내용
-    """
-    if content is None:
-        return ""
+        Args:
+            thread_id: Thread ID to validate
+            
+        Returns:
+            True if valid, False otherwise
+        """
+        if not thread_id or not isinstance(thread_id, str):
+            return False
+        
+        # Basic validation: length and character set
+        if len(thread_id) < 1 or len(thread_id) > 100:
+            return False
+        
+        # Allow alphanumeric, hyphens, underscores
+        return bool(re.match(r'^[a-zA-Z0-9_-]+$', thread_id))
     
-    if isinstance(content, list):
-        return "".join(str(item) for item in content)
+    @staticmethod
+    def validate_message_content(content: Any) -> bool:
+        """
+        Validate message content
+        
+        Args:
+            content: Content to validate
+            
+        Returns:
+            True if valid, False otherwise
+        """
+        if content is None:
+            return False
+        
+        # Normalize and check if non-empty
+        normalized = ContentNormalizer.normalize_content(content)
+        return bool(normalized.strip())
+
+
+class PerformanceUtils:
+    """Utility class for performance monitoring"""
     
-    return str(content)
+    @staticmethod
+    def measure_execution_time(func: Callable) -> Callable:
+        """
+        Decorator to measure function execution time
+        
+        Args:
+            func: Function to measure
+            
+        Returns:
+            Decorated function
+        """
+        @wraps(func)
+        async def async_wrapper(*args, **kwargs):
+            start_time = time.time()
+            try:
+                result = await func(*args, **kwargs)
+                execution_time = time.time() - start_time
+                logger.debug(f"{func.__name__} executed in {execution_time:.3f}s")
+                return result
+            except Exception as e:
+                execution_time = time.time() - start_time
+                logger.debug(f"{func.__name__} failed after {execution_time:.3f}s: {e}")
+                raise
+        
+        @wraps(func)
+        def sync_wrapper(*args, **kwargs):
+            start_time = time.time()
+            try:
+                result = func(*args, **kwargs)
+                execution_time = time.time() - start_time
+                logger.debug(f"{func.__name__} executed in {execution_time:.3f}s")
+                return result
+            except Exception as e:
+                execution_time = time.time() - start_time
+                logger.debug(f"{func.__name__} failed after {execution_time:.3f}s: {e}")
+                raise
+        
+        return async_wrapper if asyncio.iscoroutinefunction(func) else sync_wrapper
+
+
+# Legacy support - maintain backward compatibility
+normalize_content = ContentNormalizer.normalize_content

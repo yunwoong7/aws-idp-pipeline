@@ -82,6 +82,7 @@ interface ToolUseContentItem {
     name: string;
     input: string;
     timestamp: number;
+    index?: number;
     collapsed?: boolean;
     requiresApproval?: boolean;
     approved?: boolean;
@@ -394,7 +395,7 @@ export function ChatInterface({
             // For other URL types, try to open directly
             window.open(fileUrl, '_blank');
         }
-    }, []);
+    }, [indexId]);
 
     const defaultCommandSuggestions = useMemo((): CommandSuggestion[] => commandSuggestions || [], [commandSuggestions]);
 
@@ -420,6 +421,84 @@ export function ChatInterface({
         }
         return undefined;
     }, [toolResultsList]);
+
+    const findLastResultBefore = useCallback((timestamp: number): ToolResultContentItem | undefined => {
+        let last: ToolResultContentItem | undefined = undefined;
+        for (let i = 0; i < toolResultsList.length; i++) {
+            const r = toolResultsList[i];
+            if (r.timestamp < timestamp) last = r;
+            else break;
+        }
+        return last;
+    }, [toolResultsList]);
+
+    // Extract the last balanced JSON object from a concatenated stream like "{}{}{".
+    const extractLastBalancedJsonObject = useCallback((input: string): string | null => {
+        if (!input) return null;
+        let inString = false;
+        let escaped = false;
+        let depth = 0;
+        let currentStart = -1;
+        let lastCompleteStart = -1;
+        let lastCompleteEnd = -1;
+
+        for (let i = 0; i < input.length; i++) {
+            const ch = input[i];
+
+            if (inString) {
+                if (escaped) {
+                    escaped = false;
+                } else if (ch === '\\') {
+                    escaped = true;
+                } else if (ch === '"') {
+                    inString = false;
+                }
+                continue;
+            } else {
+                if (ch === '"') {
+                    inString = true;
+                    continue;
+                }
+                if (ch === '{') {
+                    if (depth === 0) {
+                        currentStart = i;
+                    }
+                    depth++;
+                } else if (ch === '}') {
+                    if (depth > 0) depth--;
+                    if (depth === 0 && currentStart !== -1) {
+                        lastCompleteStart = currentStart;
+                        lastCompleteEnd = i;
+                        currentStart = -1;
+                    }
+                }
+            }
+        }
+
+        if (lastCompleteStart !== -1 && lastCompleteEnd !== -1 && lastCompleteEnd >= lastCompleteStart) {
+            return input.substring(lastCompleteStart, lastCompleteEnd + 1);
+        }
+        return null;
+    }, []);
+
+    // Aggregate tool_use inputs from the current item forward until a non-tool_use appears
+    const getAggregatedToolInputUntilNextBreak = useCallback((messageId: string, startItemIndex: number, toolIndex?: number): string => {
+        const msg = messages.find(m => m.id === messageId);
+        if (!msg || typeof startItemIndex !== 'number' || typeof toolIndex !== 'number') return '';
+        let result = '';
+        for (let i = startItemIndex; i < msg.contentItems.length; i++) {
+            const ci = msg.contentItems[i] as any;
+            if (!ci) break;
+            if (ci.type !== 'tool_use') break;
+            if (typeof ci.index === 'number' && ci.index === toolIndex) {
+                if (typeof ci.input === 'string') result += ci.input;
+                continue;
+            }
+            // Different tool_use index means different tool call; stop here
+            break;
+        }
+        return result;
+    }, [messages]);
 
     // Command Palette Logic
     useEffect(() => {
@@ -479,7 +558,8 @@ export function ChatInterface({
         toolResult?: ToolResultContentItem;
         resultCollapsed: boolean;
         onToggleResultCollapsed: () => void;
-    }> = ({ toolItem, messageId, shouldAnimate, isCollapsed, onToggleCollapsed, hasToolResult, toolResult, resultCollapsed, onToggleResultCollapsed }) => {
+        effectiveInput: string;
+    }> = ({ toolItem, messageId, shouldAnimate, isCollapsed, onToggleCollapsed, hasToolResult, toolResult, resultCollapsed, onToggleResultCollapsed, effectiveInput }) => {
 
         // Determine style based on tool execution completion
         // hasToolResult/toolResult are now passed from parent to stabilize identity
@@ -576,16 +656,38 @@ export function ChatInterface({
                                         <div className="w-5 h-5 rounded-full bg-gradient-to-r from-cyan-400 to-purple-500 flex items-center justify-center">
                                             <Wrench className="h-2.5 w-2.5 text-white" />
                                         </div>
-                                        <span className="text-xs font-semibold text-slate-200">실행 매개변수</span>
+                                        <span className="text-xs font-semibold text-slate-200">Run Parameters</span>
                                     </div>
                                     <div className="bg-black/50 backdrop-blur-sm rounded-lg p-3 border border-white/[0.05] mb-3">
                                         <pre className="text-xs text-cyan-300 whitespace-pre-wrap break-words font-mono leading-relaxed overflow-x-auto">
                                             {(() => {
+                                                const rawInput = effectiveInput || toolItem.input || '';
+                                                if (!rawInput.trim() || rawInput === '{}') {
+                                                    return '매개변수 없음';
+                                                }
+                                                
+                                                // During streaming, never parse; show raw as-is
+                                                if (isStreaming) {
+                                                    return rawInput;
+                                                }
+
                                                 try {
-                                                    const parsedInput = JSON.parse(toolItem.input || '{}');
+                                                    // If concatenated JSON objects exist, extract the last balanced one
+                                                    const candidate = extractLastBalancedJsonObject(rawInput) || rawInput;
+                                                    const parsedInput = JSON.parse(candidate);
+                                                    console.log('✅ JSON parsing successful, showing formatted params:', parsedInput);
                                                     return JSON.stringify(parsedInput, null, 2);
-                                                } catch {
-                                                    return toolItem.input;
+                                                } catch (jsonError: any) {
+                                                    // After streaming: Attempt simple repair; if still invalid, show raw
+                                                    let repaired = (extractLastBalancedJsonObject(rawInput) || rawInput).trim();
+                                                    if (!repaired.startsWith('{') && rawInput.trim().startsWith('{')) repaired = '{' + repaired;
+                                                    if (!repaired.endsWith('}') && rawInput.trim().endsWith('}')) repaired = repaired + '}';
+                                                    try {
+                                                        const repairedObj = JSON.parse(repaired);
+                                                        return JSON.stringify(repairedObj, null, 2);
+                                                    } catch {
+                                                        return rawInput;
+                                                    }
                                                 }
                                             })()}
                                         </pre>
@@ -642,6 +744,8 @@ export function ChatInterface({
         // Avoid re-render unless tool identity or visual state changes
         return (
             prev.toolItem.id === next.toolItem.id &&
+            prev.toolItem.input === next.toolItem.input && // Compare input changes for streaming updates
+            prev.effectiveInput === next.effectiveInput &&
             prev.isCollapsed === next.isCollapsed &&
             prev.shouldAnimate === next.shouldAnimate &&
             prev.hasToolResult === next.hasToolResult &&
@@ -682,6 +786,8 @@ export function ChatInterface({
             const resultCollapsed = getResultCollapsedForItem(toolItem);
             const toolResult = findResultAfter(toolItem.timestamp);
             const hasToolResult = !!toolResult;
+            const effIndex = typeof toolItem.index === 'number' ? toolItem.index : 0;
+            const effectiveInput = getAggregatedToolInputUntilNextBreak(messageId, index, effIndex) || toolItem.input || '';
             
             return (
                 <ToolUseItem
@@ -695,6 +801,7 @@ export function ChatInterface({
                     toolResult={toolResult}
                     resultCollapsed={resultCollapsed}
                     onToggleResultCollapsed={() => toggleResultCollapsedForItem(toolItem)}
+                    effectiveInput={effectiveInput}
                 />
             );
         }
@@ -1235,95 +1342,144 @@ export function ChatInterface({
                                         <MessageLoading />
                                     </div>
                                 )}
-                                                {message.contentItems.map((item, index) => {
-                                                    // Special handling for tool_use item
-                                                    if (item.type === 'tool_use' && onToolApproval) {
-                                                        const toolItem = item as ToolUseContentItem;
-                                                        
-                                                        return (
-                                                            <div key={item.id} className="mt-4 mb-4">
-                                                                <div className="bg-blue-900/20 rounded-md p-3 text-xs border border-blue-700/50 shadow-lg">
-                                                                    <div className="font-medium text-blue-300 mb-1 flex justify-between items-center">
-                                                                        <div className="flex items-center gap-2">
-                                                                            <Wrench className="h-4 w-4" />
-                                                                            <span>Tool use: {toolItem.name}</span>
-                                                                        </div>
-                                                                    </div>
-                                                                    
-                                                                                                                        {/* Approval button */}
-                                                    {toolItem.requiresApproval && !toolItem.approved && (
-                                                        <div className="mt-3 pt-3 border-t border-blue-700/30">
-                                                            <div className="flex items-center justify-between">
-                                                                <div className="flex items-center gap-2 text-blue-300">
-                                                                    <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
-                                                                    <span className="text-sm">Waiting for execution approval...</span>
-                                                                </div>
-                                                                <div className="flex gap-2">
-                                                                    <button 
-                                                                        className="bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/50 text-blue-300 hover:text-blue-200 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 flex items-center gap-1"
-                                                                        onClick={() => onToolApproval(toolItem, true)}
-                                                                    >
-                                                                        <span className="text-green-400">✓</span>
-                                                                        승인
-                                                                    </button>
-                                                                    <button 
-                                                                        className="bg-gray-600/20 hover:bg-gray-600/30 border border-gray-500/50 text-gray-300 hover:text-gray-200 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 flex items-center gap-1"
-                                                                        onClick={() => onToolApproval(toolItem, false)}
-                                                                    >
-                                                                        <span className="text-red-400">✗</span>
-                                                                        거부
-                                                                    </button>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                                    
-                                                                    {/* Tool parameters (only if not empty) */}
-                                                                    {(() => {
-                                                                        try {
-                                                                            const parsedInput = JSON.parse(toolItem.input || '{}');
-                                                                            const hasParams = Object.keys(parsedInput).length > 0;
-                                                                            
-                                                                            if (hasParams) {
-                                                                                return (
-                                                                                    <div className="mt-2 p-2 bg-gray-900/50 rounded border border-gray-800">
-                                                                                        <div className="text-xs text-blue-400 mb-1">Parameters:</div>
-                                                                                        <pre className="text-xs text-green-400 whitespace-pre-wrap break-all">
-                                                                                            {JSON.stringify(parsedInput, null, 2)}
-                                                                                        </pre>
-                                                                                    </div>
-                                                                                );
-                                                                            }
-                                                                            return null;
-                                                                        } catch {
-                                                                            // Display even if JSON parsing fails (if original text exists)
-                                                                            if (toolItem.input && toolItem.input.trim() !== '' && toolItem.input !== '{}') {
-                                                                                return (
-                                                                                    <div className="mt-2 p-2 bg-gray-900/50 rounded border border-gray-800">
-                                                                                        <div className="text-xs text-blue-400 mb-1">Parameters:</div>
-                                                                                        <pre className="text-xs text-green-400 whitespace-pre-wrap break-words overflow-x-auto">
-                                                                                            {toolItem.input}
-                                                                                        </pre>
-                                                                                    </div>
-                                                                                );
-                                                                            }
-                                                                            return null;
-                                                                        }
-                                                                    })()}
-                                                                </div>
-                                                            </div>
-                                                        );
-                                                    }
-                                                    
-                                                    // General content item handling
-                                                    return (
-                                                        <div key={item.id || `${message.id}-content-${index}`}>
-                                                            {renderContentItem ? 
-                                                                renderContentItem(item, index, !!message.isStreaming, message.id) :
-                                                                defaultRenderContentItem(item, index, !!message.isStreaming, message.id)}
-                                                        </div>
-                                                    );
-                                                })}
+                                               {(() => {
+                                                   // Identify last tool_result to aggregate following text chunks
+                                                   let lastToolResultIndex = -1;
+                                                   for (let i = 0; i < message.contentItems.length; i++) {
+                                                       const it = message.contentItems[i] as any;
+                                                       if (it && it.type === 'tool_result') lastToolResultIndex = i;
+                                                   }
+
+                                                   const trailingText = message.contentItems
+                                                       .slice(lastToolResultIndex + 1)
+                                                       .filter(ci => (ci as any).type === 'text')
+                                                       .map(ci => (ci as any).content || '')
+                                                       .join('');
+
+                                                   // Compute last occurrence index for each tool_use id to avoid duplicate snapshots
+                                                   const lastToolUseIndexById: Record<string, number> = {};
+                                                   for (let i = 0; i < message.contentItems.length; i++) {
+                                                       const it = message.contentItems[i] as any;
+                                                       if (it && it.type === 'tool_use' && typeof it.id === 'string') {
+                                                           lastToolUseIndexById[it.id] = i;
+                                                       }
+                                                   }
+ 
+                                                   return (
+                                                       <>
+                                                           {message.contentItems.map((item, index) => {
+                                                               // Skip trailing text items; we will render them combined below
+                                                               if (lastToolResultIndex >= 0 && index > lastToolResultIndex && (item as any).type === 'text') {
+                                                                   return null;
+                                                               }
+                                                               // Special handling for tool_use item
+                                                               if (item.type === 'tool_use' && onToolApproval) {
+                                                                   const toolItem = item as ToolUseContentItem;
+                                                                    // Overwrite semantics: only render the last snapshot of this tool_use id
+                                                                    if (toolItem.id && lastToolUseIndexById[toolItem.id] !== index) {
+                                                                        return null;
+                                                                    }
+                                                                   return (
+                                                                       <div key={item.id} className="mt-4 mb-4">
+                                                                           <div className="bg-blue-900/20 rounded-md p-3 text-xs border border-blue-700/50 shadow-lg">
+                                                                               <div className="font-medium text-blue-300 mb-1 flex justify_between items-center">
+                                                                                   <div className="flex items-center gap-2">
+                                                                                       <Wrench className="h-4 w-4" />
+                                                                                       <span>Tool use: {toolItem.name}</span>
+                                                                                   </div>
+                                                                               </div>
+                                                                               {/* Approval button */}
+                                                                               {toolItem.requiresApproval && !toolItem.approved && (
+                                                                                   <div className="mt-3 pt-3 border-t border-blue-700/30">
+                                                                                       <div className="flex items-center justify-between">
+                                                                                           <div className="flex items-center gap-2 text-blue-300">
+                                                                                               <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
+                                                                                               <span className="text-sm">Waiting for execution approval...</span>
+                                                                                           </div>
+                                                                                           <div className="flex gap-2">
+                                                                                               <button 
+                                                                                                   className="bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/50 text-blue-300 hover:text-blue-200 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 flex items-center gap-1"
+                                                                                                   onClick={() => onToolApproval(toolItem, true)}
+                                                                                               >
+                                                                                                   <span className="text-green-400">✓</span>
+                                                                                                   승인
+                                                                                               </button>
+                                                                                               <button 
+                                                                                                   className="bg-gray-600/20 hover:bg-gray-600/30 border border-gray-500/50 text-gray-300 hover:text-gray-200 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 flex items_center gap-1"
+                                                                                                   onClick={() => onToolApproval(toolItem, false)}
+                                                                                               >
+                                                                                                   <span className="text-red-400">✗</span>
+                                                                                                   거부
+                                                                                               </button>
+                                                                                           </div>
+                                                                                       </div>
+                                                                                   </div>
+                                                                               )}
+                                                                               {/* Tool parameters (only if not empty) */}
+                                                                               {(() => {
+                                                                                   const rawInput = toolItem.input || '';
+                                                                                   if (!rawInput.trim() || rawInput === '{}') {
+                                                                                       return null;
+                                                                                   }
+                                                                                   try {
+                                                                                       const parsedInput = JSON.parse(rawInput);
+                                                                                       const hasParams = Object.keys(parsedInput).length > 0;
+                                                                                       if (hasParams) {
+                                                                                           return (
+                                                                                               <div className="mt-2 p-2 bg-gray-900/50 rounded border border-gray-800">
+                                                                                                   <div className="text-xs text-blue-400 mb-1">Parameters:</div>
+                                                                                                   <pre className="text-xs text_green-400 whitespace-pre-wrap break-all">
+                                                                                                       {JSON.stringify(parsedInput, null, 2)}
+                                                                                                   </pre>
+                                                                                               </div>
+                                                                                           );
+                                                                                       }
+                                                                                       return null;
+                                                                                   } catch (jsonError) {
+                                                                                       const isStreaming = rawInput.includes('}{') || rawInput.endsWith('{') || (!rawInput.endsWith('}') && rawInput.startsWith('{'));
+                                                                                       if (isStreaming) {
+                                                                                           return (
+                                                                                               <div className="mt-2 p-2 bg-gray-900/50 rounded border border-gray-800">
+                                                                                                   <div className="text-xs text-blue-400 mb-1 flex items-center gap-2">
+                                                                                                       Parameters:
+                                                                                                       <div className="w-3 h-3 border border-blue-400 border-t-transparent rounded-full animate-spin"></div>
+                                                                                                   </div>
+                                                                                                   <div className="text-xs text-amber-400 italic">로딩 중...</div>
+                                                                                               </div>
+                                                                                           );
+                                                                                       } else {
+                                                                                           return (
+                                                                                               <div className="mt-2 p-2 bg-gray-900/50 rounded border border-gray-800">
+                                                                                                   <div className="text-xs text-blue-400 mb-1">Parameters:</div>
+                                                                                                   <pre className="text-xs text-green-400 whitespace-pre-wrap break-words overflow-x-auto">
+                                                                                                       {rawInput}
+                                                                                                   </pre>
+                                                                                               </div>
+                                                                                           );
+                                                                                       }
+                                                                                   }
+                                                                               })()}
+                                                                           </div>
+                                                                       </div>
+                                                                   );
+                                                               }
+                                                               // General content item handling
+                                                               return (
+                                                                   <div key={item.id || `${message.id}-content-${index}`}>
+                                                                       {renderContentItem ? 
+                                                                           renderContentItem(item, index, !!message.isStreaming, message.id) :
+                                                                           defaultRenderContentItem(item, index, !!message.isStreaming, message.id)}
+                                                                   </div>
+                                                               );
+                                                           })}
+                                                           {lastToolResultIndex >= 0 && trailingText && (
+                                                               <div className="mt-2">
+                                                                   <MarkdownRenderer content={trailingText} />
+                                                               </div>
+                                                           )}
+                                                       </>
+                                                   );
+                                               })()}
                                             </div>
                                             
                                                                         {/* Render References */}
