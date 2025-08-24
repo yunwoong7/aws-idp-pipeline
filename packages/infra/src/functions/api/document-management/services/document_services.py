@@ -108,14 +108,11 @@ def delete_documents_from_opensearch(index_id: str, document_id: str) -> None:
     
     try:
         # Check number of documents to delete first
+        # Many documents do not store 'index_id' as a field (index name already encodes it).
+        # Align with read paths that filter only by 'document_id' while specifying the index in API.
         count_query = {
             "query": {
-                "bool": {
-                    "must": [
-                        {"term": {"index_id": index_id}},
-                        {"term": {"document_id": document_id}}
-                    ]
-                }
+                "term": {"document_id": document_id}
             }
         }
         
@@ -134,20 +131,15 @@ def delete_documents_from_opensearch(index_id: str, document_id: str) -> None:
         # Delete related documents by project_id and document_id
         delete_query = {
             "query": {
-                "bool": {
-                    "must": [
-                        {"term": {"index_id": index_id}},
-                        {"term": {"document_id": document_id}}
-                    ]
-                }
+                "term": {"document_id": document_id}
             }
         }
         
         response = opensearch_client.delete_by_query(
             index=index_id,
             body=delete_query,
-            timeout='30s',  # Increase timeout to 30 seconds
-            wait_for_completion=True,  # Change to synchronous execution for result verification
+            request_timeout=30,  # numeric seconds; avoid '30s' string to fix ValueError
+            wait_for_completion=True,  # synchronous execution for verification
             refresh=True,
             conflicts='proceed'  # Continue even with conflicts
         )

@@ -52,6 +52,7 @@ export class IndicesManagementStack extends cdk.Stack {
     const indicesTable = props.indicesTable;
     const documentsTable = props.documentsTable;
     const segmentsTable = props.segmentsTable;
+    const documentsBucket = props.documentsBucket;
     const vpc = props.vpc;
     const commonLayer = props.commonLayer;
 
@@ -76,6 +77,7 @@ export class IndicesManagementStack extends cdk.Stack {
         INDICES_TABLE_NAME: indicesTable.tableName,
         DOCUMENTS_TABLE_NAME: documentsTable?.tableName || '',
         SEGMENTS_TABLE_NAME: segmentsTable?.tableName || '',
+        DOCUMENTS_BUCKET_NAME: documentsBucket?.bucketName || '',
         OPENSEARCH_ENDPOINT: props.opensearchEndpoint || '',
         OPENSEARCH_INDEX_NAME: props.opensearchIndex || 'aws-idp-ai-analysis',
         OPENSEARCH_REGION: cdk.Stack.of(this).region,
@@ -88,6 +90,15 @@ export class IndicesManagementStack extends cdk.Stack {
     lambdaConstruct.grantDynamoDBReadWrite(indicesTable);
     if (documentsTable) lambdaConstruct.grantDynamoDBReadWrite(documentsTable);
     if (segmentsTable) lambdaConstruct.grantDynamoDBReadWrite(segmentsTable);
+    if (documentsBucket) {
+      documentsBucket.grantReadWrite(this.indicesManagementLambda);
+      // Ensure ListBucket for prefix listing/deletion
+      this.indicesManagementLambda.addToRolePolicy(new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ['s3:ListBucket'],
+        resources: [documentsBucket.bucketArn],
+      }));
+    }
 
     // Grant OpenSearch permissions
     if (props.opensearchDomain) {
@@ -116,6 +127,8 @@ export class IndicesManagementStack extends cdk.Stack {
       { path: '/api/indices/{index_id}', methods: [apigw.HttpMethod.GET] },
       { path: '/api/indices/{index_id}', methods: [apigw.HttpMethod.PUT] },
       { path: '/api/indices/{index_id}', methods: [apigw.HttpMethod.DELETE] },
+      // Deep delete all resources related to an index
+      { path: '/api/indices/{index_id}/deep-delete', methods: [apigw.HttpMethod.POST] },
     ];
 
     new ApiGatewayRoutes(this, 'IndicesRoutes', {

@@ -10,7 +10,7 @@ import { SecureImage } from "@/components/ui/secure-image";
 import { motion, AnimatePresence } from "framer-motion";
 import { documentApi } from "@/lib/api";
 
-// SecureVideo 컴포넌트
+// SecureVideo component
 interface SecureVideoProps {
   s3Uri: string | null | undefined;
   indexId?: string;
@@ -82,7 +82,7 @@ const SecureVideo = ({ s3Uri, indexId, className = '', style }: SecureVideoProps
       <div className={`flex items-center justify-center ${className}`} style={style}>
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="h-8 w-8 animate-spin text-purple-400" />
-          <p className="text-white/60 text-sm">비디오 로딩 중...</p>
+          <p className="text-white/60 text-sm">Loading video...</p>
         </div>
       </div>
     );
@@ -93,7 +93,7 @@ const SecureVideo = ({ s3Uri, indexId, className = '', style }: SecureVideoProps
       <div className={`flex items-center justify-center ${className}`} style={style}>
         <div className="flex flex-col items-center gap-3">
           <Play className="h-12 w-12 text-white/40" />
-          <p className="text-white/60 text-sm">비디오를 불러올 수 없습니다</p>
+          <p className="text-white/60 text-sm">Failed to load video</p>
           {error && <p className="text-red-400 text-xs">{error}</p>}
         </div>
       </div>
@@ -110,7 +110,7 @@ const SecureVideo = ({ s3Uri, indexId, className = '', style }: SecureVideoProps
       <source src={presignedUrl} type="video/mp4" />
       <source src={presignedUrl} type="video/webm" />
       <source src={presignedUrl} type="video/ogg" />
-      비디오를 재생할 수 없습니다.
+      Failed to play video.
     </video>
   );
 };
@@ -342,7 +342,7 @@ export function DocumentPreview({
               className="cursor-pointer transform transition-all duration-300 hover:scale-[1.02]"
             >
               <PinContainer 
-                title="문서 선택" 
+                title="Select Document" 
                 href="#" 
                 containerClassName="h-64"
                 onClick={(e) => e.preventDefault()}
@@ -351,9 +351,9 @@ export function DocumentPreview({
                   <div className="w-16 h-16 rounded-full border-2 border-dashed border-purple-400/50 flex items-center justify-center mb-6">
                     <FileText className="w-8 h-8 text-purple-400/70" />
                   </div>
-                  <div className="text-xl font-semibold text-white mb-3">문서 선택</div>
-                  <div className="text-sm text-white/60 text-center max-w-[200px]">분석할 문서를 선택해주세요</div>
-                  <div className="mt-4 text-xs text-purple-400/80">클릭하여 선택</div>
+                  <div className="text-xl font-semibold text-white mb-3">Select Document</div>
+                  <div className="text-sm text-white/60 text-center max-w-[200px]">Select the document to analyze</div>
+                  <div className="mt-4 text-xs text-purple-400/80">Click to select</div>
                 </div>
               </PinContainer>
             </div>
@@ -383,7 +383,7 @@ export function DocumentPreview({
                 onClick={onDocumentSelect}
                 className="text-white/70 hover:text-white hover:bg-white/10"
               >
-                변경
+                Change
               </Button>
             </div>
 
@@ -416,7 +416,7 @@ export function DocumentPreview({
                           )}
                         </div>
                         <Badge variant="outline" className="text-cyan-300 border-cyan-400/30 bg-cyan-500/10 font-semibold text-sm px-2 py-0.5">
-                          {analysisLoading ? '로딩...' : `${allCounts.bda + allCounts.pdf + allCounts.ai}개`}
+                          {analysisLoading ? 'Loading...' : `${allCounts.bda + allCounts.pdf + allCounts.ai}개`}
                         </Badge>
                       </div>
                       
@@ -611,7 +611,7 @@ export function DocumentPreview({
                         variant="ghost"
                         onClick={onResetImage}
                         className="h-8 w-8 p-0 text-white/80 hover:text-white hover:bg-white/20"
-                        title="초기화"
+                        title="Reset"
                       >
                         <X className="h-4 w-4" />
                       </Button>
@@ -637,7 +637,7 @@ export function DocumentPreview({
                           className="cursor-pointer"
                           onClick={async () => {
                             if (imageZoom === 1) {
-                              // SecureImage 캐시에서 presigned URL 확인
+                              // Check SecureImage cache for presigned URL
                               const cache = (window as any).__secureImageCache__ as Map<string, { url: string; timestamp: number; expiration: number }>;
                               let presignedUrl = currentPageImageUrl;
                               
@@ -646,13 +646,13 @@ export function DocumentPreview({
                                 if (cached && cached.url) {
                                   presignedUrl = cached.url;
                                 } else {
-                                  // 캐시에 없으면 새로 요청
+                                  // If not in cache, request new presigned URL
                                   try {
                                     const response = await documentApi.getPresignedUrlFromS3Uri(currentPageImageUrl, 3600, indexId);
                                     presignedUrl = response.presigned_url;
                                   } catch (error) {
                                     console.error('Failed to get presigned URL for zoomed image:', error);
-                                    // 실패해도 원본 URL로 시도
+                                    // Try original URL even if failed to get presigned URL
                                   }
                                 }
                               }

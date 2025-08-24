@@ -12,13 +12,12 @@ import { AppSidebar } from "@/components/common/app-sidebar";
 import { CreateIndexDialog } from "@/components/common/create-index-dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { UploadNotificationContainer } from "@/components/ui/upload-notification";
-import { useUploadNotifications } from "@/hooks/use-upload-notifications";
-import { PlusCircle, Upload, Sparkles, ChevronDown, Layers } from "lucide-react";
+import { PlusCircle, Upload, Sparkles, ChevronDown, Layers, ArrowRight } from "lucide-react";
 import { GlowingEffect } from "@/components/ui/glowing-effect";
 import { ChatBackground } from "@/components/ui/chat-background";
+import { useAlert } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
-import { indicesApi } from "@/lib/api";
+import { indicesApi, documentApi } from "@/lib/api";
 
 type IndexItem = { index_id: string; index_name: string; description?: string; owner_name?: string; created_at?: string };
 
@@ -30,9 +29,39 @@ export default function StudioPage() {
   const [openCreate, setOpenCreate] = useState(false);
   const [loadingIndexes, setLoadingIndexes] = useState(true);
 
-  const { notifications, removeNotification } = useUploadNotifications({ maxNotifications: 3, autoRemove: true, autoRemoveDelay: 6000 });
   const [isDragActive, setIsDragActive] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [toastMessage, setToastMessage] = useState<{text: string, type: 'success' | 'error'} | null>(null);
   const fileInputId = "studio-file-input";
+  const { showError, AlertComponent } = useAlert();
+
+  // 지원되는 파일 형식 정의
+  const SUPPORTED_FILE_TYPES = {
+    // Documents
+    'application/pdf': ['.pdf'],
+    'application/msword': ['.doc'],
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+    'text/plain': ['.txt'],
+    
+    // Images
+    'image/png': ['.png'],
+    'image/jpeg': ['.jpg', '.jpeg'],
+    'image/gif': ['.gif'],
+    'image/tiff': ['.tiff', '.tif'],
+    
+    // Videos
+    'video/mp4': ['.mp4'],
+    'video/quicktime': ['.mov'],
+    'video/x-msvideo': ['.avi'],
+    
+    // Audio
+    'audio/mpeg': ['.mp3'],
+    'audio/wav': ['.wav'],
+    'audio/flac': ['.flac'],
+  };
+
+  const SUPPORTED_EXTENSIONS = Object.values(SUPPORTED_FILE_TYPES).flat();
+  const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB
 
   useEffect(() => {
     let mounted = true;
@@ -60,6 +89,170 @@ export default function StudioPage() {
   }, []);
 
   const selectedIndex = useMemo(() => indexes.find(i => i.index_id === selectedIndexId) || null, [indexes, selectedIndexId]);
+
+  // Simple toast function
+  const showToast = (text: string, type: 'success' | 'error') => {
+    console.log(`🍞 Showing toast: ${text} (${type})`);
+    setToastMessage({ text, type });
+    setTimeout(() => {
+      console.log('🍞 Hiding toast');
+      setToastMessage(null);
+    }, 4000);
+  };
+
+  // 파일 검증 함수
+  const validateFiles = (files: File[]) => {
+    const invalidFiles: string[] = [];
+    const oversizedFiles: string[] = [];
+    
+    files.forEach(file => {
+      // 파일 크기 검증
+      if (file.size > MAX_FILE_SIZE) {
+        oversizedFiles.push(file.name);
+        return;
+      }
+      
+      // 파일 형식 검증
+      const extension = '.' + file.name.split('.').pop()?.toLowerCase();
+      const isValidType = file.type && Object.keys(SUPPORTED_FILE_TYPES).includes(file.type);
+      const isValidExtension = SUPPORTED_EXTENSIONS.includes(extension);
+      
+      if (!isValidType && !isValidExtension) {
+        invalidFiles.push(file.name);
+      }
+    });
+    
+    return { invalidFiles, oversizedFiles };
+  };
+
+  // Handle file upload
+  const handleFileUpload = async (files: File[]) => {
+    if (!selectedIndexId || files.length === 0) return;
+
+    // 파일 검증
+    const { invalidFiles, oversizedFiles } = validateFiles(files);
+    
+    if (invalidFiles.length > 0) {
+      const fileList = invalidFiles.join(', ');
+      console.log(`❌ Invalid file types detected: ${fileList}`);
+      showError(
+        'Unsupported File Type',
+        `The following files are not supported: ${fileList}\n\nSupported formats: PDF, DOC/DOCX, TXT, PNG, JPG, GIF, TIFF, MP4, MOV, AVI, MP3, WAV, FLAC`
+      );
+      return Promise.reject(new Error('Invalid file types'));
+    }
+    
+    if (oversizedFiles.length > 0) {
+      const fileList = oversizedFiles.join(', ');
+      console.log(`❌ Oversized files detected: ${fileList}`);
+      showError(
+        'File Too Large',
+        `The following files exceed the 500MB limit: ${fileList}`
+      );
+      return Promise.reject(new Error('Files too large'));
+    }
+
+    setIsUploading(true);
+    const uploadResults = [];
+
+    for (const file of files) {
+      try {
+        console.log(`📤 Starting upload: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+
+        // Generate upload URL
+        const uploadData = await documentApi.generateUnifiedUploadUrl({
+          file_name: file.name,
+          file_size: file.size,
+          file_type: file.type || 'application/octet-stream',
+          description: `Uploaded via Studio`,
+          index_id: selectedIndexId
+        });
+
+        // Upload to S3 (no progress notifications)
+        await documentApi.uploadFileToS3(
+          uploadData.upload_url,
+          file,
+          uploadData.content_type
+        );
+
+        // Notify upload completion
+        await documentApi.completeLargeFileUpload(uploadData.document_id);
+
+        // Show success notification only after completion
+        showToast(`${file.name} uploaded successfully`, 'success');
+
+        uploadResults.push({
+          success: true,
+          fileName: file.name,
+          documentId: uploadData.document_id
+        });
+
+      } catch (error) {
+        console.error(`❌ Upload failed for ${file.name}:`, error);
+        
+        // Show error notification only on failure
+        showToast(`Failed to upload ${file.name}`, 'error');
+
+        uploadResults.push({
+          success: false,
+          fileName: file.name,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }
+
+    setIsUploading(false);
+    
+    const successCount = uploadResults.filter(r => r.success).length;
+    const failCount = uploadResults.length - successCount;
+    
+    console.log(`📊 Upload completed: ${successCount} success, ${failCount} failed`);
+    
+    return Promise.resolve({ successCount, failCount });
+  };
+
+  // Handle file input change
+  const handleFileInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    
+    // Always reset input value first to prevent issues
+    const resetInput = () => {
+      event.target.value = '';
+    };
+    
+    if (files.length > 0) {
+      console.log(`📁 Files selected: ${files.map(f => f.name).join(', ')}`);
+      handleFileUpload(files)
+        .then(() => {
+          console.log('📤 Upload process completed');
+        })
+        .catch((error) => {
+          console.error('📤 Upload process failed:', error);
+        })
+        .finally(() => {
+          resetInput();
+        });
+    } else {
+      resetInput();
+    }
+  };
+
+  // Handle drag and drop
+  const handleDrop = (event: React.DragEvent) => {
+    event.preventDefault();
+    setIsDragActive(false);
+    
+    if (!selectedIndex) return;
+
+    const files = Array.from(event.dataTransfer.files);
+    if (files.length > 0) {
+      handleFileUpload(files);
+    }
+  };
+
+  const handleDragOver = (event: React.DragEvent) => {
+    event.preventDefault();
+  };
 
   const handleCreateSuccess = (createdIndex: any) => {
     const newIndex: IndexItem = {
@@ -145,7 +338,7 @@ export default function StudioPage() {
                   <div className="w-full mb-3">
                     <Label className="flex items-center gap-2 font-medium select-none group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50 text-white/80 text-sm">Select index</Label>
                   </div>
-                  {/* Row 2: Select + Create button inline */}
+                  {/* Row 2: Select + Create + Go to Workspace buttons inline */}
                   <div className="flex items-center justify-center gap-3">
                     <div className="relative group rounded-2xl">
                       {/* Gradient ring */}
@@ -173,12 +366,21 @@ export default function StudioPage() {
                         <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
                       </div>
                     </div>
-                    <Button
-                      onClick={() => setOpenCreate(true)}
-                      className="inline-flex items-center justify-center whitespace-nowrap text-sm font-medium disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive border shadow-xs dark:bg-input/30 dark:border-input dark:hover:bg-input/50 h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5 bg-transparent border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/20 hover:border-emerald-400 hover:text-emerald-300 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <PlusCircle className="h-4 w-4" /> Create an index
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={() => selectedIndexId && router.push(`/workspace?index_id=${selectedIndexId}`)}
+                        disabled={!selectedIndexId}
+                        className="inline-flex items-center justify-center whitespace-nowrap text-sm font-medium disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive border shadow-xs dark:bg-input/30 dark:border-input dark:hover:bg-input/50 h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5 bg-transparent border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/20 hover:border-cyan-400 hover:text-cyan-300 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <ArrowRight className="h-4 w-4" /> Go to Workspace
+                      </Button>
+                      <Button
+                        onClick={() => setOpenCreate(true)}
+                        className="inline-flex items-center justify-center whitespace-nowrap text-sm font-medium disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive border shadow-xs dark:bg-input/30 dark:border-input dark:hover:bg-input/50 h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5 bg-transparent border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/20 hover:border-emerald-400 hover:text-emerald-300 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <PlusCircle className="h-4 w-4" /> Create an index
+                      </Button>
+                    </div>
                   </div>
                   {indexes.length === 0 && (
                     <p className="text-emerald-300/80 text-sm mt-3">
@@ -224,29 +426,67 @@ export default function StudioPage() {
                 <div
                   onDragEnter={() => setIsDragActive(true)}
                   onDragLeave={() => setIsDragActive(false)}
+                  onDragOver={handleDragOver}
+                  onDrop={handleDrop}
                   className={cn(
                     "relative rounded-2xl border-2 border-dashed p-10 text-center min-h-[240px] cursor-pointer mt-6",
                     "bg-black/30 border-white/20 hover:border-cyan-400/50 hover:bg-cyan-500/5",
                     isDragActive && selectedIndex && "border-cyan-400 bg-cyan-500/10",
-                    !selectedIndex && "opacity-50 cursor-not-allowed pointer-events-none"
+                    (!selectedIndex || isUploading) && "opacity-50 cursor-not-allowed pointer-events-none"
                   )}
-                  onClick={() => selectedIndex && document.getElementById(fileInputId)?.click()}
+                  onClick={() => !isUploading && selectedIndex && document.getElementById(fileInputId)?.click()}
                 >
                   <GlowingEffect variant="blue" proximity={110} spread={48} borderWidth={2} movementDuration={2} className="opacity-40" />
-                  <input id={fileInputId} type="file" multiple className="hidden" />
+                  <input 
+                    id={fileInputId} 
+                    type="file" 
+                    multiple 
+                    className="hidden"
+                    accept={SUPPORTED_EXTENSIONS.join(',')}
+                    onChange={handleFileInputChange}
+                    disabled={isUploading}
+                  />
                   <Upload className="h-10 w-10 text-slate-300 mx-auto mb-3" />
-                  <p className="text-base md:text-lg font-medium text-white mb-2">Drag and drop files or click to upload</p>
-                  <p className="text-sm text-slate-400">PDF, Images, Videos, Audio (Max 2GB)</p>
+                  <p className="text-base md:text-lg font-medium text-white mb-2">
+                    {isUploading ? "Uploading files..." : "Drag and drop files or click to upload"}
+                  </p>
+                  <p className="text-sm text-slate-400 mb-2">
+                    Supports documents (PDF, DOC, TXT), images (PNG, JPG, GIF, TIFF), videos (MP4, MOV, AVI), and audio files (MP3, WAV, FLAC) up to 500MB
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    All files are uploaded directly to secure cloud storage
+                  </p>
                   <div className="mt-4 flex gap-3 justify-center">
-                    <Button variant="secondary" disabled={!selectedIndex} className="bg-white/10 border-white/20 text-white hover:bg-white/15 disabled:opacity-50 disabled:cursor-not-allowed">Browse files</Button>
-                    <Button disabled={!selectedIndex} className="bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 disabled:cursor-not-allowed">Upload Files</Button>
+                    <Button 
+                      variant="secondary" 
+                      disabled={!selectedIndex || isUploading} 
+                      className="bg-white/10 border-white/20 text-white hover:bg-white/15 disabled:opacity-50 disabled:cursor-not-allowed"
+                      onClick={() => !isUploading && selectedIndex && document.getElementById(fileInputId)?.click()}
+                    >
+                      {isUploading ? "Uploading..." : "Browse files"}
+                    </Button>
                   </div>
-                  {!selectedIndex && (<p className="text-amber-300/80 text-sm mt-3">Please create an index first</p>)}
+                  {!selectedIndex && (<p className="text-amber-300/80 text-sm mt-3">Please select an index first</p>)}
+                  {isUploading && (<p className="text-cyan-300/80 text-sm mt-3">Processing your files...</p>)}
                 </div>
               )}
             </div>
 
-            <UploadNotificationContainer notifications={notifications} onDismiss={removeNotification} position="top-right" maxNotifications={3} />
+            {/* Simple Toast */}
+            {toastMessage && (
+              <div className={`fixed top-6 right-6 z-[9999] p-4 rounded-xl shadow-2xl border transition-all duration-300 transform min-w-[300px] max-w-md ${
+                toastMessage.type === 'success' 
+                  ? 'bg-green-600 text-white border-green-500 shadow-green-600/20' 
+                  : 'bg-red-600 text-white border-red-500 shadow-red-600/20'
+              }`}>
+                <div className="flex items-center gap-3">
+                  <div className={`w-2 h-2 rounded-full ${
+                    toastMessage.type === 'success' ? 'bg-green-300' : 'bg-red-300'
+                  }`} />
+                  <span className="font-medium">{toastMessage.text}</span>
+                </div>
+              </div>
+            )}
           </div>
         </SidebarInset>
       </SidebarProvider>
@@ -256,6 +496,8 @@ export default function StudioPage() {
         onClose={() => setOpenCreate(false)} 
         onSuccess={handleCreateSuccess} 
       />
+
+      {AlertComponent}
 
     </div>
   );

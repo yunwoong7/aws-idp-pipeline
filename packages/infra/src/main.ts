@@ -142,6 +142,7 @@ new IndicesManagementStack(app, getFullStackName('indices-management'), {
   indicesTable: dynamoDBStack.indicesTable,
   documentsTable: dynamoDBStack.documentsTable,
   segmentsTable: dynamoDBStack.segmentsTable,
+  documentsBucket: s3Stack.documentsBucket,
   opensearchEndpoint: opensearchStack.domainEndpoint,
   opensearchIndex: opensearchConfig.indexName,
   opensearchDomain: opensearchStack.domain,

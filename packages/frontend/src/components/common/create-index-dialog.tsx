@@ -91,9 +91,9 @@ export function CreateIndexDialog({ isOpen, onClose, onSuccess }: CreateIndexDia
 
           {/* Right panel (form) */}
           <div className="flex-1 bg-gradient-to-br from-gray-900/90 via-slate-900/90 to-gray-800/90 backdrop-blur-xl p-8 overflow-y-auto">
-            <div className="max-w-md mx-auto">
+            <div className="max-w-md mx-auto h-full">
               {success ? (
-                <div className="flex flex-col items-center justify-center min-h-[400px]">
+                <div className="flex flex-col items-center justify-center h-full">
                   <div className="text-center space-y-6">
                     <div className="relative">
                       <div className="rounded-full bg-green-500/20 p-6 animate-bounce border border-green-400/30">

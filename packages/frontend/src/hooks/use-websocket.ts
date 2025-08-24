@@ -179,8 +179,8 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
             onMessage?.(message);
           }
         } catch (err) {
-          console.error('WebSocket: Failed to parse message', err);
-          setError('메시지 파싱 실패');
+          console.warn('WebSocket: Failed to parse message', err);
+          // 메시지 파싱 실패는 심각한 에러가 아니므로 에러 상태 설정하지 않음
         }
       };
 
@@ -237,33 +237,27 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
 
       ws.onerror = (event) => {
         clearTimeout(connectionTimeout);
-        console.error('WebSocket: Connection failed', {
+        // console.error 대신 console.warn 사용하여 브라우저 에러 방지
+        console.warn('WebSocket: Connection failed', {
           url: getWebSocketUrl(),
           readyState: ws.readyState,
-          event,
-          timestamp: new Date().toISOString(),
-          userAgent: navigator.userAgent
+          timestamp: new Date().toISOString()
         });
         
-        // 더 자세한 에러 정보 로깅
-        if (event instanceof ErrorEvent) {
-          console.error('WebSocket ErrorEvent:', {
-            message: event.message,
-            filename: event.filename,
-            lineno: event.lineno,
-            colno: event.colno,
-            error: event.error
-          });
-        }
-        
+        // 에러 상태만 조용히 설정
         setError(`WebSocket 연결 실패: ${ws.readyState === 3 ? 'CLOSED' : 'UNKNOWN_STATE'}`);
         setIsConnecting(false);
         
-        onError?.(event);
+        // onError 콜백도 에러를 throw하지 않도록 안전하게 처리
+        try {
+          onError?.(event);
+        } catch (err) {
+          // 콜백 에러도 조용히 처리
+        }
       };
 
     } catch (err) {
-      console.error('WebSocket: Connection failed', err);
+      console.warn('WebSocket: Connection failed', err);
       setError('WebSocket 연결 실패');
       setIsConnecting(false);
     }
@@ -276,7 +270,8 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     onConnect,
     onDisconnect,
     onError,
-    onMessage
+    onMessage,
+    enabled
   ]);
 
   // WebSocket 연결 해제
@@ -311,17 +306,19 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
         wsRef.current.send(JSON.stringify(message));
         console.log('WebSocket: Message sent', message);
       } catch (err) {
-        console.error('WebSocket: Failed to send message', err);
-        setError('메시지 전송 실패');
+        console.warn('WebSocket: Failed to send message', err);
+        // 메시지 전송 실패는 일시적 문제일 수 있으므로 에러 상태 설정하지 않음
       }
     } else {
       console.warn('WebSocket: Cannot send message - not connected');
-      setError('WebSocket이 연결되지 않았습니다');
+      // 연결되지 않은 상태에서의 메시지 전송 시도는 에러 상태 설정하지 않음
     }
   }, []);
 
   // 인덱스 변경 시 재연결
   useEffect(() => {
+    let isCancelled = false;
+    
     if (enabled && autoConnect && indexId) {
       // 이미 같은 인덱스로 연결되어 있으면 재연결하지 않음
       const currentUrl = getWebSocketUrl();
@@ -338,15 +335,24 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       
       // 새 인덱스로 연결 (디바운스)
       const timer = setTimeout(() => {
-        console.log('WebSocket: Connecting to new index:', indexId);
-        connect();
+        if (!isCancelled) {
+          console.log('WebSocket: Connecting to new index:', indexId);
+          connect();
+        }
       }, 500); // 500ms 지연으로 빠른 재연결 방지
       
-      return () => clearTimeout(timer);
+      return () => {
+        isCancelled = true;
+        clearTimeout(timer);
+      };
     } else if (!indexId || !enabled) {
       // 인덱스가 없거나 비활성화되면 연결 해제
       disconnect();
     }
+    
+    return () => {
+      isCancelled = true;
+    };
   }, [indexId, autoConnect, enabled]);
 
   // 컴포넌트 언마운트 시 정리

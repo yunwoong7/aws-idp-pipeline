@@ -8,7 +8,7 @@ import {
     SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/common/app-sidebar";
-import { ArrowLeft, FileText, BarChart3, Search, AlertCircle } from "lucide-react";
+import { ArrowLeft, FileText, BarChart3, Search, AlertCircle, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAlert } from "@/components/ui/alert";
@@ -42,6 +42,25 @@ interface PersistentAnalysisState {
     isChatStarted: boolean;
 }
 
+// Search tab state interface (from search-tab.tsx)
+interface SearchMessage {
+    id: string;
+    sender: "user" | "ai";
+    content: string;
+    timestamp: number;
+    plan?: any;
+    references?: any[];
+    isStreaming?: boolean;
+}
+
+interface PersistentSearchState {
+    messages: SearchMessage[];
+    input: string;
+    currentPhase: "idle" | "planning" | "executing" | "responding";
+    toolCollapsed: Record<string, boolean>;
+    isChatStarted: boolean;
+}
+
 function WorkspacePageContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -49,7 +68,7 @@ function WorkspacePageContent() {
     const { showInfo, AlertComponent } = useAlert();
     
     // Tab state
-    const [activeTab, setActiveTab] = useState<'documents' | 'analysis' | 'search'>('documents');
+    const [activeTab, setActiveTab] = useState<'documents' | 'analysis' | 'search' | 'chat'>('documents');
     
     // PDF viewer state
     const [showPdfViewer, setShowPdfViewer] = useState(false);
@@ -69,20 +88,27 @@ function WorkspacePageContent() {
         isChatStarted: false,
     });
 
+    // Persistent state for Search tab (survives tab switches)
+    const [persistentSearchState, setPersistentSearchState] = useState<PersistentSearchState>({
+        messages: [],
+        input: "",
+        currentPhase: "idle",
+        toolCollapsed: {},
+        isChatStarted: false,
+    });
+
     // Update handlers for persistent state
     const updateAnalysisState = useCallback((updates: Partial<PersistentAnalysisState>) => {
         setPersistentAnalysisState(prev => ({ ...prev, ...updates }));
     }, []);
 
+    const updateSearchState = useCallback((updates: Partial<PersistentSearchState>) => {
+        setPersistentSearchState(prev => ({ ...prev, ...updates }));
+    }, []);
+
     // Handle tab change - preserve document state, optionally clear chat
     const handleTabChange = useCallback((newTab: 'documents' | 'analysis' | 'search') => {
         console.log('🔄 Changing tab from', activeTab, 'to', newTab);
-        
-        // Show not implemented dialog for search tab
-        if (newTab === 'search') {
-            showInfo('Feature Not Implemented', 'The Search feature is currently under development and will be available in a future update.');
-            return;
-        }
         
         // Option 1: Keep everything persistent (current implementation)
         // Option 2: Clear only chat messages when leaving analysis tab
@@ -345,6 +371,7 @@ function WorkspacePageContent() {
                                         <span className="font-medium text-xs">Search</span>
                                     </div>
                                 </button>
+
                             </div>
 
                             {selectedIndexId && (
@@ -400,6 +427,8 @@ function WorkspacePageContent() {
                                                     indexId={selectedIndexId}
                                                     onOpenPdf={handlePdfClick}
                                                     onAttachToChat={handleAttachPage}
+                                                    persistentState={persistentSearchState}
+                                                    onStateUpdate={updateSearchState}
                                                 />
                                             </TabsContent>
                                         </>

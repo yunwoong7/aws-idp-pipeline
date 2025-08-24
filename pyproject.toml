@@ -12,6 +12,7 @@ dependencies = [
     "colorama>=0.4.6",
     "fastapi>=0.116.0",
     "ipykernel>=6.29.5",
+    "langchain>=0.3.27",
     "langchain-aws>=0.2.27",
     "langchain-core>=0.3.68",
     "langchain-mcp-adapters>=0.1.9",

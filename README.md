@@ -29,7 +29,7 @@ Transform unstructured data into actionable insights with our advanced AI-powere
 
 ### Application Demo
 
-For a visual walkthrough of the application's key features, see the [**Application Demo**](docs/DEMO.md).
+For a visual walkthrough of the application's key features, see the [**Application Demo**](docs/demo.md).
 
 ---
 

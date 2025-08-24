@@ -13,6 +13,8 @@ import { UploadNotificationContainer } from "@/components/ui/upload-notification
 import { useUploadNotifications } from "@/hooks/use-upload-notifications";
 import { PlusCircle } from "lucide-react";
 import { indicesApi } from "@/lib/api";
+import { Trash2 } from "lucide-react";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ChatBackground } from "@/components/ui/chat-background";
 import { PinContainer } from "@/components/ui/3d-pin";
 
@@ -33,6 +35,8 @@ export default function IndexesPage() {
   const [openCreate, setOpenCreate] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmTargetId, setConfirmTargetId] = useState<string | null>(null);
 
   // Upload notification (re-use existing tone)
   const { notifications, removeNotification } = useUploadNotifications({ maxNotifications: 3, autoRemove: true, autoRemoveDelay: 6000 });
@@ -58,6 +62,26 @@ export default function IndexesPage() {
   const handleCreateSuccess = (createdIndex: IndexItem) => {
     setIndexes(prev => [createdIndex, ...prev]);
     setOpenCreate(false);
+  };
+
+  const handleDeleteClick = (indexId: string) => {
+    setConfirmTargetId(indexId);
+    setConfirmOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!confirmTargetId) return;
+    try {
+      const result = await indicesApi.deepDelete(confirmTargetId);
+      console.log('Deep delete result:', result);
+      setIndexes(prev => prev.filter(i => i.index_id !== confirmTargetId));
+    } catch (e: any) {
+      console.error(e);
+      // 간단 알림
+      alert(e?.message || 'Failed to delete index');
+    } finally {
+      setConfirmTargetId(null);
+    }
   };
 
   return (
@@ -131,6 +155,13 @@ export default function IndexesPage() {
                       <div className="flex items-center gap-2">
                         <div className="size-3 rounded-full bg-emerald-500" />
                         <div className="text-xs text-slate-400">{idx.status || 'active'}</div>
+                        <button
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDeleteClick(idx.index_id); }}
+                          title="Delete index"
+                          className="ml-auto inline-flex items-center justify-center w-6 h-6 rounded border border-white/10 hover:bg-white/10 text-white/70 hover:text-red-300"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                       <div className="flex-1 mt-4 space-y-3">
                         <div className="text-xl font-bold text-slate-100">{idx.index_id}</div>
@@ -164,6 +195,17 @@ export default function IndexesPage() {
         isOpen={openCreate} 
         onClose={() => setOpenCreate(false)} 
         onSuccess={handleCreateSuccess} 
+      />
+
+      <ConfirmDialog
+        isOpen={confirmOpen}
+        onClose={() => { setConfirmOpen(false); setConfirmTargetId(null); }}
+        onConfirm={handleConfirmDelete}
+        title="Delete index"
+        message={`Delete index "${confirmTargetId || ''}" and all its documents, segments and files? This action cannot be undone.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+        variant="destructive"
       />
     </div>
   );

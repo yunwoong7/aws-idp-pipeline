@@ -4,6 +4,7 @@ import json
 from boto3.dynamodb.conditions import Key
 import logging
 from typing import Dict, Any
+import boto3
 
 # Add parent directory to Python path for Lambda environment
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -12,6 +13,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from common import (
     DynamoDBService,
     OpenSearchService,
+    S3Service,
     generate_uuid, 
     get_current_timestamp
 )
@@ -221,4 +223,156 @@ def handle_index_delete(index_id: str):
         logger.error(f"Failed to delete index {index_id}: {str(e)}")
         return create_internal_error_response(str(e))
 
+
+def handle_index_deep_delete(index_id: str):
+    """Deep delete an index and all related resources.
+    Steps:
+    1) Delete all documents in DynamoDB (documents table) for index_id
+       - For each document: delete its S3 file (file_uri)
+    2) Delete all segments in DynamoDB (segments table) for the same index (via DocumentIdIndex per document)
+       - For each segment: delete its S3 image (image_uri)
+    3) Delete item from indices table
+    4) Delete OpenSearch index for index_id
+    Returns counts per resource.
+    """
+    try:
+        if not index_id:
+            return create_validation_error_response('index_id is required')
+
+        logger.info(f"Deep deleting index: {index_id}")
+
+        s3svc = S3Service()
+        observed_bucket = ''
+
+        deleted_docs = 0
+        deleted_segments = 0
+        deleted_doc_files = 0
+        deleted_seg_images = 0
+        deleted_s3_objects = 0
+
+        # 1) Iterate documents by GSI IndexId
+        try:
+            docs_table = db.tables['documents']
+            last_evaluated_key = None
+            while True:
+                kwargs = {
+                    'IndexName': 'IndexId',
+                    'KeyConditionExpression': Key('index_id').eq(index_id),
+                }
+                if last_evaluated_key:
+                    kwargs['ExclusiveStartKey'] = last_evaluated_key
+
+                qresp = docs_table.query(**kwargs)
+                items = qresp.get('Items', [])
+
+                for doc in items:
+                    document_id = doc.get('document_id')
+                    file_uri = doc.get('file_uri', '')
+
+                    # Delete S3 document file if present
+                    try:
+                        if file_uri:
+                            # remember bucket from first file_uri
+                            if not observed_bucket:
+                                bkt, _ = s3svc.parse_s3_uri(file_uri)
+                                if bkt:
+                                    observed_bucket = bkt
+                            if s3svc.delete_object(file_uri):
+                                deleted_doc_files += 1
+                    except Exception as s3e:
+                        logger.warning(f"Failed to delete document S3 object {file_uri}: {s3e}")
+
+                    # 2) Delete segments for this document using DocumentIdIndex
+                    try:
+                        seg_table = db.tables['segments']
+                        seg_last = None
+                        while True:
+                            seg_kwargs = {
+                                'IndexName': 'DocumentIdIndex',
+                                'KeyConditionExpression': Key('document_id').eq(document_id),
+                            }
+                            if seg_last:
+                                seg_kwargs['ExclusiveStartKey'] = seg_last
+
+                            seg_resp = seg_table.query(**seg_kwargs)
+                            seg_items = seg_resp.get('Items', [])
+
+                            for seg in seg_items:
+                                seg_id = seg.get('segment_id')
+                                image_uri = seg.get('image_uri', '')
+                                # Delete S3 image if present
+                                try:
+                                    if image_uri:
+                                        if not observed_bucket:
+                                            b2, _ = s3svc.parse_s3_uri(image_uri)
+                                            if b2:
+                                                observed_bucket = b2
+                                        if s3svc.delete_object(image_uri):
+                                            deleted_seg_images += 1
+                                except Exception as s3e2:
+                                    logger.warning(f"Failed to delete segment image {image_uri}: {s3e2}")
+
+                                # Delete segment item
+                                try:
+                                    db.delete_item('segments', {'segment_id': seg_id})
+                                    deleted_segments += 1
+                                except Exception as de:
+                                    logger.warning(f"Failed to delete segment {seg_id}: {de}")
+
+                            seg_last = seg_resp.get('LastEvaluatedKey')
+                            if not seg_last:
+                                break
+                    except Exception as seg_err:
+                        logger.warning(f"Failed to delete segments for document {document_id}: {seg_err}")
+
+                    # Delete document item
+                    try:
+                        db.delete_item('documents', {'document_id': document_id})
+                        deleted_docs += 1
+                    except Exception as dbe:
+                        logger.warning(f"Failed to delete document {document_id}: {dbe}")
+
+                last_evaluated_key = qresp.get('LastEvaluatedKey')
+                if not last_evaluated_key:
+                    break
+        except Exception as doc_err:
+            logger.error(f"Failed during documents iteration: {doc_err}")
+
+        # 3) Bulk delete S3 objects under indexes/{index_id}/ prefix (ensures full cleanup)
+        try:
+            # Use full S3 URI prefix if we have a bucket; otherwise rely on service default bucket
+            prefix = f"indexes/{index_id}/"
+            full_prefix = f"s3://{observed_bucket}/{prefix}" if observed_bucket else prefix
+            s3_bulk_result = s3svc.delete_objects_with_prefix(full_prefix)
+            deleted_s3_objects = int(len(s3_bulk_result.get('Deleted', []))) if isinstance(s3_bulk_result, dict) and 'Deleted' in s3_bulk_result else int(s3_bulk_result.get('deleted_count', 0))
+        except Exception as bulk_err:
+            logger.warning(f"Failed to bulk delete S3 prefix for index {index_id}: {bulk_err}")
+
+        # 4) Delete OpenSearch index BEFORE removing index item so we can still resolve settings if needed
+        opensearch = _get_opensearch_service()
+        opensearch_deleted = False
+        if opensearch:
+            try:
+                opensearch_deleted = opensearch.delete_index_for_id(index_id)
+            except Exception as ose:
+                logger.warning(f"Failed to delete OpenSearch index {index_id}: {ose}")
+
+        # 5) Delete indices table item
+        try:
+            db.delete_item('indices', {'index_id': index_id})
+        except Exception as idx_err:
+            logger.warning(f"Failed to delete index item {index_id}: {idx_err}")
+
+        return create_success_response({
+            'index_id': index_id,
+            'deleted_documents': deleted_docs,
+            'deleted_segments': deleted_segments,
+            'deleted_document_files': deleted_doc_files,
+            'deleted_segment_images': deleted_seg_images,
+            'deleted_s3_objects_under_prefix': deleted_s3_objects,
+            'opensearch_deleted': opensearch_deleted,
+        })
+    except Exception as e:
+        logger.error(f"Deep delete failed for index {index_id}: {str(e)}")
+        return create_internal_error_response(str(e))
 

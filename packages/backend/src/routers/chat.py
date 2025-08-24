@@ -13,8 +13,9 @@ from pydantic import BaseModel, Field
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables.config import RunnableConfig
 from pathlib import Path
-from src.agent.react_agent import ReactAgent
 from src.agent.react_agent.state.model import InputState
+from src.agent.react_agent import ReactAgent
+from src.agent.chat_agent import ChatAgent
 from src.common.configuration import Configuration
 from src.mcp_client.mcp_service import MCPService
 
@@ -41,8 +42,13 @@ except ImportError:
 USER_SETTINGS_DIR = os.path.expanduser("~/.mcp-client")
 USER_MODEL_FILE = os.path.join(USER_SETTINGS_DIR, "aws_idp_mcp_client.json")
 
-# initialize global agent variable
+# initialize global agent variables
 agent = None
+search_agent = None
+chat_agent = None
+
+# Conversation histories (in production, use Redis or database)
+conversation_histories = {}
 
 # request and response model
 class ChatRequest(BaseModel):
@@ -52,6 +58,14 @@ class ChatRequest(BaseModel):
     model_id: str = "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
     index_id: Optional[str] = None
     thread_id: Optional[str] = None
+
+class SearchRequest(BaseModel):
+    """search request model for Plan-and-Execute search"""
+    message: str
+    model_id: str = "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
+    index_id: Optional[str] = None
+    document_id: Optional[str] = None
+    segment_id: Optional[str] = None
 
 # attachment file information model
 class FileInfo(BaseModel):
@@ -148,6 +162,36 @@ def load_model_config(model_id: str) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"model configuration load failed: {e}")
         return {"max_output_tokens": 4096}
+
+async def initialize_chat_agent(model_id: str, max_tokens: int) -> ChatAgent:
+    """Initialize ChatAgent"""
+    global chat_agent
+    
+    if not chat_agent or chat_agent.model_id != model_id:
+        logger.info(f"🤖 Initializing ChatAgent: model={model_id}, max_tokens={max_tokens}")
+        
+        if chat_agent:
+            await chat_agent.shutdown()
+        
+        chat_agent = ChatAgent(
+            model_id=model_id,
+            max_tokens=max_tokens,
+            mcp_config_path=MCP_CONFIG_PATH,
+            verbose=True
+        )
+        
+        await chat_agent.startup()
+        logger.info("🚀 ChatAgent initialization completed")
+    
+    return chat_agent
+
+def get_conversation_history(thread_id: str) -> List[Dict[str, str]]:
+    """Get conversation history for thread"""
+    return conversation_histories.get(thread_id, [])
+
+def update_conversation_history(thread_id: str, history: List[Dict[str, str]]):
+    """Update conversation history for thread"""
+    conversation_histories[thread_id] = history[-20:]  # Keep last 20 messages
 
 @router.post("/chat")
 async def chat(
@@ -1168,18 +1212,4 @@ async def reinit_agent(request: ReinitRequest = None):
         except Exception as fallback_error:
             logger.error(f"error occurred during reinitialization with default model: {fallback_error}")
             raise HTTPException(status_code=500, detail=f"agent reinitialization failed: {str(e)}")
-
-
-# load model information when server starts
-model_id = get_user_model()
-model_config = load_model_config(model_id)
-max_tokens = model_config.get("max_output_tokens", 4096)
-
-# initialize agent when server starts
-try:
-    logger.info(f"agent initialization: model_id={model_id}, max_tokens={max_tokens}")
-    # agent is initialized on the first request
-    # MCPService is initialized in the FastAPI startup event
-except Exception as e:
-    logger.error(f"agent initialization preparation failed: {e}")
-    logger.warning("agent will be initialized on the first request")
+        

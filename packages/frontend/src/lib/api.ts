@@ -583,9 +583,22 @@ export const indicesApi = {
       created_at: new Date().toISOString(),
     } as IndexItem;
   },
+
+  async deepDelete(indexId: string): Promise<{ deleted: boolean } | any> {
+    const baseUrl = await getApiBaseUrl();
+    const res = await fetch(`${baseUrl}/api/indices/${indexId}/deep-delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Failed to deep-delete index: ${res.status} ${text}`);
+    }
+    return res.json().catch(() => ({ deleted: true }));
+  },
 };
 
-export const searchApi = {
+export const hybridSearchApi = {
   // 하이브리드 검색
   async hybridSearch(request: HybridSearchRequest): Promise<HybridSearchResponse> {
     const baseUrl = await getApiBaseUrl();
@@ -761,5 +774,169 @@ export const brandingApi = {
     }
     const result = await response.json();
     return result.data || result;
+  },
+};
+
+// SearchAgent API types
+export interface SearchRequest {
+  message: string;
+  model_id?: string;
+  index_id?: string;
+  document_id?: string;
+  segment_id?: string;
+}
+
+export interface SearchHealthResponse {
+  search_agent: boolean;
+  mcp_service: boolean;
+  model: boolean;
+  available_tools: number;
+  timestamp: string;
+  mcp_error?: string;
+  model_error?: string;
+}
+
+export const searchAgentApi = {
+  // SearchAgent 검색 스트림
+  async searchStream(request: SearchRequest): Promise<Response> {
+    const backendUrl = await getBackendUrl();
+    
+    // FormData로 전송
+    const formData = new FormData();
+    formData.append('message', request.message);
+    if (request.model_id) {
+      formData.append('model_id', request.model_id);
+    }
+    if (request.index_id) {
+      formData.append('index_id', request.index_id);
+    }
+    if (request.document_id) {
+      formData.append('document_id', request.document_id);
+    }
+    if (request.segment_id) {
+      formData.append('segment_id', request.segment_id);
+    }
+    
+    return fetch(`${backendUrl}/api/search`, {
+      method: 'POST',
+      body: formData,
+    });
+  },
+
+  // SearchAgent 헬스체크
+  async healthCheck(): Promise<SearchHealthResponse> {
+    const backendUrl = await getBackendUrl();
+    const response = await fetch(`${backendUrl}/api/search/health`);
+    
+    if (!response.ok) {
+      throw new Error('SearchAgent 헬스체크에 실패했습니다');
+    }
+    
+    return response.json();
+  },
+};
+
+// Search API types
+export interface SearchRequest {
+  message: string;
+  stream?: boolean;
+  model_id?: string;
+  index_id?: string;
+  document_id?: string;
+  segment_id?: string;
+  thread_id?: string;
+}
+
+export interface SearchHealthResponse {
+  status: string;
+  agent: boolean;
+  model: boolean;
+  mcp_available: boolean;
+  mcp_healthy: boolean;
+  mcp_tools_count?: number;
+  timestamp: string;
+  mcp_error?: string;
+}
+
+export const searchApi = {
+  // 하이브리드 검색
+  async hybridSearch(request: HybridSearchRequest): Promise<HybridSearchResponse> {
+    const baseUrl = await getApiBaseUrl();
+    const response = await fetch(`${baseUrl}/api/opensearch/search/hybrid`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      // 백엔드 이전 버전 호환을 위해 project_id도 함께 전송
+      body: JSON.stringify({ ...request, project_id: request.index_id }),
+    });
+    
+    if (!response.ok) {
+      throw new Error('검색에 실패했습니다');
+    }
+    
+    return response.json();
+  },
+
+  // Search 채팅 스트림
+  async chatStream(request: SearchRequest): Promise<Response> {
+    const backendUrl = await getBackendUrl();
+    
+    // FormData로 전송
+    const formData = new FormData();
+    formData.append('message', request.message);
+    formData.append('stream', 'true');
+    if (request.model_id) {
+      formData.append('model_id', request.model_id);
+    }
+    if (request.index_id) {
+      formData.append('index_id', request.index_id);
+    }
+    if (request.document_id) {
+      formData.append('document_id', request.document_id);
+    }
+    if (request.segment_id) {
+      formData.append('segment_id', request.segment_id);
+    }
+    if (request.thread_id) {
+      formData.append('thread_id', request.thread_id);
+    }
+    
+    return fetch(`${backendUrl}/api/search`, {
+      method: 'POST',
+      body: formData,
+    });
+  },
+
+  // Search 헬스체크
+  async healthCheck(): Promise<SearchHealthResponse> {
+    const backendUrl = await getBackendUrl();
+    const response = await fetch(`${backendUrl}/api/search/health`);
+    
+    if (!response.ok) {
+      throw new Error('Search 헬스체크에 실패했습니다');
+    }
+    
+    return response.json();
+  },
+
+  // ChatAgent 재초기화
+  async reinitialize(model_id?: string): Promise<any> {
+    const backendUrl = await getBackendUrl();
+    const formData = new FormData();
+    if (model_id) {
+      formData.append('model_id', model_id);
+    }
+    
+    const response = await fetch(`${backendUrl}/api/search/reinit`, {
+      method: 'POST',
+      body: formData,
+    });
+    
+    if (!response.ok) {
+      throw new Error('ChatAgent 재초기화에 실패했습니다');
+    }
+    
+    return response.json();
   },
 };

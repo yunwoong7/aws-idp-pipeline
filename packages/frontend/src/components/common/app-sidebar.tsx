@@ -95,7 +95,7 @@ export function AppSidebar() {
               companyName={settings.companyName || 'AWS IDP'}
             />
             <div className="flex-1 min-w-0">
-              <h2 className="text-base font-semibold text-white truncate">
+              <h2 className="text-base font-semibold text-white whitespace-pre-line break-words line-clamp-2 leading-tight">
                 {loading ? 'Loading...' : (settings.companyName || 'AWS IDP')}
               </h2>
             </div>

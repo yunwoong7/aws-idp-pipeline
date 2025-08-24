@@ -24,6 +24,7 @@ from handlers.index_handlers import (
     handle_index_get,
     handle_index_update,
     handle_index_delete,
+    handle_index_deep_delete,
 )
 from utils.response import (
     create_cors_response,
@@ -78,6 +79,8 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
             'GET /api/indices/{index_id}': lambda: handle_index_get(index_id) if index_id else create_validation_error_response('index_id is required.'),
             'PUT /api/indices/{index_id}': lambda: handle_index_update(index_id, body) if index_id else create_validation_error_response('index_id is required.'),
             'DELETE /api/indices/{index_id}': lambda: handle_index_delete(index_id) if index_id else create_validation_error_response('index_id is required.'),
+            # Deep delete: remove DynamoDB docs/segments, S3 files, and OpenSearch index
+            'POST /api/indices/{index_id}/deep-delete': lambda: handle_index_deep_delete(index_id) if index_id else create_validation_error_response('index_id is required.'),
         }
 
         handler = routes.get(route_key)

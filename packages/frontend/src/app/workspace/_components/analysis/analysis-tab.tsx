@@ -78,10 +78,10 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [pendingDocument, setPendingDocument] = useState<Document | null>(null);
 
-  // 문서 목록 가져오기
+  // Get document list
   const { documents, loading, fetchDocuments } = useDocuments(indexId);
 
-  // 선택된 문서의 상세 정보 - persistent state 우선 사용
+  // Get selected document details - use persistent state as primary source of truth
   const documentForHook = persistentState?.selectedDocument || null;
   const segmentForHook = persistentState?.selectedSegment ?? 0;
   
@@ -255,10 +255,10 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
     }
   }, [onStateUpdate]);
 
-  // 실제 문서 선택 처리 함수
+  // Actual document selection processing function
   const selectDocument = useCallback(async (document: Document) => {
     try {
-      // 채팅이 있었다면 reinit API 호출
+      // If there was a chat, call reinit API
       if (selectedDocument && selectedDocument.document_id !== document.document_id && (localMessages.length > 0 || messages.length > 0)) {
         console.log('🔄 Reinitializing chat for document change');
         const newThreadId = `thread_doc_${document.document_id}_${Date.now()}`;
@@ -269,20 +269,20 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
           thread_id: newThreadId
         });
         
-        // 채팅 상태 초기화
+        // Reset chat state
         setLocalMessages([]);
         onStateUpdate?.({ 
           messages: [],
           input: "",
           attachments: [],
           attachedContent: [],
-          isChatStarted: false // hero 화면이 나오도록 초기화
+          isChatStarted: false // Reset to show hero screen
         });
         
         console.log('✅ Chat reinitialized successfully');
       }
       
-      // 문서 선택 처리 - persistent state 업데이트와 훅 동기화
+      // Document selection processing - sync with persistent state and hook
       onStateUpdate?.({ selectedDocument: document });
       setShowDocumentSelect(false);
       if (hookViewDocument) {
@@ -290,12 +290,12 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
       }
     } catch (error) {
       console.error('❌ Chat reinit failed:', error);
-      // ConfirmDialog 대신 일반 alert 사용 (에러는 간단하게)
-      alert('채팅 초기화에 실패했습니다. 다시 시도해주세요.');
+      // Use simple alert instead of ConfirmDialog (error is simple)
+      alert('Chat reinit failed. Please try again.');
     }
   }, [selectedDocument, localMessages, messages, onStateUpdate, hookViewDocument]);
 
-  // 문서 선택 핸들러
+  // Document selection handler
   const handleDocumentSelect = useCallback((document: Document) => {
     console.log('📄 Document selected:', document);
     
@@ -305,9 +305,9 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
       return;
     }
     
-    // 현재 선택된 문서가 있고 다른 문서를 선택하려고 할 때
+    // If current selected document exists and trying to select a different document
     if (selectedDocument && selectedDocument.document_id !== document.document_id) {
-      // 채팅 메시지가 있는 경우에만 확인 다이얼로그 표시
+      // Show confirmation dialog only if there are chat messages
       if (localMessages.length > 0 || messages.length > 0) {
         setPendingDocument(document);
         setShowConfirmDialog(true);
@@ -315,11 +315,11 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
       }
     }
     
-    // 문서 선택 처리 (직접 선택 또는 메시지가 없는 경우)
+    // Document selection processing (direct selection or no messages)
     selectDocument(document);
   }, [selectedDocument, localMessages, messages, selectDocument, showWarning]);
 
-  // 확인 다이얼로그 확인 처리
+  // Confirmation dialog confirmation handler
   const handleConfirmDocumentChange = useCallback(() => {
     if (pendingDocument) {
       selectDocument(pendingDocument);
@@ -328,13 +328,11 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
     setShowConfirmDialog(false);
   }, [pendingDocument, selectDocument]);
 
-  // 확인 다이얼로그 취소 처리
+  // Confirmation dialog cancellation handler
   const handleCancelDocumentChange = useCallback(() => {
     setPendingDocument(null);
     setShowConfirmDialog(false);
   }, []);
-
-  // 제거: 무한 루프 방지
 
   // Format file size
   const formatFileSize = (bytes: number) => {
@@ -619,7 +617,7 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
     });
     setIsStreaming(true);
     
-    // 전송 후 입력 필드에 포커스
+    // Focus on input field after sending
     setTimeout(() => {
       if (inputRef.current) {
         inputRef.current.focus();
@@ -1387,7 +1385,7 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
             <div className="h-full flex items-center justify-center">
               <div className="text-center text-white/60">
                 <BarChart3 className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>문서를 선택하여 분석을 시작하세요</p>
+                <p>Select a document to start analysis</p>
               </div>
             </div>
           )}
@@ -1458,7 +1456,7 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
             {/* Popup Header */}
             <div className="p-4 border-b border-white/10">
               <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-white">문서 선택</h2>
+                <h2 className="text-lg font-semibold text-white">Select Document</h2>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -1526,12 +1524,12 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
         </div>
       )}
 
-      {/* 분석 상세 팝업 */}
+      {/* Analysis Detail Popup */}
       {showAnalysisDetail && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center">
           <div className="bg-black border border-white/20 rounded-xl w-[90vw] h-[80vh] p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-white">분석 상세 결과</h2>
+              <h2 className="text-lg font-semibold text-white">Analysis Detail Result</h2>
               <Button
                 variant="ghost"
                 onClick={() => setShowAnalysisDetail(false)}
@@ -1546,46 +1544,46 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
                   <p>📄 {selectedDocument.file_name}</p>
                   <div className="grid grid-cols-3 gap-4 mt-6">
                     <div className="bg-blue-500/20 p-4 rounded-lg">
-                      <h3 className="text-blue-400 font-semibold mb-2">BDA 분석</h3>
+                      <h3 className="text-blue-400 font-semibold mb-2">BDA Analysis</h3>
                       <p className="text-sm text-white/70">
-                        {getAnalysisCounts(analysisData).bda}개의 BDA 분석 결과가 있습니다.
+                        {getAnalysisCounts(analysisData).bda} BDA analysis results.
                       </p>
                     </div>
                     <div className="bg-green-500/20 p-4 rounded-lg">
-                      <h3 className="text-green-400 font-semibold mb-2">PDF 분석</h3>
+                      <h3 className="text-green-400 font-semibold mb-2">PDF Analysis</h3>
                       <p className="text-sm text-white/70">
-                        {getAnalysisCounts(analysisData).pdf}개의 PDF 분석 결과가 있습니다.
+                        {getAnalysisCounts(analysisData).pdf} PDF analysis results.
                       </p>
                     </div>
                     <div className="bg-purple-500/20 p-4 rounded-lg">
-                      <h3 className="text-purple-400 font-semibold mb-2">AI 분석</h3>
+                      <h3 className="text-purple-400 font-semibold mb-2">AI Analysis</h3>
                       <p className="text-sm text-white/70">
-                        {getAnalysisCounts(analysisData).ai}개의 AI 분석 결과가 있습니다.
+                        {getAnalysisCounts(analysisData).ai} AI analysis results.
                       </p>
                     </div>
                   </div>
                 </div>
               ) : (
-                <p>분석할 문서를 선택해주세요.</p>
+                <p>Select a document to analyze.</p>
               )}
             </div>
           </div>
         </div>
       )}
 
-      {/* 문서 변경 확인 다이얼로그 */}
+      {/* Document Change Confirmation Dialog */}
       <ConfirmDialog
         isOpen={showConfirmDialog}
         onClose={handleCancelDocumentChange}
         onConfirm={handleConfirmDocumentChange}
-        title="문서 변경 확인"
-        message={`문서를 "${pendingDocument?.file_name || '새 문서'}"로 변경하면 현재 채팅 내용이 모두 초기화됩니다.\n계속하시겠습니까?`}
-        confirmText="변경하기"
-        cancelText="취소"
+        title="Document Change Confirmation"
+        message={`Changing the document to "${pendingDocument?.file_name || 'New Document'}" will reset all current chat contents.\nContinue?`}
+        confirmText="Change"
+        cancelText="Cancel"
         variant="destructive"
       />
 
-      {/* 분석 결과 팝업: 공용 AnalysisPopup 사용 */}
+      {/* Analysis Result Popup: Using common AnalysisPopup */}
       <AnalysisPopup
         isOpen={analysisPopup.isOpen}
         type={analysisPopup.type}

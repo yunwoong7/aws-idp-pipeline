@@ -647,22 +647,21 @@ def handle_opensearch_hybrid_search(event: Dict[str, Any]) -> Dict[str, Any]:
         size = min(data.get('size', HYBRID_SEARCH_SIZE), MAX_SEARCH_SIZE)
         text_weight = data.get('text_weight', 0.4)
         vector_weight = data.get('vector_weight', 0.6)
-        project_id = data.get('project_id')
+        index_id = data.get('index_id')
         document_id = data.get('document_id')
         
-        logger.info(f"🔍 Starting hybrid search: query={query[:50]}... (project_id={project_id}, document_id={document_id})")
+        logger.info(f"🔍 Starting hybrid search: query={query[:50]}... (index_id={index_id}, document_id={document_id})")
         
         opensearch = _get_opensearch_service()
         
         # Set filters
         filters = {}
-        if project_id:
-            filters['project_id'] = project_id
         if document_id:
             filters['document_id'] = document_id
         
         # Execute hybrid search
         response = opensearch.hybrid_search(
+            index_id=index_id,
             query=query,
             size=size,
             text_weight=text_weight,

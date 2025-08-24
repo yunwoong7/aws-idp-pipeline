@@ -282,15 +282,12 @@ export function DocumentsTab({ indexId, onSelectDocument, onAttachToChat, onAnal
 
   return (
     <div className="h-full flex flex-col bg-black text-white">
-      {/* Enhanced Header */}
-      <div className="relative p-6 bg-gradient-to-r from-cyan-500/5 to-sky-500/5">
-        {/* Background glow effect */}
-        <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/10 via-transparent to-sky-500/10 opacity-30"></div>
-        
-        <div className="relative flex items-center justify-between">
+      {/* Header Section */}
+      <div className="flex-shrink-0 p-4 border-b border-white/10 bg-gradient-to-r from-slate-900/50 to-slate-800/50 backdrop-blur-sm relative z-20">
+        <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className="relative">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-500 to-sky-600 flex items-center justify-center shadow-lg shadow-cyan-500/25">
+              <div className="relative w-12 h-12 bg-gradient-to-br from-cyan-500/20 to-sky-600/20 border border-cyan-400/30 rounded-2xl flex items-center justify-center">
                 <FileText className="h-6 w-6 text-white" />
               </div>
               <div className="absolute -inset-1 bg-gradient-to-br from-cyan-500/50 to-sky-600/50 rounded-2xl blur opacity-60"></div>
@@ -311,24 +308,24 @@ export function DocumentsTab({ indexId, onSelectDocument, onAttachToChat, onAnal
           </div>
           
           {/* Document count and WebSocket status */}
-          <div className="flex items-center gap-3">
-            <div className="px-3 py-1.5 bg-white/10 rounded-full backdrop-blur-sm">
-              <span className="text-sm text-white/80 font-medium">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+              <span className="text-white/60 text-xs">
                 Total {documents.length} documents
               </span>
-            </div>
-            
-            {/* WebSocket Status */}
-            <div
-              className="flex items-center gap-2 px-2 py-1 rounded-md bg-black/30"
-              title={wsError ? `오류: ${wsError}` : (wsConnecting ? '실시간 업데이트: 연결 중' : (wsConnected ? '실시간 업데이트: 연결됨' : '실시간 업데이트: 미연결'))}
-            >
+              
+              {/* WebSocket Status */}
               <div
-                className={`w-2 h-2 rounded-full ${wsConnecting ? 'bg-yellow-400 animate-pulse' : (wsConnected ? 'bg-green-400' : (wsError ? 'bg-red-400' : 'bg-gray-400'))}`}
-              ></div>
-              <span className="text-xs text-gray-400">
-                {wsConnecting ? 'Connecting' : (wsConnected ? 'Live' : (wsError ? 'Error' : 'Idle'))}
-              </span>
+                className="flex items-center gap-2"
+                title={wsError ? `오류: ${wsError}` : (wsConnecting ? '실시간 업데이트: 연결 중' : (wsConnected ? '실시간 업데이트: 연결됨' : '실시간 업데이트: 미연결'))}
+              >
+                <div
+                  className={`w-2 h-2 rounded-full ${wsConnecting ? 'bg-yellow-400 animate-pulse' : (wsConnected ? 'bg-green-400' : (wsError ? 'bg-red-400' : 'bg-gray-400'))}`}
+                ></div>
+                <span className="text-xs text-white/60">
+                  {wsConnecting ? 'Connecting' : (wsConnected ? 'Live' : (wsError ? 'Error' : 'Idle'))}
+                </span>
+              </div>
             </div>
           </div>
         </div>

@@ -417,7 +417,7 @@ setup_ENV() {
   
   # Construct full WebSocket URL
   if [[ -n "$WEBSOCKET_URL" && -n "$WEBSOCKET_STAGE" ]]; then
-    WEBSOCKET_URL="${WEBSOCKET_URL}${WEBSOCKET_STAGE}"
+    WEBSOCKET_URL="${WEBSOCKET_URL}/${WEBSOCKET_STAGE}"
   fi
 
   local ENV_PATH="../../.env"

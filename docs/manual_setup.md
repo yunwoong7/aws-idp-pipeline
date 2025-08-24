@@ -1,6 +1,6 @@
 <h2 align="center">Manual Local Setup Guide</h2>
 
-This guide is for users who prefer to set up the development environment manually on their local machine. This method requires careful installation of all tools and dependencies. Following the steps up to **Step 5** will result in a complete local development setup. The optional **Step 6** describes how to deploy the entire application to AWS ECS for a public-facing environment.
+This guide is for users who prefer to set up the development environment manually on their local machine. This method requires careful installation of all tools and dependencies. Following the steps up to **Step 5** will result in a complete local development setup. The optional **Step 6** describes how to deploy the entire application to AWS ECS for an externally accessible runtime environment.
 
 ---
 
@@ -88,7 +88,7 @@ This step provisions the core cloud resources. It must be run from within the ac
 
 > **Deployment Time & Verification**
 > *   The deployment can take **40 to 60 minutes**.
-> *   After completion, go to the **AWS OpenSearch Console** to verify that the `nori` plugin is installed.
+> *   **After deployment is successful**, go to the **AWS OpenSearch Console** and verify that the `nori` (Korean morphological analyzer) plugin is correctly installed on your domain. Installing the plugin package may take an additional **10–20 minutes**.
 
 ### Step 4: Run the Application Locally
 
@@ -172,4 +172,4 @@ cd packages/infra
 
 ---
 
-**Deployment Complete!** Whether you are running locally or have deployed to ECS, your AWS IDP environment is now fully operational.
+**Deployment Complete!** You can now test the AWS IDP environment either locally or in the ECS environment.

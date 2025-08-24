@@ -13,7 +13,6 @@ from botocore.exceptions import ClientError
 # Common module imports
 from common import (
     DynamoDBService,
-    OpenSearchService,
     handle_lambda_error,
     get_current_timestamp
 )
@@ -24,7 +23,6 @@ logger.setLevel(logging.INFO)
 
 # Initialize common services
 db_service = DynamoDBService()
-opensearch_service = OpenSearchService()
 
 
 class SkipSummaryError(Exception):
@@ -123,7 +121,7 @@ def generate_document_summary(document_id: str, index_id: str) -> Dict[str, Any]
             logger.warning(f"⚠️ No segments found for document: {document_id}")
             return None
         
-        # Collect content_combined from all segments
+        # Collect summary from all segments
         segment_contents = []
         
         for segment in segments:
@@ -134,28 +132,25 @@ def generate_document_summary(document_id: str, index_id: str) -> Dict[str, Any]
             if not segment_id:
                 continue
             
-            # Get segment document from OpenSearch
-            segment_doc = opensearch_service.get_segment_document(index_id, segment_id)
-            
-            if segment_doc and segment_doc.get('content_combined'):
-                content_combined = segment_doc['content_combined']
-                
+            # Read summary directly from DynamoDB segments table
+            summary_text = segment.get('summary')
+
+            if summary_text and isinstance(summary_text, str) and summary_text.strip():
                 segment_contents.append({
                     'segment_index': segment_index,
                     'segment_type': segment_type,
-                    'content_combined': content_combined
+                    'content': summary_text.strip()
                 })
-                
-                logger.debug(f"📄 Segment {segment_index} content collected: {len(content_combined)} chars")
+                logger.debug(f"📄 Segment {segment_index} summary collected: {len(summary_text)} chars")
         
         if not segment_contents:
-            logger.warning(f"⚠️ No content_combined found for document: {document_id}")
+            logger.warning(f"⚠️ No segment summaries found for document: {document_id}")
             return None
         
         # Sort by segment_index
         segment_contents.sort(key=lambda x: x['segment_index'])
         
-        logger.info(f"📊 Total segments with content: {len(segment_contents)}")
+        logger.info(f"📊 Total segments with summaries: {len(segment_contents)}")
         
         # Generate LLM prompt based on media type
         combined_content = create_combined_content_for_llm(segment_contents, media_type, file_name)
@@ -175,7 +170,7 @@ def generate_document_summary(document_id: str, index_id: str) -> Dict[str, Any]
             return {
                 'summary': summary,
                 'segment_count': len(segment_contents),
-                'total_content_length': sum(len(s['content_combined']) for s in segment_contents),
+                'total_content_length': sum(len(s['content']) for s in segment_contents),
                 'skipped': True
             }
 
@@ -187,7 +182,7 @@ def generate_document_summary(document_id: str, index_id: str) -> Dict[str, Any]
                 return {
                     'summary': summary,
                     'segment_count': len(segment_contents),
-                    'total_content_length': sum(len(s['content_combined']) for s in segment_contents),
+                    'total_content_length': sum(len(s['content']) for s in segment_contents),
                     'skipped': False
                 }
         
@@ -210,18 +205,19 @@ def create_combined_content_for_llm(segment_contents: List[Dict[str, Any]], medi
             content_parts.append(f"# 문서 '{file_name}' 전체 분석 내용\n")
             content_parts.append(f"다음은 {len(segment_contents)}개 페이지별 분석 결과입니다:\n\n")
         
-        # Add each segment's content
+        # Add each segment's content (prefer summary-based 'content')
         for segment in segment_contents:
             segment_index = segment['segment_index']
             segment_type = segment['segment_type']
-            content_combined = segment['content_combined']
+            # Prefer 'content' (segment summary). Fallback to 'content_combined' for backward compatibility.
+            content_text = segment.get('content') or segment.get('content_combined') or ""
             
             if media_type == 'VIDEO':
                 content_parts.append(f"## 챕터 {segment_index + 1}\n")
             else:
                 content_parts.append(f"## 페이지 {segment_index + 1}\n")
             
-            content_parts.append(f"{content_combined}\n\n")
+            content_parts.append(f"{content_text}\n\n")
         
         combined_content = "\n".join(content_parts)
         

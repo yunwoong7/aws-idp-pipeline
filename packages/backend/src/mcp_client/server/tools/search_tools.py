@@ -12,7 +12,7 @@ conf = get_app_config()
 API_BASE_URL = conf['api_base_url']
 
 
-async def hybrid_search_api(query: str, size: int = 10, session_id: str = None) -> Dict[str, Any]:
+async def hybrid_search_api(index_id: str, query: str, size: int = 10, session_id: str = None) -> Dict[str, Any]:
     """
     hybrid search API call
     """
@@ -20,6 +20,7 @@ async def hybrid_search_api(query: str, size: int = 10, session_id: str = None) 
         url = f"{API_BASE_URL}/api/opensearch/search/hybrid"
         
         payload = {
+            "index_id": index_id,
             "query": query,
             "size": size 
         }
@@ -57,12 +58,13 @@ async def hybrid_search_api(query: str, size: int = 10, session_id: str = None) 
 # MCP Tool Functions
 # ============================================================================
 
-async def hybrid_search(query: str, size: int = 3, session_id: str = None):
+async def hybrid_search(index_id: str, query: str, size: int = 3, session_id: str = None):
     """
     Perform hybrid search using semantic and keyword search to find relevant documents.
     This search combines vector similarity with keyword matching for better results.
     
     Args:
+        index_id: Index ID for access control (Have to be provided)
         query: Search query string
         size: Number of results to return (optional, default 3)
         session_id: Session ID for reference deduplication (optional, auto-generated if not provided)
@@ -72,6 +74,13 @@ async def hybrid_search(query: str, size: int = 3, session_id: str = None):
     """
     
     # Generate session_id if not provided for reference deduplication
+    if not index_id:
+        return {
+            'success': False,
+            'error': 'Index ID is required',
+            'data': None
+        }
+    
     if not session_id:
         session_id = str(uuid.uuid4())
         print(f"🆔 [search_tools] Auto-generated session_id: {session_id}")
@@ -79,7 +88,7 @@ async def hybrid_search(query: str, size: int = 3, session_id: str = None):
     print(f"� Performing hybrid search: query={query}, session_id={session_id}")
 
     # API call
-    api_response = await hybrid_search_api(query, size, session_id)
+    api_response = await hybrid_search_api(index_id, query, size, session_id)
     
     # Use response formatter to create standardized response
     return format_api_response(api_response, 'hybrid_search', session_id)

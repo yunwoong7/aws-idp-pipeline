@@ -141,7 +141,7 @@ export function BrandingSettings() {
         <CardDescription>Customize your company logo, name, and description.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        {/* Current Logo Preview */}
+        {/* Current Logo Preview + Upload Button */}
         <div className="space-y-2">
           <Label>Current Logo</Label>
           <div className="flex items-center space-x-4">
@@ -160,18 +160,50 @@ export function BrandingSettings() {
                 <ImageIcon className="h-8 w-8 text-muted-foreground" />
               </div>
             )}
+
+            {/* Upload controls near current logo */}
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={handleFileButtonClick}
+                disabled={isSubmitting}
+                className="py-2 inline-flex items-center justify-center whitespace-nowrap text-sm font-medium disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive border shadow-xs dark:bg-input/30 dark:border-input dark:hover:bg-input/50 h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5 bg-transparent border-slate-500/50 text-slate-400 hover:bg-slate-500/20 hover:border-slate-400 hover:text-slate-300 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Upload />
+                Select File
+              </button>
+              {selectedFile && (
+                <span className="text-sm text-muted-foreground">
+                  {selectedFile.name}
+                </span>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+            </div>
           </div>
+          <p className="text-xs text-muted-foreground">Upload PNG, JPG, or GIF files. Maximum 5MB</p>
         </div>
 
-        {/* Company Name */}
+        {/* Company Name (allow up to 2 lines) */}
         <div className="space-y-2">
           <Label htmlFor="companyName">Company Name</Label>
-          <Input
+          <Textarea
             id="companyName"
             value={formData.companyName}
-            onChange={(e) => handleInputChange('companyName', e.target.value)}
-            placeholder="Enter your company name"
+            onChange={(e) => {
+              const raw = e.target.value.replace(/\r\n/g, '\n');
+              const limited = raw.split('\n').slice(0, 2).join('\n');
+              handleInputChange('companyName', limited);
+            }}
+            placeholder="Enter your company name (max 2 lines)"
+            rows={2}
           />
+          <p className="text-xs text-muted-foreground">최대 2줄까지 입력 가능. 줄바꿈(Enter)으로 구분됩니다.</p>
         </div>
 
         {/* Description */}
@@ -186,36 +218,7 @@ export function BrandingSettings() {
           />
         </div>
 
-        {/* Logo Upload */}
-        <div className="space-y-2">
-          <Label>Logo Upload</Label>
-          <div className="flex items-center space-x-2">
-            <button
-              type="button"
-              onClick={handleFileButtonClick}
-              disabled={isSubmitting}
-              className="py-2 inline-flex items-center justify-center whitespace-nowrap text-sm font-medium disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive border shadow-xs dark:bg-input/30 dark:border-input dark:hover:bg-input/50 h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5 bg-transparent border-slate-500/50 text-slate-400 hover:bg-slate-500/20 hover:border-slate-400 hover:text-slate-300 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Upload />
-              Select File
-            </button>
-            {selectedFile && (
-              <span className="text-sm text-muted-foreground">
-                {selectedFile.name}
-              </span>
-            )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleFileSelect}
-              className="hidden"
-            />
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Upload PNG, JPG, or GIF files. Maximum 5MB
-          </p>
-        </div>
+        {/* (moved) Logo Upload controls are now near Current Logo */}
 
         {/* Buttons */}
         <div className="flex justify-start gap-3 pt-4">

@@ -360,7 +360,7 @@ export function DocumentDetailDialog({
         }
       }}
     >
-      <div className="flex h-[90vh] w-[90vw] bg-gradient-to-br from-gray-900/95 via-gray-800/95 to-gray-900/95 backdrop-blur-xl border border-white/20 rounded-xl overflow-hidden shadow-[0_8px_32px_rgb(0_0_0/0.4)]">
+      <div className="flex h-[90vh] w-[90vw] from-gray-900/95 via-gray-800/95 to-gray-900/95 backdrop-blur-xl border border-white/20 rounded-xl overflow-hidden shadow-[0_8px_32px_rgb(0_0_0/0.4)]">
         
         {/* Left Panel - Document Info */}
         <div className="w-1/3 backdrop-blur-sm border-r border-white/10 flex flex-col">
