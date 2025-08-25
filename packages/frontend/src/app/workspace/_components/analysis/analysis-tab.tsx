@@ -16,10 +16,11 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ResizablePanel } from "@/components/ui/resizable-panel";
 import { useAlert } from "@/components/ui/alert";
 import { DocumentPreview } from "./components/document-preview";
-import { ChatInterface } from "./components/chat-interface";
+import { AnalysisInterface } from "./components/analysis-interface";
+import { AnalysisHero } from "./components/analysis-hero";
 import { motion, AnimatePresence } from "framer-motion";
 import { v4 as uuidv4 } from 'uuid';
-import { chatApi, systemApi } from "@/lib/api";
+import { analysisAgentApi, systemApi } from "@/lib/api";
 
 // Import types from chat.types.ts
 import type { Message, AttachedContent, FileAttachment } from "@/types/chat.types";
@@ -89,6 +90,7 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
     selectedDocument: hookSelectedDocument,
     analysisData,
     analysisLoading,
+    segmentStartTimecodes,
     selectedSegment: hookSelectedSegment,
     selectedSegmentId: hookSelectedSegmentId,
     currentPageImageUrl,
@@ -162,13 +164,19 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
   // Sync hookSelectedDocument changes to persistent state immediately
   useEffect(() => {
     if (hookSelectedDocument && hookSelectedDocument.document_id !== persistentState?.selectedDocument?.document_id) {
-      console.log('🔄 Syncing new document selection:', hookSelectedDocument.file_name);
+      console.log('🔄 Syncing new document selection and resetting chat:', hookSelectedDocument.file_name);
       onStateUpdate?.({ 
         selectedDocument: hookSelectedDocument,
         selectedSegment: 0,
         imageZoom: 1,
         imageRotation: 0,
-        imagePosition: { x: 0, y: 0 }
+        imagePosition: { x: 0, y: 0 },
+        // Reset chat state when document changes
+        messages: [],
+        input: '',
+        attachments: [],
+        attachedContent: [],
+        isChatStarted: false
       });
     }
   }, [hookSelectedDocument?.document_id, persistentState?.selectedDocument?.document_id, onStateUpdate, hookSelectedDocument]);
@@ -625,7 +633,7 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
     }, 100);
     
     try {
-      const response = await chatApi.sendMessage({
+      const response = await analysisAgentApi.sendMessage({
         message: finalMessageToSend,
         files: attachments.map(att => att.file),
         index_id: indexId || '',
@@ -1124,6 +1132,7 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
           onSetZoomedImage={setZoomedImage}
           setIsDragging={setIsDragging}
           setDragStart={setDragStart}
+          segmentStartTimecodes={segmentStartTimecodes}
         />
 
         {/* Right Panel - Chat */}
@@ -1131,61 +1140,49 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
           {selectedDocument ? (
             <div className="h-full flex flex-col relative">
               {!isChatStarted ? (
-                /* Welcome Screen - Center Stage */
+                /* Welcome Screen with Hero Component */
                 <motion.div 
-                  className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 backdrop-blur-sm z-10"
+                  className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-black/60 via-black/50 to-black/60 backdrop-blur-md z-10"
                   initial={{ opacity: 1 }}
                   animate={{ opacity: isChatStarted ? 0 : 1 }}
                   exit={{ opacity: 0 }}
                   transition={{ duration: 0.5 }}
                   style={{ pointerEvents: isChatStarted ? 'none' : 'auto' }}
                 >
-                  <div className="text-center max-w-2xl px-8">
-                    {/* Main Title with Reset Button */}
-                    <div className="relative">
-                      <motion.h1 
-                        className="text-4xl md:text-5xl font-bold text-white mb-6"
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.2, duration: 0.8 }}
-                      > 
-                          Talk to the document analysis AI
-                      </motion.h1>
-                      
-                      {/* Reset Button - Only show if there are messages */}
-                      {messages.length > 0 && (
-                        <motion.button
-                          onClick={handleChatReset}
-                          className="absolute top-0 right-0 p-2 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all duration-200 backdrop-blur-sm group"
-                          initial={{ opacity: 0, scale: 0.8 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          transition={{ delay: 0.4, duration: 0.5 }}
-                          title="대화 초기화"
-                        >
-                          <RotateCcw className="w-5 h-5 text-white/60 group-hover:text-white/90 transition-colors" />
-                        </motion.button>
-                      )}
-                    </div>
+                  <div className="w-full max-w-4xl px-8">
+                    <AnalysisHero
+                      title="Talk to the Document Analysis AI"
+                      subtitle={`Analyze ${selectedDocument?.file_name || 'the document'} and answer your questions. AI deeply understands documents and provides insights.`}
+                      examples={[
+                        "Summarize the key content of this document",
+                        "Find and explain specific information",
+                        "Analyze the main data in the document",
+                        "Provide important insights from this document"
+                      ]}
+                      onExampleClick={(example) => {
+                        handleSetInput(example);
+                        // Auto-send the message
+                        setTimeout(() => {
+                          handleSendMessage();
+                        }, 100);
+                      }}
+                    />
                     
-                    {/* Subtitle */}
-                    <motion.p 
-                      className="text-xl text-white/70 mb-12"
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.4, duration: 0.8 }}
-                    >
-                      AI will analyze the document and answer your questions.
-                    </motion.p>
-                    
-                    {/* Search Bar - ChatInterface Style */}
+                    {/* Search Bar - Enhanced Style */}
                     <motion.div 
-                      className="relative mb-8"
+                      className="relative mt-8"
                       initial={{ opacity: 0, y: 20 }}
                       animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.6, duration: 0.8 }}
+                      transition={{ delay: 0.8, duration: 0.8 }}
                     >
-                      <div className="relative bg-gray-900/80 border border-white/10 rounded-full backdrop-blur-sm">
-                        <div className="p-3 flex items-center">
+                      <div className="relative bg-gradient-to-r from-gray-900/90 to-gray-800/90 border border-white/20 rounded-full backdrop-blur-xl shadow-2xl">
+                        <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/10 via-purple-500/10 to-pink-500/10 rounded-full animate-pulse" />
+                        <div className="relative p-4 flex items-center">
+                          <div className="flex-shrink-0 mr-3">
+                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-500/20 to-purple-500/20 flex items-center justify-center">
+                              <Sparkles className="w-5 h-5 text-cyan-400 animate-pulse" />
+                            </div>
+                          </div>
                           <input
                             type="text"
                             value={input}
@@ -1198,125 +1195,37 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
                             }}
                             placeholder="Ask me anything about the document..."
                             disabled={isStreaming}
-                            className="bg-transparent flex-1 outline-none text-white placeholder:text-white/50 pl-4 text-lg"
+                            className="bg-transparent flex-1 outline-none text-white placeholder:text-white/50 text-lg font-medium"
                           />
                           <button
                             onClick={() => handleSendMessage()}
                             disabled={!input.trim() || isStreaming}
-                            className="p-2 rounded-full hover:bg-white/5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="ml-2 p-3 rounded-full bg-gradient-to-r from-cyan-500 to-purple-500 hover:from-cyan-600 hover:to-purple-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 active:scale-95"
                           >
-                            <SendIcon className="w-5 h-5 text-cyan-400" />
+                            <SendIcon className="w-5 h-5 text-white" />
                           </button>
                         </div>
                       </div>
                     </motion.div>
                     
-                    {/* Quick Actions */}
-                    <motion.div 
-                      className="space-y-4"
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.8, duration: 0.8 }}
-                    >
-                      <p className="text-white/60 text-sm mb-4 text-center">Quick Actions:</p>
-                      <div className="grid grid-cols-2 gap-3 max-w-lg mx-auto">
-                        <motion.button
-                          onClick={() => handleSendMessage("이 문서에 대해 요약해줘")}
-                          className="group relative overflow-hidden rounded-xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.08] hover:border-white/[0.15] backdrop-blur-md transition-all duration-300 p-4"
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: 0.9 + 0 * 0.1 }}
+                    {/* Reset Button - Only show if there are messages */}
+                    {messages.length > 0 && (
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ delay: 1, duration: 0.5 }}
+                        className="mt-6 text-center"
+                      >
+                        <button
+                          onClick={handleChatReset}
+                          className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all duration-200 backdrop-blur-sm group"
+                          title="Reset Chat"
                         >
-                          <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/[0.03] via-transparent to-purple-500/[0.03] opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                          <div className="relative flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-400/10 to-blue-500/10 border border-cyan-400/20 flex items-center justify-center">
-                              <FileText className="w-4 h-4 text-cyan-400" />
-                            </div>
-                            <span className="text-white/80 group-hover:text-white text-sm font-medium">Document Summary</span>
-                          </div>
-                        </motion.button>
-
-                        <motion.button
-                          onClick={() => handleSendMessage("이 문서의 주요 내용이 뭐야?")}
-                          className="group relative overflow-hidden rounded-xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.08] hover:border-white/[0.15] backdrop-blur-md transition-all duration-300 p-4"
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: 0.9 + 1 * 0.1 }}
-                        >
-                          <div className="absolute inset-0 bg-gradient-to-br from-purple-500/[0.03] via-transparent to-pink-500/[0.03] opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                          <div className="relative flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-400/10 to-pink-500/10 border border-purple-400/20 flex items-center justify-center">
-                              <Search className="w-4 h-4 text-purple-400" />
-                            </div>
-                            <span className="text-white/80 group-hover:text-white text-sm font-medium">Main Content</span>
-                          </div>
-                        </motion.button>
-
-                        <motion.button
-                          onClick={() => handleSendMessage("이 문서에서 중요한 데이터나 수치가 있나?")}
-                          className="group relative overflow-hidden rounded-xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.08] hover:border-white/[0.15] backdrop-blur-md transition-all duration-300 p-4"
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: 0.9 + 2 * 0.1 }}
-                        >
-                          <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/[0.03] via-transparent to-teal-500/[0.03] opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                          <div className="relative flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-400/10 to-teal-500/10 border border-emerald-400/20 flex items-center justify-center">
-                              <BarChart3 className="w-4 h-4 text-emerald-400" />
-                            </div>
-                            <span className="text-white/80 group-hover:text-white text-sm font-medium">Data Extraction</span>
-                          </div>
-                        </motion.button>
-
-                        <motion.button
-                          onClick={() => handleSendMessage("이 문서의 핵심 키워드나 중요한 용어들을 알려줘")}
-                          className="group relative overflow-hidden rounded-xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.08] hover:border-white/[0.15] backdrop-blur-md transition-all duration-300 p-4"
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: 0.9 + 3 * 0.1 }}
-                        >
-                          <div className="absolute inset-0 bg-gradient-to-br from-amber-500/[0.03] via-transparent to-orange-500/[0.03] opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                          <div className="relative flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400/10 to-orange-500/10 border border-amber-400/20 flex items-center justify-center">
-                              <Hash className="w-4 h-4 text-amber-400" />
-                            </div>
-                            <span className="text-white/80 group-hover:text-white text-sm font-medium">Keyword Extraction</span>
-                          </div>
-                        </motion.button>
-
-                        <motion.button
-                          onClick={() => handleSendMessage("이 문서에서 궁금한 점이 있어서 질문하고 싶어")}
-                          className="group relative overflow-hidden rounded-xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.08] hover:border-white/[0.15] backdrop-blur-md transition-all duration-300 p-4"
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: 0.9 + 4 * 0.1 }}
-                        >
-                          <div className="absolute inset-0 bg-gradient-to-br from-blue-500/[0.03] via-transparent to-indigo-500/[0.03] opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                          <div className="relative flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-400/10 to-indigo-500/10 border border-blue-400/20 flex items-center justify-center">
-                              <MessageCircle className="w-4 h-4 text-blue-400" />
-                            </div>
-                            <span className="text-white/80 group-hover:text-white text-sm font-medium">Free Question</span>
-                          </div>
-                        </motion.button>
-
-                        <motion.button
-                          onClick={() => handleSendMessage("이 문서를 다른 사람에게 설명하려면 어떻게 해야 할까?")}
-                          className="group relative overflow-hidden rounded-xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.08] hover:border-white/[0.15] backdrop-blur-md transition-all duration-300 p-4"
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: 0.9 + 5 * 0.1 }} 
-                        >
-                          <div className="absolute inset-0 bg-gradient-to-br from-rose-500/[0.03] via-transparent to-pink-500/[0.03] opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                          <div className="relative flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-rose-400/10 to-pink-500/10 border border-rose-400/20 flex items-center justify-center">
-                              <Users className="w-4 h-4 text-rose-400" />
-                            </div>
-                            <span className="text-white/80 group-hover:text-white text-sm font-medium">Explanation Guide</span>
-                          </div>
-                        </motion.button>
-                      </div>
-                    </motion.div>
+                          <RotateCcw className="w-4 h-4 text-orange-400 group-hover:text-orange-300 transition-colors" />
+                          <span className="text-sm text-white/60 group-hover:text-white/80">Reset Chat</span>
+                        </button>
+                      </motion.div>
+                    )}
                   </div>
                 </motion.div>
               ) : null}
@@ -1336,17 +1245,17 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
                   duration: 0.8 
                 }}
               >
-                <ChatInterface
+                <AnalysisInterface
                   messages={(() => {
                     // Use localMessages during streaming, persistent messages otherwise
                     const displayMessages = isStreaming ? localMessages : (localMessages.length > messages.length ? localMessages : messages);
-                    console.log('💬 Messages passed to ChatInterface:', {
-                      isStreaming,
-                      localMessages: localMessages.length,
-                      persistentMessages: messages.length,
-                      using: displayMessages.length,
-                      displayType: isStreaming ? 'local' : (localMessages.length > messages.length ? 'local' : 'persistent')
-                    });
+                    // console.log('💬 Messages passed to AnalysisInterface:', {
+                    //   isStreaming,
+                    //   localMessages: localMessages.length,
+                    //   persistentMessages: messages.length,
+                    //   using: displayMessages.length,
+                    //   displayType: isStreaming ? 'local' : (localMessages.length > messages.length ? 'local' : 'persistent')
+                    // });
                     return displayMessages;
                   })()}
                   input={input}

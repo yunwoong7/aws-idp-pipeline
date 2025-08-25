@@ -16,6 +16,8 @@ import {
     CheckCircle,
     FileText,
     RotateCcw,
+    Send,
+    Sparkles,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import * as React from "react";
@@ -23,6 +25,7 @@ import { MessageLoading } from "@/components/ui/message-loading";
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
 import { AttachedContent } from "@/types/chat.types";
 import { SecureImage } from "@/components/ui/secure-image";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 import { documentApi } from "@/lib/api";
 
@@ -219,7 +222,7 @@ function useAutoResizeTextarea({
 }
 
 
-interface ChatInterfaceProps {
+interface AnalysisInterfaceProps {
     messages: Message[];
     input: string;
     setInput: (value: string) => void;
@@ -260,7 +263,7 @@ interface ChatInterfaceProps {
     onChatReset?: () => void;
 }
 
-export function ChatInterface({
+export function AnalysisInterface({
     messages,
     input,
     setInput,
@@ -292,7 +295,7 @@ export function ChatInterface({
     selectedDocument,
     selectedSegment,
     onChatReset
-}: ChatInterfaceProps) {
+}: AnalysisInterfaceProps) {
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const commandPaletteRef = useRef<HTMLDivElement>(null);
@@ -304,6 +307,7 @@ export function ChatInterface({
     const [isComposing, setIsComposing] = useState(false);
     const [userHasScrolled, setUserHasScrolled] = useState(false);
     const [internalShowScrollButton, setInternalShowScrollButton] = useState(false);
+    const [showResetConfirm, setShowResetConfirm] = useState(false);
     const isNearBottomRef = useRef(true);
     // Persist tool collapsed state independently of streaming/typing
     const [toolCollapsedById, setToolCollapsedById] = useState<Record<string, boolean>>({});
@@ -834,7 +838,22 @@ export function ChatInterface({
             }
         } else if (e.key === "Enter" && !e.shiftKey && !isComposing) {
             e.preventDefault();
-            onSendMessage();
+            if (!isStreaming) {
+                onSendMessage();
+            } else {
+                // During streaming, Enter creates a new line
+                const textarea = e.currentTarget;
+                const currentValue = textarea.value;
+                const cursorPos = textarea.selectionStart || 0;
+                const newValue = currentValue.slice(0, cursorPos) + '\n' + currentValue.slice(cursorPos);
+                setInput(newValue);
+                // Maintain focus and set cursor position after newline
+                requestAnimationFrame(() => {
+                    textarea.focus();
+                    textarea.setSelectionRange(cursorPos + 1, cursorPos + 1);
+                    adjustHeight();
+                });
+            }
         }
     };
 
@@ -1538,7 +1557,8 @@ export function ChatInterface({
                             </div>
                         )}
                         
-                        <div className="relative bg-gray-900/80 border border-white/10 rounded-full backdrop-blur-sm">
+                        <div className="relative bg-gradient-to-r from-gray-900/90 to-gray-800/90 border border-white/20 rounded-full backdrop-blur-xl shadow-2xl">
+                            <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/10 via-purple-500/10 to-pink-500/10 rounded-full animate-pulse" />
                             {/* Command palette */}
                             <AnimatePresence>
                                 {showCommandPalette && (
@@ -1579,14 +1599,19 @@ export function ChatInterface({
                                 )}
                             </AnimatePresence>
 
-                            <div className="p-3 flex items-center">
+                            <div className="relative p-4 flex items-center">
+                                <div className="flex-shrink-0 mr-3">
+                                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-500/20 to-purple-500/20 flex items-center justify-center">
+                                        <Sparkles className="w-5 h-5 text-cyan-400 animate-pulse" />
+                                    </div>
+                                </div>
                                 {/* Reset Button - Only show if there are messages */}
                                 {messages.length > 0 && onChatReset && (
                                     <button 
                                         type="button"
-                                        onClick={onChatReset}
-                                        className="p-2 rounded-full hover:bg-white/5 transition-all group"
-                                        title="대화 초기화"
+                                        onClick={() => setShowResetConfirm(true)}
+                                        className="mr-3 p-2 rounded-full hover:bg-white/5 transition-all group"
+                                        title="Reset Chat"
                                     >
                                         <RotateCcw className="w-5 h-5 text-orange-400 group-hover:text-orange-300 transition-colors" />
                                     </button>
@@ -1596,17 +1621,39 @@ export function ChatInterface({
                                     value={input}
                                     onChange={(e) => setInput(e.target.value)}
                                     onKeyDown={(e) => {
-                                        if (e.key === 'Enter' && !e.shiftKey && !isComposing && !isStreaming) {
+                                        if (e.key === 'Enter' && !e.shiftKey && !isComposing) {
                                             e.preventDefault();
-                                            onSendMessage();
+                                            if (!isStreaming) {
+                                                onSendMessage();
+                                            } else {
+                                                // During streaming, Enter creates a new line
+                                                const input = e.currentTarget;
+                                                const currentValue = input.value;
+                                                const cursorPos = input.selectionStart || 0;
+                                                const newValue = currentValue.slice(0, cursorPos) + '\n' + currentValue.slice(cursorPos);
+                                                setInput(newValue);
+                                                // Maintain focus and set cursor position after newline
+                                                requestAnimationFrame(() => {
+                                                    input.focus();
+                                                    input.setSelectionRange(cursorPos + 1, cursorPos + 1);
+                                                });
+                                            }
                                         }
                                     }}
                                     onCompositionStart={() => setIsComposing(true)}
                                     onCompositionEnd={() => setIsComposing(false)}
-                                    placeholder="어떤 문서를 분석해드릴까요?"
-                                    className="bg-transparent flex-1 outline-none text-white placeholder:text-white/50 pl-4"
+                                    placeholder="What would you like to analyze?"
+                                    className="bg-transparent flex-1 outline-none text-white placeholder:text-white/50 text-lg font-medium"
                                     ref={externalTextareaRef as unknown as React.RefObject<HTMLInputElement>}
                                 />
+                                {/* Send button */}
+                                <button
+                                    onClick={onSendMessage}
+                                    disabled={!input.trim() || isStreaming}
+                                    className="ml-3 p-2 rounded-full bg-white/10 hover:bg-white/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    <Send className="w-4 h-4 text-white" />
+                                </button>
                             </div>
                             
                             
@@ -1705,6 +1752,21 @@ export function ChatInterface({
                     </div>
                 </div>
             )}
+            
+            {/* Reset Confirmation Dialog */}
+            <ConfirmDialog
+                isOpen={showResetConfirm}
+                onClose={() => setShowResetConfirm(false)}
+                onConfirm={() => {
+                    onChatReset?.();
+                    setShowResetConfirm(false);
+                }}
+                title="Reset Chat"
+                message="Are you sure you want to reset the chat? This will clear all messages and start over."
+                confirmText="Reset"
+                cancelText="Cancel"
+                variant="destructive"
+            />
         </>
     );
 }

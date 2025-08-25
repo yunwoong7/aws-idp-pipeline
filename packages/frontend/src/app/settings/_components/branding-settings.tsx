@@ -21,6 +21,7 @@ export function BrandingSettings() {
     description: settings.description,
   });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // When settings change, update the form data
@@ -29,6 +30,8 @@ export function BrandingSettings() {
       companyName: settings.companyName,
       description: settings.description,
     });
+    // Reset preview when settings change (e.g., after save/reset)
+    setPreviewUrl(null);
   }, [settings.companyName, settings.description]);
 
 
@@ -55,6 +58,9 @@ export function BrandingSettings() {
       }
 
       setSelectedFile(file);
+      // Create a temporary preview URL for immediate display
+      const url = URL.createObjectURL(file);
+      setPreviewUrl(url);
     }
   };
 
@@ -79,6 +85,8 @@ export function BrandingSettings() {
       
       // Reset file selection
       setSelectedFile(null);
+      // Bust preview and cached logo by updating previewUrl
+      setPreviewUrl(null);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -103,6 +111,7 @@ export function BrandingSettings() {
       
       // Reset file selection
       setSelectedFile(null);
+      setPreviewUrl(null);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -145,9 +154,9 @@ export function BrandingSettings() {
         <div className="space-y-2">
           <Label>Current Logo</Label>
           <div className="flex items-center space-x-4">
-            {settings.logoUrl ? (
+            {(previewUrl || settings.logoUrl) ? (
               <img
-                src={settings.logoUrl}
+                src={previewUrl || settings.logoUrl}
                 alt="Current Logo"
                 className="h-16 w-16 object-contain border rounded-lg"
                 onError={(e) => {

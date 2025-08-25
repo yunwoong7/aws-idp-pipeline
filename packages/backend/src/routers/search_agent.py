@@ -12,7 +12,6 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from pathlib import Path
 
-from src.agent.chat_agent import ChatAgent
 from src.agent.search_agent import SearchAgent
 
 # logging configuration
@@ -38,8 +37,7 @@ except ImportError:
 USER_SETTINGS_DIR = os.path.expanduser("~/.mcp-client")
 USER_MODEL_FILE = os.path.join(USER_SETTINGS_DIR, "aws_idp_mcp_client.json")
 
-# Global agents
-chat_agent = None
+# Global agent
 search_agent = None
 
 # Conversation histories (in production, use Redis or database)
@@ -100,27 +98,27 @@ def load_model_config(model_id: str) -> Dict[str, Any]:
         logger.error(f"Model configuration load failed: {e}")
         return {"max_output_tokens": 4096}
 
-async def initialize_chat_agent(model_id: str, max_tokens: int) -> ChatAgent:
-    """Initialize ChatAgent"""
-    global chat_agent
+async def initialize_search_agent(model_id: str, max_tokens: int) -> SearchAgent:
+    """Initialize SearchAgent"""
+    global search_agent
     
-    if not chat_agent or chat_agent.model_id != model_id:
-        logger.info(f"🤖 Initializing ChatAgent: model={model_id}, max_tokens={max_tokens}")
+    if not search_agent or search_agent.model_id != model_id:
+        logger.info(f"🤖 Initializing SearchAgent: model={model_id}, max_tokens={max_tokens}")
         
-        if chat_agent:
-            await chat_agent.shutdown()
+        if search_agent:
+            await search_agent.shutdown()
         
-        chat_agent = ChatAgent(
+        search_agent = SearchAgent(
             model_id=model_id,
             max_tokens=max_tokens,
             mcp_config_path=MCP_CONFIG_PATH,
             verbose=True
         )
         
-        await chat_agent.startup()
-        logger.info("🚀 ChatAgent initialization completed")
+        await search_agent.startup()
+        logger.info("🚀 SearchAgent initialization completed")
     
-    return chat_agent
+    return search_agent
 
 def get_conversation_history(thread_id: str) -> List[Dict[str, str]]:
     """Get conversation history for thread"""
@@ -176,8 +174,8 @@ async def search(
         max_tokens = model_config.get("max_output_tokens", 4096)
         logger.info(f"⚙️ Model config: {model_id}, max_tokens={max_tokens}")
         
-        # Initialize ChatAgent
-        agent = await initialize_chat_agent(model_id, max_tokens)
+        # Initialize SearchAgent
+        agent = await initialize_search_agent(model_id, max_tokens)
         
         # Handle thread ID
         if not thread_id:
@@ -196,8 +194,8 @@ async def search(
         if stream:
             logger.info("🌊 Starting streaming response")
             
-            async def stream_chat_response():
-                """Stream chat response with plan visualization"""
+            async def stream_search_response():
+                """Stream search response with plan visualization"""
                 try:
                     updated_history = None
                     final_references = []
@@ -281,7 +279,7 @@ async def search(
                     yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
             
             return StreamingResponse(
-                stream_chat_response(),
+                stream_search_response(),
                 media_type="text/event-stream",
                 headers={
                     "Cache-Control": "no-cache",
@@ -305,7 +303,7 @@ async def search(
             # Update conversation history
             update_conversation_history(thread_id, result["message_history"])
             
-            return ChatResponse(
+            return SearchResponse(
                 response=result["response"],
                 references=result["references"],
                 plan=result.get("plan")
@@ -314,10 +312,10 @@ async def search(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Chat processing error: {e}")
+        logger.error(f"❌ Search processing error: {e}")
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Chat processing failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Search processing failed: {str(e)}")
 
 @router.post("/search/stream")
 async def search_stream(
@@ -328,8 +326,8 @@ async def search_stream(
     thread_id: Optional[str] = Form(None),
     files: Optional[List[UploadFile]] = File(None)
 ):
-    """Dedicated streaming chat endpoint"""
-    return await chat(
+    """Dedicated streaming search endpoint"""
+    return await search(
         request=request,
         message=message,
         stream=True,
@@ -346,8 +344,8 @@ async def reinit_agent(
     thread_id: Annotated[Optional[str], Form()] = None,
     index_id: Annotated[Optional[str], Form()] = None
 ):
-    """Agent reinitialization - mirrors react_agent logic from chat.py"""
-    global chat_agent, conversation_histories
+    """Agent reinitialization"""
+    global search_agent, conversation_histories
     
     try:
         # determine model ID (provided in request or loaded from user settings)
@@ -357,24 +355,24 @@ async def reinit_agent(
         model_config = load_model_config(model_id)
         max_tokens = model_config.get("max_output_tokens", 4096)
         
-        logger.info(f"ChatAgent reinitialization: model_id={model_id}, max_tokens={max_tokens}")
+        logger.info(f"SearchAgent reinitialization: model_id={model_id}, max_tokens={max_tokens}")
         
         # if existing agent exists, clean up
-        if chat_agent:
+        if search_agent:
             try:
-                await chat_agent.shutdown()
+                await search_agent.shutdown()
             except Exception as e:
-                logger.warning(f"Failed to shutdown existing chat_agent: {e}")
+                logger.warning(f"Failed to shutdown existing search_agent: {e}")
         
         # recreate agent
-        chat_agent = ChatAgent(
+        search_agent = SearchAgent(
             model_id=model_id, 
             max_tokens=max_tokens, 
             mcp_config_path=MCP_CONFIG_PATH
         )
         
-        # startup the agent - this initializes the graph and MCP connections
-        await chat_agent.startup()
+        # startup the agent - this initializes MCP connections
+        await search_agent.startup()
         
         # clear conversation histories - this is critical for memory cleanup
         if thread_id:
@@ -384,8 +382,8 @@ async def reinit_agent(
                 logger.info(f"Cleared conversation history for thread: {thread_id}")
             
             # clear agent-specific conversation for thread
-            if hasattr(chat_agent, 'clear_conversation_history'):
-                success = chat_agent.clear_conversation_history(thread_id)
+            if hasattr(search_agent, 'clear_conversation_history'):
+                success = search_agent.clear_conversation_history(thread_id)
                 logger.info(f"Agent conversation clear for thread {thread_id}: {success}")
         else:
             # clear all conversation histories
@@ -393,46 +391,46 @@ async def reinit_agent(
             logger.info("All conversation histories cleared")
             
             # clear all agent conversations 
-            if hasattr(chat_agent, 'clear_conversation_history'):
-                success = chat_agent.clear_conversation_history()  # None clears all
+            if hasattr(search_agent, 'clear_conversation_history'):
+                success = search_agent.clear_conversation_history()  # None clears all
                 logger.info(f"All agent conversations cleared: {success}")
         
-        logger.info("ChatAgent reinitialization completed successfully")
+        logger.info("SearchAgent reinitialization completed successfully")
         
         return {
             "success": True,
             "model_id": model_id,
             "max_tokens": max_tokens,
-            "message": "ChatAgent reinitialized successfully with conversation history cleared"
+            "message": "SearchAgent reinitialized successfully with conversation history cleared"
         }
     
     except Exception as e:
-        logger.error(f"ChatAgent reinitialization error: {e}")
+        logger.error(f"SearchAgent reinitialization error: {e}")
         # retry with default model if error occurs
         try:
             # if existing agent exists, clean up
-            if chat_agent:
+            if search_agent:
                 try:
-                    await chat_agent.shutdown()
+                    await search_agent.shutdown()
                 except Exception as shutdown_error:
-                    logger.warning(f"Failed to shutdown existing chat_agent during fallback: {shutdown_error}")
+                    logger.warning(f"Failed to shutdown existing search_agent during fallback: {shutdown_error}")
             
             model_id = "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
             model_config = load_model_config(model_id)
             max_tokens = model_config.get("max_output_tokens", 4096)
             
-            logger.info(f"Fallback ChatAgent reinitialization: model_id={model_id}")
+            logger.info(f"Fallback SearchAgent reinitialization: model_id={model_id}")
             
             # recreate agent with default model
-            chat_agent = ChatAgent(model_id=model_id, max_tokens=max_tokens, mcp_config_path=MCP_CONFIG_PATH)
-            await chat_agent.startup()
+            search_agent = SearchAgent(model_id=model_id, max_tokens=max_tokens, mcp_config_path=MCP_CONFIG_PATH)
+            await search_agent.startup()
             
             # clear conversation histories
             conversation_histories.clear()
-            if hasattr(chat_agent, 'clear_conversation_history'):
-                chat_agent.clear_conversation_history()
+            if hasattr(search_agent, 'clear_conversation_history'):
+                search_agent.clear_conversation_history()
             
-            logger.info("ChatAgent fallback reinitialization completed")
+            logger.info("SearchAgent fallback reinitialization completed")
             
             return {
                 "success": True,
@@ -442,16 +440,16 @@ async def reinit_agent(
             }
         except Exception as fallback_error:
             logger.error(f"Error occurred during reinitialization with default model: {fallback_error}")
-            raise HTTPException(status_code=500, detail=f"ChatAgent reinitialization failed: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"SearchAgent reinitialization failed: {str(e)}")
 
 @router.get("/search/health")
 async def search_health():
     """Search agent health check"""
     try:
-        if not chat_agent:
-            return {"status": "not_initialized", "chat_agent": False}
+        if not search_agent:
+            return {"status": "not_initialized", "search_agent": False}
         
-        health_status = await chat_agent.health_check()
+        health_status = await search_agent.health_check()
         return {"status": "ok", **health_status}
         
     except Exception as e:

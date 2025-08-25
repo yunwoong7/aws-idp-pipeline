@@ -19,12 +19,14 @@ interface SecureVideoProps {
   indexId?: string;
   className?: string;
   style?: React.CSSProperties;
+  seekToSeconds?: number;
 }
 
-const SecureVideo = ({ s3Uri, indexId, className = '', style }: SecureVideoProps) => {
+const SecureVideo = ({ s3Uri, indexId, className = '', style, seekToSeconds }: SecureVideoProps) => {
   const [presignedUrl, setPresignedUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const videoRef = React.useRef<HTMLVideoElement | null>(null);
 
   React.useEffect(() => {
     const fetchPresignedUrl = async () => {
@@ -59,6 +61,31 @@ const SecureVideo = ({ s3Uri, indexId, className = '', style }: SecureVideoProps
     fetchPresignedUrl();
   }, [s3Uri, indexId]);
 
+  React.useEffect(() => {
+    if (!presignedUrl || seekToSeconds == null || Number.isNaN(seekToSeconds)) return;
+    const el = videoRef.current;
+    if (!el) return;
+
+    const applySeek = () => {
+      try {
+        el.currentTime = Math.max(0, seekToSeconds);
+      } catch (_) {
+        // no-op
+      }
+    };
+
+    if (el.readyState >= 1) {
+      applySeek();
+    } else {
+      const onLoaded = () => {
+        applySeek();
+        el.removeEventListener('loadedmetadata', onLoaded);
+      };
+      el.addEventListener('loadedmetadata', onLoaded);
+      return () => el.removeEventListener('loadedmetadata', onLoaded);
+    }
+  }, [presignedUrl, seekToSeconds]);
+
   if (isLoading) {
     return (
       <div className={`flex items-center justify-center ${className}`} style={style}>
@@ -84,6 +111,7 @@ const SecureVideo = ({ s3Uri, indexId, className = '', style }: SecureVideoProps
 
   return (
     <video
+      ref={videoRef}
       controls
       className={className}
       style={style}
@@ -211,6 +239,8 @@ interface DocumentDetailDialogProps {
   onAddPage?: () => void;
   canAddDocument?: boolean;
   canAddPage?: boolean;
+  // Optional segment start timecodes for video seeking
+  segmentStartTimecodes?: string[];
 }
 
 export function DocumentDetailDialog({
@@ -246,7 +276,8 @@ export function DocumentDetailDialog({
   onAddDocument,
   onAddPage,
   canAddDocument = false,
-  canAddPage = false
+  canAddPage = false,
+  segmentStartTimecodes
 }: DocumentDetailDialogProps) {
   
   // Analysis popup state
@@ -349,6 +380,32 @@ export function DocumentDetailDialog({
       document.file_name.toLowerCase().endsWith(ext)
     )
   );
+
+  const smpteToSeconds = (smpte?: string): number | undefined => {
+    if (!smpte) return undefined;
+    const norm = smpte.trim();
+    let m = norm.match(/^(\d{1,2}):(\d{2}):(\d{2})(?:[;:\.](\d{1,2}))?$/);
+    let h = 0, mnt = 0, sec = 0, frames = 0;
+    if (m) {
+      h = parseInt(m[1], 10);
+      mnt = parseInt(m[2], 10);
+      sec = parseInt(m[3], 10);
+      frames = m[4] != null ? parseInt(m[4], 10) : 0;
+    } else {
+      m = norm.match(/^(\d{1,2}):(\d{2})$/);
+      if (!m) return undefined;
+      mnt = parseInt(m[1], 10);
+      sec = parseInt(m[2], 10);
+    }
+    const DEFAULT_FPS = 30;
+    return h * 3600 + mnt * 60 + sec + (frames / DEFAULT_FPS);
+  };
+
+  const seekSeconds = (() => {
+    if (!isVideoFile) return undefined;
+    const smpte = segmentStartTimecodes && selectedSegment != null ? segmentStartTimecodes[selectedSegment] : undefined;
+    return smpteToSeconds(smpte);
+  })();
 
   return ReactDOM.createPortal(
     <div 
@@ -684,6 +741,7 @@ export function DocumentDetailDialog({
                   s3Uri={document.file_uri}
                   indexId={indexId}
                   className="max-h-full max-w-full rounded-lg shadow-lg"
+                  seekToSeconds={seekSeconds}
                 />
               </div>
             ) : currentPageImageUrl && !imageLoading ? (

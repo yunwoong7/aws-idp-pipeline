@@ -17,6 +17,7 @@ from common import (
     S3Service,
     get_current_timestamp,
 )
+from common.aws_clients import AWSClientFactory
 
 # Add parent directory to Python path for Lambda environment
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -35,6 +36,7 @@ logger = logging.getLogger(__name__)
 OPENSEARCH_ENDPOINT = os.environ.get('OPENSEARCH_ENDPOINT')
 OPENSEARCH_INDEX_NAME = os.environ.get('OPENSEARCH_INDEX_NAME', 'aws-idp-ai-analysis')
 DOCUMENTS_BUCKET_NAME = os.environ.get('DOCUMENTS_BUCKET_NAME')
+SEGMENTS_TABLE_NAME = os.environ.get('SEGMENTS_TABLE_NAME')
 
 # Search related environment variables (performance optimization)
 HYBRID_SEARCH_SIZE = int(os.environ.get('HYBRID_SEARCH_SIZE', '15'))  # Decreased from 25 to 15
@@ -65,6 +67,32 @@ def _get_s3_service():
     if s3_service is None:
         s3_service = S3Service()
     return s3_service
+
+def _get_segment_timecodes_from_dynamodb(segment_id: str) -> Dict[str, Optional[str]]:
+    """Get segment timecodes from DynamoDB segments table. Return empty strings if not found."""
+    try:
+        # Resolve table name via factory (consistent with s3_service usage)
+        try:
+            table_name = AWSClientFactory.get_table_name('segments')
+        except Exception as e:
+            logger.warning(f"Failed to resolve segments table via factory: {str(e)}; falling back to env")
+            table_name = SEGMENTS_TABLE_NAME
+
+        if not table_name:
+            logger.warning("Segments table name not configured")
+            return {"start_timecode_smpte": "", "end_timecode_smpte": ""}
+
+        dynamodb = AWSClientFactory.get_dynamodb_resource()
+        table = dynamodb.Table(table_name)
+        response = table.get_item(Key={'segment_id': segment_id})
+        item = response.get('Item', {})
+        return {
+            "start_timecode_smpte": item.get('start_timecode_smpte', ""),
+            "end_timecode_smpte": item.get('end_timecode_smpte', ""),
+        }
+    except Exception as e:
+        logger.error(f"Failed to get timecodes from DynamoDB for segment_id={segment_id}: {str(e)}")
+        return {"start_timecode_smpte": "", "end_timecode_smpte": ""}
 
 def _get_index_info_from_dynamodb(index_id: str) -> Optional[Dict[str, Any]]:
     """Get index information from DynamoDB indices table"""
@@ -401,6 +429,10 @@ def handle_get_opensearch_documents(event: Dict[str, Any]) -> Dict[str, Any]:
                     ]
                 }
             
+            # Fetch timecodes from DynamoDB (optional fields)
+            segment_id_val = source.get('segment_id', '')
+            timecodes = _get_segment_timecodes_from_dynamodb(segment_id_val) if segment_id_val else {"start_timecode_smpte": "", "end_timecode_smpte": ""}
+
             segment_item = {
                 "segment_id": source.get('segment_id', ''),
                 "segment_index": source.get('segment_index', 0),
@@ -408,6 +440,8 @@ def handle_get_opensearch_documents(event: Dict[str, Any]) -> Dict[str, Any]:
                 "document_id": source.get('document_id', ''),
                 "image_uri": image_uri,
                 "file_uri": file_uri,
+                "start_timecode_smpte": timecodes.get('start_timecode_smpte', ""),
+                "end_timecode_smpte": timecodes.get('end_timecode_smpte', ""),
                 "vector_content_available": bool(source.get('vector_content')),
                 "tools_detail": tools_detail,
                 "tools_count": {

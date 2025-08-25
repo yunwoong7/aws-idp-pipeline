@@ -15,7 +15,6 @@ from langchain_core.runnables.config import RunnableConfig
 from pathlib import Path
 from src.agent.react_agent.state.model import InputState
 from src.agent.react_agent import ReactAgent
-from src.agent.chat_agent import ChatAgent
 from src.common.configuration import Configuration
 from src.mcp_client.mcp_service import MCPService
 
@@ -42,10 +41,8 @@ except ImportError:
 USER_SETTINGS_DIR = os.path.expanduser("~/.mcp-client")
 USER_MODEL_FILE = os.path.join(USER_SETTINGS_DIR, "aws_idp_mcp_client.json")
 
-# initialize global agent variables
+# initialize global agent variable
 agent = None
-search_agent = None
-chat_agent = None
 
 # Conversation histories (in production, use Redis or database)
 conversation_histories = {}
@@ -163,27 +160,6 @@ def load_model_config(model_id: str) -> Dict[str, Any]:
         logger.error(f"model configuration load failed: {e}")
         return {"max_output_tokens": 4096}
 
-async def initialize_chat_agent(model_id: str, max_tokens: int) -> ChatAgent:
-    """Initialize ChatAgent"""
-    global chat_agent
-    
-    if not chat_agent or chat_agent.model_id != model_id:
-        logger.info(f"🤖 Initializing ChatAgent: model={model_id}, max_tokens={max_tokens}")
-        
-        if chat_agent:
-            await chat_agent.shutdown()
-        
-        chat_agent = ChatAgent(
-            model_id=model_id,
-            max_tokens=max_tokens,
-            mcp_config_path=MCP_CONFIG_PATH,
-            verbose=True
-        )
-        
-        await chat_agent.startup()
-        logger.info("🚀 ChatAgent initialization completed")
-    
-    return chat_agent
 
 def get_conversation_history(thread_id: str) -> List[Dict[str, str]]:
     """Get conversation history for thread"""

@@ -68,6 +68,8 @@ export interface UseDocumentDetailReturn {
     analysisData: AnalysisDocument[];
     analysisLoading: boolean;
     expandedAnalysis: Record<string, boolean>;
+    // Segment timecodes
+    segmentStartTimecodes: string[];
     
     // PDF viewer
     showPdfViewer: boolean;
@@ -118,6 +120,7 @@ export const useDocumentDetail = (indexId: string, externalSelectedDocument?: Do
     
     // Analysis data
     const [analysisData, setAnalysisData] = useState<AnalysisDocument[]>([]);
+    const [segmentStartTimecodes, setSegmentStartTimecodes] = useState<string[]>([]);
     const [analysisLoading, setAnalysisLoading] = useState<boolean>(false);
     const [expandedAnalysis, setExpandedAnalysis] = useState<Record<string, boolean>>({});
     
@@ -265,6 +268,15 @@ export const useDocumentDetail = (indexId: string, externalSelectedDocument?: Do
             const segments = data?.data?.segments || data?.segments || [];
 
             if (Array.isArray(segments)) {
+                // Extract start_timecode_smpte list for seeking
+                try {
+                    const startCodes = segments
+                        .sort((a: any, b: any) => (a.segment_index ?? 0) - (b.segment_index ?? 0))
+                        .map((s: any) => (s?.start_timecode_smpte ?? ''));
+                    setSegmentStartTimecodes(startCodes);
+                } catch {
+                    setSegmentStartTimecodes([]);
+                }
                 segments.forEach((segment: any) => {
                     const tools = segment?.tools_detail || {};
                     const toolTypes = ['bda_indexer', 'pdf_text_extractor', 'ai_analysis', 'user_content'];
@@ -582,6 +594,7 @@ export const useDocumentDetail = (indexId: string, externalSelectedDocument?: Do
         analysisData,
         analysisLoading,
         expandedAnalysis,
+        segmentStartTimecodes,
         
         // PDF viewer
         showPdfViewer,

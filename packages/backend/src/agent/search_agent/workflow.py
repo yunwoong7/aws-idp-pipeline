@@ -1,5 +1,5 @@
 """
-ChatAgent Workflow - Orchestrates Plan-Execute-Respond pattern
+SearchAgent Workflow - Orchestrates Plan-Execute-Respond pattern
 """
 
 import asyncio
@@ -9,7 +9,7 @@ from typing import Dict, Any, AsyncIterator, Optional
 
 from langchain_aws import ChatBedrock
 
-from .state.model import ChatState, Plan
+from .state.model import SearchState, Plan
 from .node.planner import PlannerNode
 from .node.executor import ExecutorNode
 from .node.responder import ResponderNode
@@ -17,9 +17,9 @@ from src.mcp_client.mcp_service import MCPService
 
 logger = logging.getLogger(__name__)
 
-class ChatAgentWorkflow:
+class SearchAgentWorkflow:
     """
-    Main workflow orchestrator for ChatAgent with Plan-Execute-Respond pattern
+    Main workflow orchestrator for SearchAgent with Plan-Execute-Respond pattern
     """
     
     def __init__(
@@ -31,7 +31,7 @@ class ChatAgentWorkflow:
         verbose: bool = False
     ):
         """
-        Initialize the ChatAgent workflow
+        Initialize the SearchAgent workflow
         
         Args:
             model_id: Bedrock model ID to use
@@ -117,7 +117,7 @@ class ChatAgentWorkflow:
         workflow_start_time = time.time()
         
         # Initialize state
-        state = ChatState.initial_state(
+        state = SearchState.initial_state(
             input_text=input_text,
             message_history=message_history or [],
             index_id=index_id,
@@ -125,7 +125,7 @@ class ChatAgentWorkflow:
             segment_id=segment_id
         )
         
-        logger.info(f"Starting ChatAgent workflow for: {input_text[:50]}...")
+        logger.info(f"Starting SearchAgent workflow for: {input_text[:50]}...")
         
         yield {
             "type": "workflow_start",
@@ -308,8 +308,15 @@ class ChatAgentWorkflow:
     async def startup(self):
         """Initialize MCP service if available"""
         if self.mcp_service:
-            await self.mcp_service.startup()
-            logger.info("MCP service startup completed")
+            tools = await self.mcp_service.startup()
+            logger.info(f"MCP service startup completed - {len(tools) if tools else 0} tools loaded")
+            
+            # Refresh tools in executor after MCP startup
+            if hasattr(self, 'executor'):
+                await self.executor.refresh_tools()
+                logger.info("Executor tools refreshed after MCP startup")
+        else:
+            logger.warning("MCP service not configured - no tools will be available")
 
     async def shutdown(self):
         """Cleanup resources"""

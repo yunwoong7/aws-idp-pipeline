@@ -75,6 +75,7 @@ export function DocumentsTab({ indexId, onSelectDocument, onAttachToChat, onAnal
     setShowPdfViewer,
     imageLoading,
     selectedSegment,
+    segmentStartTimecodes,
     imageZoom,
     imageRotation,
     imagePosition,
@@ -424,6 +425,7 @@ export function DocumentsTab({ indexId, onSelectDocument, onAttachToChat, onAnal
         onMouseUp={handleMouseUp}
         onAnalysisPopup={handleAnalysisPopup}
         onShowPdfViewer={() => setShowPdfViewer(true)}
+        segmentStartTimecodes={segmentStartTimecodes}
       />
 
       {/* PDF Viewer Dialog */}

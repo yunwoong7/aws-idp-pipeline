@@ -12,7 +12,7 @@ from typing import Dict, Any, AsyncIterator, List, Optional
 from langchain_aws import ChatBedrock
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
-from ..state.model import ChatState, Reference
+from ..state.model import SearchState, Reference
 from ..prompt import prompt_manager
 from datetime import datetime, timezone
 
@@ -43,7 +43,7 @@ class ResponderNode:
         
         # Will load system prompt from YAML
 
-    async def astream(self, state: ChatState) -> AsyncIterator[Dict[str, Any]]:
+    async def astream(self, state: SearchState) -> AsyncIterator[Dict[str, Any]]:
         """
         Stream response generation with real-time updates
         
@@ -155,7 +155,7 @@ class ResponderNode:
                 "timestamp": time.time()
             }
 
-    def _build_context(self, state: ChatState) -> tuple[str, str, List[Any]]:
+    def _build_context(self, state: SearchState) -> tuple[str, str, List[Any]]:
         """
         Build context from execution results
         
@@ -216,7 +216,7 @@ class ResponderNode:
         
         return context_text, references_text, original_references
 
-    def _build_messages_from_yaml(self, state: ChatState, context: str, references: str) -> List:
+    def _build_messages_from_yaml(self, state: SearchState, context: str, references: str) -> List:
         """Build messages for LLM response generation using YAML prompt"""
         
         # Format conversation history
@@ -328,7 +328,7 @@ class ResponderNode:
         logger.info(f"Filtered to {len(filtered_references)} referenced items")
         return filtered_references
 
-    async def ainvoke(self, state: ChatState) -> Dict[str, Any]:
+    async def ainvoke(self, state: SearchState) -> Dict[str, Any]:
         """
         Generate response without streaming (for testing/fallback)
         

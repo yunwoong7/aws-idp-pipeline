@@ -637,9 +637,29 @@ export const systemApi = {
     
     return response.json();
   },
+
+  // SearchAgent 재초기화
+  async reinitializeSearchAgent(request: { model_id?: string } = {}): Promise<any> {
+    const backendUrl = await getBackendUrl();
+    const formData = new FormData();
+    if (request.model_id) {
+      formData.append('model_id', request.model_id);
+    }
+    
+    const response = await fetch(`${backendUrl}/api/search/reinit`, {
+      method: 'POST',
+      body: formData,
+    });
+    
+    if (!response.ok) {
+      throw new Error('SearchAgent 재초기화에 실패했습니다');
+    }
+    
+    return response.json();
+  },
 }; 
 
-export const chatApi = {
+export const analysisAgentApi = {
   // 채팅 스트림 (FormData 또는 JSON) - 로컬 Python 백엔드로 직접 호출
   async sendMessage(request: ChatRequest): Promise<Response> {
     const backendUrl = await getBackendUrl();

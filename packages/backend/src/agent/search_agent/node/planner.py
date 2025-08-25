@@ -10,9 +10,9 @@ from typing import Dict, Any, AsyncIterator, List, Optional
 from langchain_aws import ChatBedrock
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
-from langchain.schema import OutputParserException
+from langchain_core.exceptions import OutputParserException
 
-from ..state.model import ChatState, Plan, Task, TaskStatus
+from ..state.model import SearchState, Plan, Task, TaskStatus
 from ..prompt import prompt_manager
 from src.mcp_client.mcp_service import MCPService
 from datetime import datetime, timezone
@@ -69,7 +69,7 @@ class PlannerNode:
             return "Error retrieving MCP tools"
 
 
-    async def astream(self, state: ChatState) -> AsyncIterator[Dict[str, Any]]:
+    async def astream(self, state: SearchState) -> AsyncIterator[Dict[str, Any]]:
         """
         Stream planning process with real-time updates
         
@@ -211,7 +211,7 @@ class PlannerNode:
                 "timestamp": time.time()
             }
 
-    async def ainvoke(self, state: ChatState) -> Plan:
+    async def ainvoke(self, state: SearchState) -> Plan:
         """
         Generate plan without streaming (for testing/fallback)
         

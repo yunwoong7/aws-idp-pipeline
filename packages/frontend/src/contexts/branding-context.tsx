@@ -34,15 +34,25 @@ export function BrandingProvider({ children }: BrandingProviderProps) {
 
       const result = await brandingApi.getSettings();
       console.log('🎨 Branding settings loaded:', result);
-      setSettings(result);
+      // Cache-bust logo to reflect file updates immediately in UI
+      const cacheBuster = Date.now();
+      const effectiveLogoUrl = result.logoUrl
+        ? `${result.logoUrl}${result.logoUrl.includes('?') ? '&' : '?'}v=${cacheBuster}`
+        : '/default_logo.png';
+      setSettings({
+        companyName: result.companyName || 'AWS IDP',
+        logoUrl: effectiveLogoUrl,
+        description: result.description || 'Transform Documents into\nActionable Insights',
+      });
       setInitialized(true);
     } catch (err) {
       console.error('브랜딩 설정 로드 실패:', err);
       setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
       // 오류 발생 시 기본값 사용
+      const cacheBuster = Date.now();
       setSettings({
         companyName: 'AWS IDP',
-        logoUrl: '/default_logo.png',
+        logoUrl: `/default_logo.png?v=${cacheBuster}`,
         description: 'Transform Documents into\nActionable Insights'
       });
       setInitialized(true);

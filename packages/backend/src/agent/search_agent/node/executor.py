@@ -12,7 +12,7 @@ from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage, AI
 from langchain_aws import ChatBedrock
 from langgraph.prebuilt import ToolNode
 
-from ..state.model import ChatState, Task, TaskStatus, Reference
+from ..state.model import SearchState, Task, TaskStatus, Reference
 from src.mcp_client.mcp_service import MCPService
 
 logger = logging.getLogger(__name__)
@@ -51,21 +51,53 @@ class ExecutorNode:
     def _setup_tool_node(self):
         """Setup ToolNode with MCP tools"""
         try:
+            if not self.mcp_service:
+                logger.warning("MCP service not available")
+                self.tool_node = None
+                self.tools_available = False
+                return
+                
             tools = self.mcp_service.get_tools()
-            if tools:
+            if tools and len(tools) > 0:
                 self.tool_node = ToolNode(tools)
                 self.tools_available = True
                 logger.info(f"Executor initialized with {len(tools)} MCP tools")
+                
+                # Log tool names for debugging
+                tool_names = [getattr(tool, 'name', 'unknown') for tool in tools]
+                logger.debug(f"Available tools: {', '.join(tool_names)}")
             else:
                 self.tool_node = None
                 self.tools_available = False
-                logger.warning("No MCP tools available for executor")
+                logger.warning("No MCP tools available for executor - tools list empty")
         except Exception as e:
             logger.error(f"Failed to setup ToolNode: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             self.tool_node = None
             self.tools_available = False
 
-    def _create_tool_call_messages(self, task: Task, state: ChatState) -> List:
+    async def refresh_tools(self):
+        """Refresh tools from MCP service - useful for runtime updates"""
+        if not self.mcp_service:
+            logger.warning("Cannot refresh tools - MCP service not available")
+            return False
+            
+        try:
+            tools = self.mcp_service.get_tools()
+            if tools and len(tools) > 0:
+                self.tool_node = ToolNode(tools)
+                self.tools_available = True
+                logger.info(f"Tools refreshed - {len(tools)} tools available")
+                return True
+            else:
+                logger.warning("No tools available after refresh")
+                return False
+        except Exception as e:
+            logger.error(f"Failed to refresh tools: {e}")
+            return False
+
+    def _create_tool_call_messages(self, task: Task, state: SearchState) -> List:
         """Create messages with tool calls for ToolNode execution"""
         # Add context to tool arguments
         enhanced_args = task.tool_args.copy() if task.tool_args else {}
@@ -105,9 +137,15 @@ class ExecutorNode:
                 try:
                     content = message.content
                     
+                    # Handle None content
+                    if content is None:
+                        logger.warning("Tool message content is None")
+                        result["text"] = "Tool returned no data"
+                        continue
+                    
                     # Try to parse as JSON if it's a string
                     if isinstance(content, str):
-                        if content.strip().startswith('{') or content.strip().startswith('['):
+                        if content.strip() and (content.strip().startswith('{') or content.strip().startswith('[')):
                             try:
                                 content = json.loads(content)
                             except:
@@ -116,10 +154,10 @@ class ExecutorNode:
                     # Extract from structured response
                     if isinstance(content, dict):
                         # Check for nested data structure
-                        data = content.get("data", content)
+                        data = content.get("data", content) if content else {}
                         
                         # Extract references
-                        if "references" in data and isinstance(data["references"], list):
+                        if data and "references" in data and isinstance(data.get("references"), list):
                             for ref in data["references"]:
                                 if isinstance(ref, str):
                                     # Parse "title : url" format
@@ -145,7 +183,7 @@ class ExecutorNode:
                                     result["references"].append(ref)
                         
                         # Extract results array (for hybrid_search)
-                        if "results" in data and isinstance(data["results"], list):
+                        if data and "results" in data and isinstance(data.get("results"), list):
                             for item in data["results"]:
                                 if isinstance(item, dict):
                                     # Extract document information
@@ -188,7 +226,7 @@ class ExecutorNode:
                                         result["references"].append(ref_data)
                         
                         # Extract content field
-                        if "content" in data:
+                        if data and "content" in data:
                             content_data = data["content"]
                             if isinstance(content_data, list):
                                 for item in content_data:
@@ -207,6 +245,8 @@ class ExecutorNode:
                 
                 except Exception as e:
                     logger.error(f"Error processing tool message: {e}")
+                    import traceback
+                    logger.error(f"Traceback: {traceback.format_exc()}")
                     result["text"] += f"Error processing result: {str(e)}\n"
         
         # Clean up text
@@ -217,7 +257,7 @@ class ExecutorNode:
         
         return result
 
-    async def astream(self, state: ChatState) -> AsyncIterator[Dict[str, Any]]:
+    async def astream(self, state: SearchState) -> AsyncIterator[Dict[str, Any]]:
         """
         Stream task execution with real-time updates
         
@@ -236,14 +276,19 @@ class ExecutorNode:
             }
             return
         
+        # Try to refresh tools if not available
         if not self.tools_available or not self.tool_node:
-            logger.error("Tools not available for execution")
-            yield {
-                "type": "execution_error",
-                "error": "MCP tools not available",
-                "timestamp": time.time()
-            }
-            return
+            logger.warning("Tools not available, attempting to refresh...")
+            refresh_success = await self.refresh_tools()
+            
+            if not refresh_success:
+                logger.error("Tools not available for execution after refresh attempt")
+                yield {
+                    "type": "execution_error",
+                    "error": "MCP tools not available - servers may not be running or configured properly",
+                    "timestamp": time.time()
+                }
+                return
         
         logger.info(f"Executing {len(state.plan.tasks)} tasks...")
         
@@ -352,7 +397,7 @@ class ExecutorNode:
             "timestamp": time.time()
         }
 
-    async def ainvoke(self, state: ChatState) -> Dict[str, Any]:
+    async def ainvoke(self, state: SearchState) -> Dict[str, Any]:
         """
         Execute tasks without streaming (for testing/fallback)
         

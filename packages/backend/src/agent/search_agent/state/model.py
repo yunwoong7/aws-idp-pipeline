@@ -1,5 +1,5 @@
 """
-State management for Chat Agent
+State management for Search Agent
 """
 
 from pydantic import BaseModel, Field
@@ -39,8 +39,8 @@ class Reference(BaseModel):
     title: Optional[str] = Field(default=None, description="Reference title")
     description: Optional[str] = Field(default=None, description="Reference description")
 
-class ChatState(BaseModel):
-    """Complete state of the chat agent"""
+class SearchState(BaseModel):
+    """Complete state of the search agent"""
     input: str = Field(description="User input")
     plan: Optional[Plan] = Field(default=None, description="Generated execution plan")
     executed_tasks: List[Dict[str, Any]] = Field(default_factory=list, description="Completed tasks")
@@ -54,7 +54,7 @@ class ChatState(BaseModel):
     document_id: Optional[str] = Field(default=None, description="Document ID for specific document context")
     segment_id: Optional[str] = Field(default=None, description="Segment ID for specific segment context")
     @classmethod
-    def initial_state(cls, input_text: str = "", message_history: List[Dict[str, str]] = None, **kwargs) -> "ChatState":
+    def initial_state(cls, input_text: str = "", message_history: List[Dict[str, str]] = None, **kwargs) -> "SearchState":
         """Create initial state"""
         return cls(
             input=input_text,
