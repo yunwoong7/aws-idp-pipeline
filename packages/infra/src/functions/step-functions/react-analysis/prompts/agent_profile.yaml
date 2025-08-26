@@ -31,6 +31,12 @@ instruction: |
    {{PREVIOUS_ANALYSIS}}
    </previous_analysis>
 
+   If available, here is the media type of the input document/content:
+
+   <media_type>
+   {{MEDIA_TYPE}}
+   </media_type>
+
    If available, here are the document references and sources:
 
    <references>
@@ -123,6 +129,9 @@ variables:
    - name: QUERY
      required: true
      description: User's question or request
+   - name: MEDIA_TYPE
+     required: false
+     description: Primary media type of the input (e.g., pdf, image, drawing, spec, text)
    - name: PREVIOUS_ANALYSIS
      required: false
      description: Previous analysis results from OpenSearch to avoid duplicate work

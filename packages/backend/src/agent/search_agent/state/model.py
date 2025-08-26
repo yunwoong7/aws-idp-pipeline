@@ -38,6 +38,14 @@ class Reference(BaseModel):
     value: str = Field(description="Reference value (URL, path, etc.)")
     title: Optional[str] = Field(default=None, description="Reference title")
     description: Optional[str] = Field(default=None, description="Reference description")
+    # Frontend와 일치시킬 추가 필드들
+    display_name: Optional[str] = Field(default=None, description="Display name for UI")
+    document_id: Optional[str] = Field(default=None, description="Document ID")
+    page_index: Optional[int] = Field(default=None, description="Page index (0-based)")
+    page_id: Optional[str] = Field(default=None, description="Page ID")
+    score: Optional[float] = Field(default=None, description="Relevance score")
+    image_uri: Optional[str] = Field(default=None, description="Image URI (S3 URI)")
+    file_uri: Optional[str] = Field(default=None, description="File URI (S3 URI)")
 
 class SearchState(BaseModel):
     """Complete state of the search agent"""

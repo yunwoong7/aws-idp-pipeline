@@ -25,12 +25,13 @@ interface SearchTabProps {
     page_number: number;
     file_name: string;
   }) => void;
+  onReferenceClick?: (reference: any) => void;
   persistentState?: PersistentSearchState;
   onStateUpdate?: (updates: Partial<PersistentSearchState>) => void;
 }
 
 
-export function SearchTab({ indexId, onOpenPdf, onAttachToChat, persistentState, onStateUpdate }: SearchTabProps) {
+export function SearchTab({ indexId, onOpenPdf, onAttachToChat, onReferenceClick, persistentState, onStateUpdate }: SearchTabProps) {
 
 
   return (
@@ -72,6 +73,7 @@ export function SearchTab({ indexId, onOpenPdf, onAttachToChat, persistentState,
           indexId={indexId}
           onOpenPdf={onOpenPdf}
           onAttachToChat={onAttachToChat}
+          onReferenceClick={onReferenceClick}
           persistentState={persistentState}
           onStateUpdate={onStateUpdate}
         />

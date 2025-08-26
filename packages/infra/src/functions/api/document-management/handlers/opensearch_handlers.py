@@ -121,6 +121,19 @@ def _get_index_info_from_dynamodb(index_id: str) -> Optional[Dict[str, Any]]:
         logger.error(f"Failed to get index info from DynamoDB: {str(e)}")
         return None
 
+def _get_document_file_name_from_dynamodb(document_id: str) -> Optional[str]:
+    """Get document file_name from DynamoDB documents table"""
+    try:
+        table_name = AWSClientFactory.get_table_name('documents')
+        dynamodb = AWSClientFactory.get_dynamodb_resource()
+        table = dynamodb.Table(table_name)
+        response = table.get_item(Key={'document_id': document_id})
+        item = response.get('Item', {})
+        return item.get('file_name') if item else None
+    except Exception as e:
+        logger.warning(f"Failed to get file_name from DynamoDB for document_id={document_id}: {str(e)}")
+        return None
+
 def handle_opensearch_status(event: Dict[str, Any]) -> Dict[str, Any]:
     """Check OpenSearch cluster status and specific index status - GET /api/opensearch/status
     
@@ -736,12 +749,17 @@ def handle_opensearch_hybrid_search(event: Dict[str, Any]) -> Dict[str, Any]:
             
             logger.info(f"Returning hybrid search S3 URIs: image_uri={image_uri}, file_uri={file_uri}")
 
+            # Fetch file_name from documents table
+            doc_id_for_name = source.get('document_id', '')
+            file_name = _get_document_file_name_from_dynamodb(doc_id_for_name) if doc_id_for_name else None
+
             result_item = {
                 "segment_id": source.get('segment_id', ''),
                 "segment_index": source.get('segment_index', 0),
                 "document_id": source.get('document_id', ''),
                 "image_uri": image_uri,
                 "file_uri": file_uri,
+                "file_name": file_name,
                 "content_combined": source.get('content_combined', ''),
                 "matched_tools": matched_tools,
                 "tools_count": {

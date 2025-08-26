@@ -112,7 +112,7 @@ class LambdaReActAnalysisHandler:
             start_time = time.time()
             
             # User Query
-            user_query = f"'{document_id}' 세그먼트 {segment_index}를 다양한 각도와 시각에서 도구를 최대한 활용하여 분석해주고, 추출한 텍스트 정보와 이미지 분석 결과를 종합하여 세그먼트에 있는 내용을 자세히 설명해주세요."
+            user_query = f"'{document_id}' 세그먼트 {segment_index + 1}를 다양한 각도와 시각에서 도구를 최대한 활용하여 분석해주고, 추출한 텍스트 정보와 이미지 분석 결과를 종합하여 세그먼트에 있는 내용을 자세히 설명해주세요."
             
             logger.info("-" * 50)
             logger.info(f"💬 User Query: {user_query}")

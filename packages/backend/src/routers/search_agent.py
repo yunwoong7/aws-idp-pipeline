@@ -237,10 +237,24 @@ async def search(
                             yield f"data: {json.dumps({'type': 'task_start', 'task': event['task'], 'message': event['message']})}\n\n"
                             
                         elif event_type == "task_complete":
-                            yield f"data: {json.dumps({'type': 'task_complete', 'task': event['task'], 'message': event['message']})}\n\n"
+                            # Include references from task result if available
+                            task_data = {
+                                'type': 'task_complete',
+                                'task': event['task'],
+                                'message': event['message']
+                            }
+                            if 'references' in event:
+                                task_data['references'] = event['references']
+                            if 'result' in event:
+                                task_data['result'] = event['result']
+                            yield f"data: {json.dumps(task_data)}\n\n"
                             
                         elif event_type == "task_failed":
                             yield f"data: {json.dumps({'type': 'task_failed', 'task': event['task'], 'error': event['error']})}\n\n"
+                        
+                        elif event_type == "execution_complete":
+                            # Send execution complete event with all references
+                            yield f"data: {json.dumps({'type': 'execution_complete', 'all_references': event.get('all_references', []), 'message': event.get('message', 'Execution completed')})}\n\n"
                         
                         # Response events
                         elif event_type == "response_start":

@@ -329,7 +329,8 @@ class ImageAnalyzerTool(StateAwareBaseTool):
                 "query": query,
                 "analysis_query": query,
                 "ai_response": analysis_result,
-                "model_version": self.model_id
+                "model_version": self.model_id,
+                "token_usage": getattr(self, '_last_token_usage', None)
             }
             
             message = f"{analysis_result}"
@@ -566,6 +567,27 @@ class ImageAnalyzerTool(StateAwareBaseTool):
             
             # Extract response
             if 'content' in response_body and response_body['content']:
+                # Log token usage (from headers or body.usage)
+                try:
+                    headers = response.get('ResponseMetadata', {}).get('HTTPHeaders', {}) or {}
+                    input_tokens = headers.get('x-amzn-bedrock-input-token-count')
+                    output_tokens = headers.get('x-amzn-bedrock-output-token-count')
+                    total_tokens = headers.get('x-amzn-bedrock-total-token-count')
+                    # Fallback to body usage if available
+                    if (input_tokens is None or output_tokens is None) and isinstance(response_body, dict) and response_body.get('usage'):
+                        usage = response_body['usage']
+                        input_tokens = input_tokens or usage.get('input_tokens')
+                        output_tokens = output_tokens or usage.get('output_tokens')
+                        total_tokens = total_tokens or usage.get('total_tokens')
+                    logger.info(f"🔢 Bedrock Token Usage (image): input={input_tokens}, output={output_tokens}, total={total_tokens}")
+                    # Attach for upstream aggregation if needed
+                    self._last_token_usage = {
+                        'input_tokens': int(input_tokens) if input_tokens is not None and str(input_tokens).isdigit() else None,
+                        'output_tokens': int(output_tokens) if output_tokens is not None and str(output_tokens).isdigit() else None,
+                        'total_tokens': int(total_tokens) if total_tokens is not None and str(total_tokens).isdigit() else None,
+                    }
+                except Exception as token_log_err:
+                    logger.debug(f"Token usage logging skipped (image): {str(token_log_err)}")
                 return response_body['content'][0]['text']
             else:
                 logger.error(f"Bedrock response format error: {response_body}")

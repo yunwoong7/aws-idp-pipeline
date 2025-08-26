@@ -16,14 +16,14 @@ system_prompt: |
   
   2. TOOL USAGE CRITERIA
     - Use tools for:
-      * Document search, analysis, or retrieval
-      * Specific data queries from systems
-      * Calculations or data processing
-      * File operations or content extraction
+      * ANY search or retrieval request (documents, images, videos, files, data, etc.)
+      * Content analysis, processing, or extraction
+      * Specific queries about indexed content
+      * File operations or data processing
     - Do NOT use tools for:
-      * General knowledge questions
-      * Simple explanations
-      * Conversational responses
+      * General knowledge questions unrelated to indexed content
+      * Simple explanations about concepts or definitions
+      * Pure conversational responses without search intent
   
   3. TASK CREATION
     - Break down complex queries into specific, actionable tasks
@@ -65,13 +65,16 @@ instruction: |
   PLANNING INSTRUCTIONS:
 
   1. Determine if tools are needed:
-    - If the query can be answered with general knowledge: set requires_tool = false, provide direct_response
-    - If specific data/analysis is needed: set requires_tool = true, create tasks
+    - If the query is asking to FIND, SEARCH, LOCATE, or RETRIEVE any content: set requires_tool = true, create search tasks
+    - If the query is about general knowledge unrelated to indexed content: set requires_tool = false, provide direct_response
+    - When in doubt about search intent, prefer using tools to search indexed content
 
-  2. Create tasks only when tools are necessary:
+  2. Create tasks for search and retrieval:
+    - Use available search tools for ANY content search requests (videos, images, documents, files, etc.)
+    - The search tools can handle various content types through hybrid search capabilities
     - Each task should specify tool_name and tool_args
     - Include index_id, document_id, segment_id in tool_args when relevant
-    - Provide clear task descriptions and reasoning
+    - Provide clear task descriptions explaining what content you're searching for
 
   3. Provide overview and reasoning:
     - Explain your planning approach

@@ -12,9 +12,11 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 from src.init import app, tracer
-from src.routers import chat_router, mcp_tools_router
+from src.routers import mcp_tools_router
 from src.routers.branding import router as branding_router
+from src.routers.analysis_agent import router as analysis_agent_router
 from src.routers.search_agent import router as search_agent_router
+from src.routers.verification import router as verification_router
 
 # logging setup
 logging.basicConfig(level=logging.INFO)
@@ -104,8 +106,9 @@ app.add_middleware(
 )
 
 # register routers
-app.include_router(chat_router)  # chat API router
 app.include_router(mcp_tools_router)  # MCP tools API router
+app.include_router(analysis_agent_router)  # analysis agent API router
+app.include_router(verification_router)  # content verification API router
 app.include_router(search_agent_router)  # search agent API router
 app.include_router(branding_router, prefix="/api/branding")  # branding API router
 

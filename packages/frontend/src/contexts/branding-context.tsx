@@ -80,7 +80,7 @@ export function BrandingProvider({ children }: BrandingProviderProps) {
     return () => {
       mounted = false;
     };
-  }, []); // 빈 배열로 한 번만 실행
+  }, [initialized, fetchSettings]);
 
   const value: BrandingContextType = {
     settings,

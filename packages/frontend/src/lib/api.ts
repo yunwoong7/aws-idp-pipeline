@@ -52,6 +52,7 @@ async function getBackendUrl(): Promise<string> {
 export interface Document {
   document_id: string;
   upload_id: string;
+  index_id: string;
   project_id?: string; // Add project_id for compatibility
   file_name: string;
   file_type: string;
@@ -955,6 +956,89 @@ export const searchApi = {
     
     if (!response.ok) {
       throw new Error('ChatAgent 재초기화에 실패했습니다');
+    }
+    
+    return response.json();
+  },
+};
+
+// Verification API types
+export interface VerificationRequest {
+  source_document_ids: string[];
+  target_document_id: string;
+  index_id?: string;
+  model_id?: string;
+}
+
+export interface VerificationClaim {
+  id: string;
+  claim: string;
+  status: "VERIFIED" | "CONTRADICTED" | "NOT_FOUND";
+  evidence?: string;
+  source_document_id?: string;
+  confidence?: number;
+  page_number?: number;
+}
+
+export interface VerificationResponse {
+  success: boolean;
+  claims: VerificationClaim[];
+  summary: {
+    total_claims: number;
+    verified: number;
+    contradicted: number;
+    not_found: number;
+  };
+  message: string;
+}
+
+export const verificationApi = {
+  // Content verification streaming
+  async verifyContentStream(request: VerificationRequest): Promise<Response> {
+    const backendUrl = await getBackendUrl();
+    
+    // FormData로 전송
+    const formData = new FormData();
+    formData.append('source_document_ids', request.source_document_ids.join(','));
+    formData.append('target_document_id', request.target_document_id);
+    if (request.index_id) {
+      formData.append('index_id', request.index_id);
+    }
+    if (request.model_id) {
+      formData.append('model_id', request.model_id);
+    }
+    
+    return fetch(`${backendUrl}/api/verification/stream`, {
+      method: 'POST',
+      body: formData,
+    });
+  },
+
+  // Content verification (non-streaming)
+  async verifyContent(request: VerificationRequest): Promise<VerificationResponse> {
+    const backendUrl = await getBackendUrl();
+    const response = await fetch(`${backendUrl}/api/verification`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(request),
+    });
+    
+    if (!response.ok) {
+      throw new Error('Content verification failed');
+    }
+    
+    return response.json();
+  },
+
+  // Verification health check
+  async healthCheck(): Promise<any> {
+    const backendUrl = await getBackendUrl();
+    const response = await fetch(`${backendUrl}/api/verification/health`);
+    
+    if (!response.ok) {
+      throw new Error('Verification health check failed');
     }
     
     return response.json();

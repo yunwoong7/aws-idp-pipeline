@@ -1061,43 +1061,6 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
               )}
             </div>
           </div>
-          
-          {/* Document info if selected */}
-          {selectedDocument && (
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-3">
-                <div className={`size-3 rounded-full ${
-                  selectedDocument.status === 'completed' ? 'bg-emerald-500' : 'bg-yellow-500'
-                }`} />
-                <span className="text-white/80 text-sm font-medium">
-                  {formatFileName(selectedDocument.file_name, 40)}
-                </span>
-                <Badge className={`text-xs ${
-                  selectedDocument.file_type === 'pdf' 
-                    ? 'bg-red-500/20 text-red-400 border-red-500/30'
-                    : 'bg-blue-500/20 text-blue-400 border-blue-500/30'
-                }`}>
-                  {selectedDocument.file_type.toUpperCase()}
-                </Badge>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-white/60 text-xs">
-                  {(() => {
-                    const counts = getAnalysisCounts(analysisData);
-                    return `${counts.bda + counts.pdf + counts.ai}개 분석 완료`;
-                  })()}
-                </span>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setShowDocumentSelect(true)}
-                  className="text-white/70 hover:text-white hover:bg-white/10 h-7 px-2 text-xs"
-                >
-                  변경
-                </Button>
-              </div>
-            </div>
-          )}
         </div>
       </div>
       

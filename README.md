@@ -1,6 +1,7 @@
 <div align="center">
-  <img src="docs/assets/logo.png" alt="AWS IDP Logo" width="100"/>
+  <img src="docs/assets/logo/logo.png" alt="AWS IDP Logo" width="100"/>
 </div>
+
 
 
 <h2 align="center"> AWS IDP </h2> 

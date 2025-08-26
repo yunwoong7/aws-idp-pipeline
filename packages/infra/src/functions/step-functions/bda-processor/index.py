@@ -138,21 +138,39 @@ def is_bda_supported_file_type(file_type: str) -> bool:
     bda_supported_types = [
         # Documents
         'application/pdf',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',  # .docx
+        'application/msword',  # .doc
+        'text/plain',  # .txt
+        'application/rtf',  # .rtf
+        'application/vnd.oasis.opendocument.text',  # .odt
         'application/dwg', 
         'application/dxf',
         # Images
         'image/jpeg',
         'image/png',
+        'image/gif',
+        'image/bmp',
+        'image/tiff',  # .tiff, .tif
+        'image/webp',
         # Videos (MP4, MOV with H.264, H.265, VP8, VP9 codecs)
         'video/mp4',
         'video/quicktime',  # MOV files
+        'video/x-msvideo',  # .avi
+        'video/x-ms-wmv',  # .wmv
+        'video/x-flv',  # .flv
+        'video/x-matroska',  # .mkv
+        'video/webm',
+        'video/3gpp',
         # Audio (FLAC, M4A, MP3, Ogg, WAV)
         'audio/mp4',  # M4A
         'audio/mpeg',  # MP3
         'audio/flac',
         'audio/ogg',
         'audio/wav',
-        'audio/x-wav'
+        'audio/x-wav',
+        'audio/aac',
+        'audio/x-ms-wma',
+        'audio/aiff'
     ]
     return file_type.lower() in bda_supported_types
 

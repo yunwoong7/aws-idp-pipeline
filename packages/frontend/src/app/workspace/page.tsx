@@ -8,7 +8,7 @@ import {
     SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/common/app-sidebar";
-import { ArrowLeft, FileText, BarChart3, Search, AlertCircle, MessageCircle } from "lucide-react";
+import { ArrowLeft, FileText, BarChart3, Search, AlertCircle, MessageCircle, CheckCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAlert } from "@/components/ui/alert";
@@ -18,15 +18,18 @@ import { motion } from "framer-motion";
 import { DocumentsTab } from "./_components/documents/documents-tab";
 import { AnalysisTab } from "./_components/analysis/analysis-tab";
 import { SearchTab } from "./_components/search/search-tab";
+import { VerificationTab } from "./_components/verification/verification-tab";
 
 // Import existing components for dialogs
 import { PdfViewerDialog } from "@/components/ui/pdf-viewer-dialog";
-import { systemApi } from "@/lib/api";
+import { DocumentDetailDialog } from "./_components/documents/components/document-detail-dialog";
+import { systemApi, documentApi } from "@/lib/api";
 import { ChatBackground } from "@/components/ui/chat-background";
 
 // Import types for persistent state
 import type { Message, AttachedContent, FileAttachment } from "@/types/chat.types";
 import { Document } from "@/types/document.types";
+import { useDocumentDetail } from "@/hooks/use-document-detail";
 
 // Types for persistent state across tabs
 interface PersistentAnalysisState {
@@ -61,6 +64,16 @@ interface PersistentSearchState {
     isChatStarted: boolean;
 }
 
+// Verification tab state interface
+interface PersistentVerificationState {
+    sourceDocuments: Document[];
+    targetDocument: Document | null;
+    messages: any[];
+    verificationResults: any[];
+    isVerifying: boolean;
+    isChatStarted: boolean;
+}
+
 function WorkspacePageContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -68,11 +81,14 @@ function WorkspacePageContent() {
     const { showInfo, AlertComponent } = useAlert();
     
     // Tab state
-    const [activeTab, setActiveTab] = useState<'documents' | 'analysis' | 'search' | 'chat'>('documents');
+    const [activeTab, setActiveTab] = useState<'documents' | 'analysis' | 'search' | 'verification'>('documents');
     
     // PDF viewer state
     const [showPdfViewer, setShowPdfViewer] = useState(false);
     const [selectedDocumentForViewer, setSelectedDocumentForViewer] = useState<Document | null>(null);
+    
+    // Document detail dialog state using useDocumentDetail hook
+    const documentDetailHook = useDocumentDetail(selectedIndexId);
 
     // Persistent state for Analysis tab (survives tab switches)
     const [persistentAnalysisState, setPersistentAnalysisState] = useState<PersistentAnalysisState>({
@@ -97,6 +113,16 @@ function WorkspacePageContent() {
         isChatStarted: false,
     });
 
+    // Persistent state for Verification tab (survives tab switches)
+    const [persistentVerificationState, setPersistentVerificationState] = useState<PersistentVerificationState>({
+        sourceDocuments: [],
+        targetDocument: null,
+        messages: [],
+        verificationResults: [],
+        isVerifying: false,
+        isChatStarted: false,
+    });
+
     // Update handlers for persistent state
     const updateAnalysisState = useCallback((updates: Partial<PersistentAnalysisState>) => {
         setPersistentAnalysisState(prev => ({ ...prev, ...updates }));
@@ -106,8 +132,12 @@ function WorkspacePageContent() {
         setPersistentSearchState(prev => ({ ...prev, ...updates }));
     }, []);
 
+    const updateVerificationState = useCallback((updates: Partial<PersistentVerificationState>) => {
+        setPersistentVerificationState(prev => ({ ...prev, ...updates }));
+    }, []);
+
     // Handle tab change - preserve document state, optionally clear chat
-    const handleTabChange = useCallback((newTab: 'documents' | 'analysis' | 'search') => {
+    const handleTabChange = useCallback((newTab: 'documents' | 'analysis' | 'search' | 'verification') => {
         console.log('🔄 Changing tab from', activeTab, 'to', newTab);
         
         // Option 1: Keep everything persistent (current implementation)
@@ -225,7 +255,58 @@ function WorkspacePageContent() {
         } catch (error) {
             console.error('PDF open failed:', error);
         }
-    }, []);
+    }, [selectedIndexId]);
+
+
+    // Handle reference click from Search tab - open document detail dialog
+    const handleReferenceClick = useCallback(async (reference: any) => {
+        try {
+            console.log('🔍 Reference clicked:', reference);
+
+            // Create a document object from reference data
+            const documentForDetail: Document = {
+                document_id: reference.document_id || reference.id || 'unknown',
+                upload_id: reference.document_id || reference.id || 'unknown',
+                index_id: selectedIndexId,
+                file_name: reference.display_name || reference.title || reference.value || 'Unknown Document',
+                file_type: reference.type === 'image' ? 'image' : 'document',
+                file_size: 0,
+                status: 'completed',
+                processing_status: 'completed',
+                processing_completed_at: null,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                summary: '',
+                description: reference.description || reference.value || '',
+                download_url: reference.file_uri || reference.image_uri,
+                file_uri: reference.file_uri || reference.image_uri,
+                statistics: {
+                    table_count: '0',
+                    figure_count: '0',
+                    hyperlink_count: '0',
+                    element_count: '0'
+                },
+                bda_metadata_uri: '',
+                representation: { markdown: '' },
+                page_images: reference.image_uri ? [{
+                    page_number: reference.page_index || 0,
+                    page_index: reference.page_index || 0,
+                    image_uri: reference.image_uri,
+                    image_s3_path: reference.image_uri
+                }] : undefined
+            };
+
+            // Use useDocumentDetail hook to open the document
+            documentDetailHook.viewDocument(documentForDetail);
+            
+            // Set the segment if page_index is available
+            if (typeof reference.page_index === 'number') {
+                documentDetailHook.handleSegmentChange(reference.page_index);
+            }
+        } catch (error) {
+            console.error('❌ Failed to open document detail:', error);
+        }
+    }, [selectedIndexId, documentDetailHook]);
 
     // Handle browser back button - navigate to indexes page
     useEffect(() => {
@@ -245,10 +326,10 @@ function WorkspacePageContent() {
 
     return (
         <>
-            <div className="min-h-screen bg-black text-white">
-                    <SidebarProvider className="bg-black" defaultOpen>
+            <div className="h-screen overflow-hidden bg-black text-white">
+                    <SidebarProvider className="bg-black h-full" defaultOpen>
                         <AppSidebar />
-                    <SidebarInset className="bg-black relative">
+                    <SidebarInset className="bg-black relative h-full overflow-hidden">
                         <ChatBackground />
                         {/* Top header with sidebar toggle, back button, and tabs */}
                         <div className="absolute top-0 left-0 right-0 z-[50] flex items-center justify-between px-3 py-3 bg-black/50 backdrop-blur-sm border-b border-white/10">
@@ -372,6 +453,41 @@ function WorkspacePageContent() {
                                     </div>
                                 </button>
 
+                                {/* Verification Tab */}
+                                <button
+                                    onClick={() => handleTabChange('verification')}
+                                    className={`relative flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-300 group ${
+                                        activeTab === 'verification' 
+                                            ? 'text-white' 
+                                            : 'text-white/60 hover:text-white/80'
+                                    }`}
+                                >
+                                    {/* Active background with animation */}
+                                    {activeTab === 'verification' && (
+                                        <motion.div
+                                            layoutId="activeTab"
+                                            className="absolute inset-0 bg-gradient-to-r from-indigo-500/20 to-purple-500/20 rounded-lg border border-indigo-400/30"
+                                            initial={false}
+                                            transition={{ 
+                                                type: "spring", 
+                                                stiffness: 500, 
+                                                damping: 30 
+                                            }}
+                                        />
+                                    )}
+                                    
+                                    <div className="relative flex items-center gap-2">
+                                        <div className={`p-1 rounded transition-colors duration-300 ${
+                                            activeTab === 'verification' 
+                                                ? 'bg-indigo-500/20 text-indigo-300' 
+                                                : 'bg-white/10 text-white/70 group-hover:bg-white/20'
+                                        }`}>
+                                            <CheckCircle className="h-3 w-3" />
+                                        </div>
+                                        <span className="font-medium text-xs">Verification</span>
+                                    </div>
+                                </button>
+
                             </div>
 
                             {selectedIndexId && (
@@ -384,10 +500,10 @@ function WorkspacePageContent() {
                         </div>
 
                         {/* Main Content with Tabs */}
-                        <div className="flex-1 flex flex-col overflow-hidden h-[100svh] pt-16 relative z-10">
+                        <div className="absolute inset-0 top-16 flex flex-col overflow-hidden z-10">
                             <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as any)} className="h-full flex flex-col">
                                 {/* Tab Content - Now takes full remaining height */}
-                                <div className="flex-1 overflow-hidden h-full">
+                                <div className="flex-1 overflow-hidden">
                                     {!selectedIndexId ? (
                                         <div className="h-full flex items-center justify-center">
                                             <div className="text-center text-gray-400">
@@ -427,8 +543,19 @@ function WorkspacePageContent() {
                                                     indexId={selectedIndexId}
                                                     onOpenPdf={handlePdfClick}
                                                     onAttachToChat={handleAttachPage}
+                                                    onReferenceClick={handleReferenceClick}
                                                     persistentState={persistentSearchState}
                                                     onStateUpdate={updateSearchState}
+                                                />
+                                            </TabsContent>
+
+                                            <TabsContent value="verification" className="h-full m-0 border-0 rounded-none">
+                                                <VerificationTab
+                                                    indexId={selectedIndexId}
+                                                    onOpenPdf={handlePdfClick}
+                                                    onAttachToChat={handleAttachPage}
+                                                    persistentState={persistentVerificationState}
+                                                    onStateUpdate={updateVerificationState}
                                                 />
                                             </TabsContent>
                                         </>
@@ -449,6 +576,48 @@ function WorkspacePageContent() {
                 }}
                 document={selectedDocumentForViewer}
                 indexId={selectedIndexId}
+            />
+
+            {/* Document Detail Dialog */}
+            <DocumentDetailDialog
+                document={documentDetailHook.selectedDocument}
+                open={documentDetailHook.showDetail}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        documentDetailHook.closeDetail();
+                    }
+                }}
+                onClose={documentDetailHook.closeDetail}
+                analysisData={documentDetailHook.analysisData}
+                selectedSegment={documentDetailHook.selectedSegment}
+                totalSegments={
+                    documentDetailHook.analysisData.length > 0 
+                        ? Math.max(...documentDetailHook.analysisData.map((item: any) => 
+                            (typeof item.segment_index === 'number' ? item.segment_index : 
+                             typeof item.page_index === 'number' ? item.page_index : 0)
+                          ), 0) + 1
+                        : (typeof documentDetailHook.selectedDocument?.total_pages === 'number' ? documentDetailHook.selectedDocument.total_pages : 1)
+                }
+                imageZoom={documentDetailHook.imageZoom}
+                imagePosition={documentDetailHook.imagePosition}
+                isDragging={documentDetailHook.isDragging}
+                currentPageImageUrl={documentDetailHook.currentPageImageUrl}
+                analysisLoading={documentDetailHook.analysisLoading}
+                imageLoading={documentDetailHook.imageLoading}
+                indexId={selectedIndexId}
+                imageRotation={documentDetailHook.imageRotation}
+                onSegmentChange={documentDetailHook.handleSegmentChange}
+                onZoomIn={documentDetailHook.zoomIn}
+                onZoomOut={documentDetailHook.zoomOut}
+                onRotateLeft={documentDetailHook.rotateLeft}
+                onRotateRight={documentDetailHook.rotateRight}
+                onResetImage={documentDetailHook.resetImage}
+                onMouseDown={documentDetailHook.handleMouseDown}
+                onMouseMove={documentDetailHook.handleMouseMove}
+                onMouseUp={documentDetailHook.handleMouseUp}
+                onAnalysisPopup={documentDetailHook.handleAnalysisPopup}
+                onShowPdfViewer={() => setShowPdfViewer(true)}
+                segmentStartTimecodes={documentDetailHook.segmentStartTimecodes}
             />
 
             {/* Alert Component */}

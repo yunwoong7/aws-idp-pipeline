@@ -212,7 +212,8 @@ class ModelNode:
             INDEX_ID=index_id,
             QUERY=user_query,
             PREVIOUS_ANALYSIS=combined_context if combined_context else "이전 분석 결과 없음",
-            REFERENCES=references_text if references_text else "참조 정보 없음"
+            REFERENCES=references_text if references_text else "참조 정보 없음",
+            MEDIA_TYPE=state.get('media_type', 'DOCUMENT')
         )
         
         logger.info(f">>>>>>>>> PROMPT 생성 (단계 {current_step}) >>>>>>>>>")
@@ -343,7 +344,7 @@ class ModelNode:
         final_analysis = f"""# 문서 분석 완료 보고서
 
 ## 🔍 분석 개요
-- **프로젝트 ID**: {project_id}
+- **프로젝트 ID**: {index_id}
 - **문서 ID**: {document_id}
 - **분석 요청**: {user_query[:200]}{"..." if len(user_query) > 200 else ""}
 - **실행 단계**: {current_step}/{max_iterations}

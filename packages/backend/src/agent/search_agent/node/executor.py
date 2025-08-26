@@ -153,8 +153,11 @@ class ExecutorNode:
                     
                     # Extract from structured response
                     if isinstance(content, dict):
-                        # Check for nested data structure
+                        # Check for nested data structure - handle both direct and double-nested
                         data = content.get("data", content) if content else {}
+                        # Handle double-nested structure from hybrid_search
+                        if isinstance(data, dict) and "data" in data:
+                            data = data["data"]
                         
                         # Extract references
                         if data and "references" in data and isinstance(data.get("references"), list):
@@ -186,6 +189,13 @@ class ExecutorNode:
                         if data and "results" in data and isinstance(data.get("results"), list):
                             for item in data["results"]:
                                 if isinstance(item, dict):
+                                    # Debug: Log the actual item structure
+                                    print(f"🔍 DEBUG - Search result item keys: {list(item.keys())}")
+                                    print(f"🔍 DEBUG - file_name in item: {'file_name' in item}")
+                                    if 'file_name' in item:
+                                        print(f"🔍 DEBUG - file_name value: '{item['file_name']}'")
+                                    else:
+                                        print(f"🔍 DEBUG - Available keys: {item.keys()}")
                                     # Extract document information
                                     doc_info = []
                                     if "document_id" in item:
@@ -208,12 +218,14 @@ class ExecutorNode:
                                             "id": f"ref_{len(result['references'])}",
                                             "type": "image",  # Search results are page images
                                             "title": f"Page {item.get('page_index', 0)}",
-                                            "display_name": f"Page {item.get('page_index', 0)} - Score: {item.get('score', 0):.3f}",
+                                            "display_name": f"{item.get('file_name', '') or item.get('filename', '') or item.get('name', '') or item.get('document_name', '') or 'Unknown File'} - Segment {item.get('segment_index', item.get('page_index', 0)) + 1}",
                                             "value": content_text[:200] if content_text else "",
                                             "document_id": item.get('document_id', ''),
                                             "page_index": item.get('page_index', 0),
                                             "page_id": item.get('page_id', ''),
-                                            "score": item.get('score', 0)
+                                            "score": item.get('score', 0),
+                                            "file_name": item.get('file_name', '') or item.get('filename', '') or item.get('name', '') or item.get('document_name', ''),
+                                            "segment_index": item.get('segment_index', item.get('page_index', 0))
                                         }
                                         
                                         # Add image_uri and file_uri if available

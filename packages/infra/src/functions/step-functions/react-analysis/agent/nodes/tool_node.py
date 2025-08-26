@@ -384,6 +384,11 @@ class ToolNode:
             existing_analysis = state.get('analysis_history', [])
             analysis_steps = str(len(existing_analysis) + 1)
             
+            # analysis_type이 'skip'인 경우 저장 생략
+            if analysis_type == 'skip':
+                logger.info("⏭️ analysis_type=skip - OpenSearch 저장 생략")
+                return
+
             # Segment-unit 방식으로 ai_analysis 도구 추가
             success = self.opensearch_service.add_ai_analysis_tool(
                 index_id=index_id,

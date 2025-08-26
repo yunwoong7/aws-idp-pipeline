@@ -159,7 +159,7 @@ class VideoAnalyzerTool(StateAwareBaseTool):
                 return self._create_success_result(
                     "세그먼트가 동영상 챕터가 아니므로 건너뜁니다.",
                     {
-                        "analysis_type": "video_analysis_skipped",
+                        "analysis_type": "skip",
                         "segment_type": segment_type,
                         "segment_id": segment_id,
                         "reason": "Not a video chapter"
@@ -216,7 +216,8 @@ class VideoAnalyzerTool(StateAwareBaseTool):
                 "query": query,
                 "analysis_query": query,  # tool_node에서 추출할 수 있도록 analysis_query로도 추가
                 "ai_response": analysis_result,
-                "model_version": self.model_id
+                "model_version": self.model_id,
+                "token_usage": getattr(self, '_last_token_usage', None)
             }
             
             message = f"동영상 챕터 분석 완료 (시간: {start_timecode} ~ {end_timecode})\n\n{analysis_result}"
@@ -311,6 +312,26 @@ class VideoAnalyzerTool(StateAwareBaseTool):
             
             # 응답에서 분석 결과 추출 (TwelveLabs 모델은 'message' 필드 사용)
             analysis_result = response_body.get('message', response_body.get('outputText', ''))
+            
+            # 토큰 사용량 로깅 (헤더 또는 body.usage)
+            try:
+                headers = response.get('ResponseMetadata', {}).get('HTTPHeaders', {}) or {}
+                input_tokens = headers.get('x-amzn-bedrock-input-token-count')
+                output_tokens = headers.get('x-amzn-bedrock-output-token-count')
+                total_tokens = headers.get('x-amzn-bedrock-total-token-count')
+                if (input_tokens is None or output_tokens is None) and isinstance(response_body, dict) and response_body.get('usage'):
+                    usage = response_body['usage']
+                    input_tokens = input_tokens or usage.get('input_tokens')
+                    output_tokens = output_tokens or usage.get('output_tokens')
+                    total_tokens = total_tokens or usage.get('total_tokens')
+                logger.info(f"🔢 Bedrock Token Usage (video): input={input_tokens}, output={output_tokens}, total={total_tokens}")
+                self._last_token_usage = {
+                    'input_tokens': int(input_tokens) if input_tokens is not None and str(input_tokens).isdigit() else None,
+                    'output_tokens': int(output_tokens) if output_tokens is not None and str(output_tokens).isdigit() else None,
+                    'total_tokens': int(total_tokens) if total_tokens is not None and str(total_tokens).isdigit() else None,
+                }
+            except Exception as token_log_err:
+                logger.debug(f"Token usage logging skipped (video): {str(token_log_err)}")
             
             if not analysis_result:
                 logger.error("❌ Bedrock 응답에서 분석 결과를 찾을 수 없음")

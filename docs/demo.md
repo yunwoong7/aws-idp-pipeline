@@ -58,6 +58,7 @@ Each page/section is analyzed **in parallel**, with a default **concurrency of 1
 
 <div align="center"><img src="assets/analysis_tab.gif" alt="Analysis tab" width="900"/></div>
 
+
 ### 3. Search Tab
 
 - **Features**: Perform searches based on all documents stored in the Index, not just a single document.  
@@ -66,3 +67,21 @@ Each page/section is analyzed **in parallel**, with a default **concurrency of 1
 - **Architecture Pattern**: Based on the Agent pattern, using a **Plan and Execute** approach to plan and perform search tasks.  
 
 <div align="center"><img src="assets/search_tab.gif" alt="Search tab" width="900"/></div>
+
+### 4. Verification Tab
+
+- **Features**: Compare source documents against a target document to automatically verify factual consistency.
+- **Use Cases**: 
+  - Report validation (final report vs source data)  
+  - Summary validation (AI-generated summary vs original text)  
+  - Translation validation (translation vs original meaning)  
+  - Fact-checking (news or articles)  
+- **How it Works**:  
+  1. Select documents (multiple source docs + one target doc)  
+  2. Automated verification pipeline: Initialization → Document Loading → Claim Extraction → Claim Verification → Summary Generation  
+  3. Results are categorized as:  
+     - VERIFIED (consistent, green)  
+     - CONTRADICTED (inconsistent, red)  
+     - NOT_FOUND (missing information, yellow)  
+
+<div align="center"><img src="assets/verification_tab.gif" alt="Verification tab" width="900"/></div>

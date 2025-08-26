@@ -554,6 +554,37 @@ class AnalysisAgent:
         logger.info(f"  - Tool results: {len(tool_results)}")
         logger.info(f"  - Analysis history: {len(analysis_history)}")
         logger.info(f"  - Final content: {len(final_content)} characters")
+
+        # Aggregate and log token usage from tools (if provided by tools)
+        try:
+            token_input_sum = 0
+            token_output_sum = 0
+            token_total_sum = 0
+            per_tool_tokens = []
+            for tr in tool_results:
+                if isinstance(tr, dict):
+                    wrapper = tr.get('data', {})
+                    inner = wrapper.get('data', {}) if isinstance(wrapper, dict) else {}
+                    tok = inner.get('token_usage') if isinstance(inner, dict) else None
+                    if isinstance(tok, dict):
+                        ti = tok.get('input_tokens') or 0
+                        to = tok.get('output_tokens') or 0
+                        tt = tok.get('total_tokens') or 0
+                        # Safe int conversion
+                        ti = int(ti) if isinstance(ti, (int, float)) or (isinstance(ti, str) and ti.isdigit()) else 0
+                        to = int(to) if isinstance(to, (int, float)) or (isinstance(to, str) and to.isdigit()) else 0
+                        tt = int(tt) if isinstance(tt, (int, float)) or (isinstance(tt, str) and tt.isdigit()) else (ti + to)
+                        token_input_sum += ti
+                        token_output_sum += to
+                        token_total_sum += tt
+                        per_tool_tokens.append((tr.get('tool_name', 'unknown'), ti, to, tt))
+            logger.info(f"🔢 Token usage by tool: {per_tool_tokens}")
+            if per_tool_tokens:
+                for name, ti, to, tt in per_tool_tokens:
+                    logger.info(f"🔢 Token usage by tool [{name}]: input={ti}, output={to}, total={tt}")
+                logger.info(f"🔢 Token usage total (tools): input={token_input_sum}, output={token_output_sum}, total={token_total_sum}")
+        except Exception as token_err:
+            logger.debug(f"Token usage aggregation skipped: {str(token_err)}")
         
         # Preview final analysis content (for development)
         if final_content:

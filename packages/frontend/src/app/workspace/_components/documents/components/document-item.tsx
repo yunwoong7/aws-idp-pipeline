@@ -180,6 +180,16 @@ export function DocumentItem({
                         <Button
                             variant="outline"
                             size="sm"
+                            onClick={() => onView(document)}
+                            className="bg-transparent border-white/10 text-cyan-400 hover:bg-cyan-500/20 hover:border-cyan-400 hover:text-cyan-300 transition-all duration-200 h-8 text-xs px-3"
+                        >
+                            <Eye className="w-3 h-3 mr-1" />
+                            View
+                        </Button>
+                        
+                        <Button
+                            variant="outline"
+                            size="sm"
                             onClick={() => {
                                 if (document.status !== 'completed') {
                                     showWarning('Document Not Ready', 'This document is not ready for analysis. Only completed documents can be analyzed.');
@@ -191,16 +201,6 @@ export function DocumentItem({
                         >
                             <BarChart3 className="w-3 h-3 mr-1" />
                             Analyze
-                        </Button>
-                        
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => onView(document)}
-                            className="bg-transparent border-white/10 text-cyan-400 hover:bg-cyan-500/20 hover:border-cyan-400 hover:text-cyan-300 transition-all duration-200 h-8 text-xs px-3"
-                        >
-                            <Eye className="w-3 h-3 mr-1" />
-                            View
                         </Button>
 
                         <Button

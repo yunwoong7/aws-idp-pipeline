@@ -1,5 +1,5 @@
 import React from 'react';
-import { FileText, Image, Video, Music, File } from 'lucide-react';
+import { FileText, Image as ImageIcon, Video, Music, File } from 'lucide-react';
 
 export interface FileTypeInfo {
   category: string;
@@ -81,7 +81,7 @@ const getIconByType = (type: string, colorClass: string): React.ReactNode => {
     case 'audio':
       return <Music {...iconProps} />;
     case 'image':
-      return <Image {...iconProps} />;
+      return <ImageIcon {...iconProps} />;
     case 'document':
       return <FileText {...iconProps} />;
     default:

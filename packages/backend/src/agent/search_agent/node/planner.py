@@ -129,59 +129,52 @@ class PlannerNode:
                 "timestamp": time.time()
             }
             
-            # Try streaming with structured output
+            # Use raw model for streaming first, then parse to structured format
             planning_text = ""
             
             try:
-                # Use the structured output model to get the plan
-                async for event in self.model.astream_events(messages, version='v2'):
-                    if event["event"] == "on_chat_model_stream":
-                        chunk = event["data"]["chunk"]
-                        if hasattr(chunk, 'content') and chunk.content:
-                            # Stream planning reasoning
-                            if isinstance(chunk.content, list):
-                                for content_item in chunk.content:
-                                    if content_item.get('type') == 'text':
-                                        token = content_item.get('text', '')
-                                        if token:
-                                            planning_text += token
-                                            yield {
-                                                "type": "planning_token",
-                                                "token": token,
-                                                "timestamp": time.time()
-                                            }
-                                            
-                            elif isinstance(chunk.content, str):
-                                planning_text += chunk.content
-                                yield {
-                                    "type": "planning_token", 
-                                    "token": chunk.content,
-                                    "timestamp": time.time()
-                                }
-                                        
-                    elif event["event"] == "on_chain_end":
-                        # Get the final structured plan
-                        plan_result = event["data"]["output"]
-                        if isinstance(plan_result, Plan):
-                            plan = plan_result
-                        else:
-                            # Handle case where result is not a Plan object
-                            plan = Plan.model_validate(plan_result)
-                            
-                        break
-                else:
-                    # Fallback if streaming doesn't work
-                    plan = await self.model.ainvoke(messages)
-                    
-            except Exception as e:
-                logger.warning(f"Structured streaming failed, using fallback: {e}")
+                # First stream the raw planning text
+                logger.info("Streaming planning thoughts...")
+                async for chunk in self.raw_model.astream(messages):
+                    if hasattr(chunk, 'content') and chunk.content:
+                        token = chunk.content
+                        planning_text += token
+                        yield {
+                            "type": "planning_token",
+                            "token": token,
+                            "timestamp": time.time()
+                        }
                 
-                # Fallback: Generate plan directly  
+                # Add a small pause to show thinking is complete
                 yield {
                     "type": "planning_token",
-                    "token": "Generating execution strategy...",
+                    "token": "\n\n✅ Planning complete, generating structured plan...",
                     "timestamp": time.time()
                 }
+                
+                # Now get structured plan (without streaming)
+                logger.info("Generating structured plan...")
+                plan = await self.model.ainvoke(messages)
+                    
+            except Exception as e:
+                logger.warning(f"Raw streaming failed, using structured output directly: {e}")
+                
+                # Fallback: Show thinking process and generate plan directly  
+                thinking_messages = [
+                    "Analyzing your request...",
+                    "Checking available tools...",
+                    "Creating execution strategy...",
+                    "Finalizing plan details..."
+                ]
+                
+                for msg in thinking_messages:
+                    yield {
+                        "type": "planning_token",
+                        "token": f"{msg}\n",
+                        "timestamp": time.time()
+                    }
+                    # Small delay to simulate thinking
+                    await asyncio.sleep(0.2)
                 
                 plan = await self.model.ainvoke(messages)
             

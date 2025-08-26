@@ -321,6 +321,28 @@ export function DocumentDetailDialog({
     return `${fileName.substring(0, maxLength - 3)}...`;
   };
 
+  const formatFileType = (fileType: string) => {
+    const typeMap: { [key: string]: string } = {
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'DOCX',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'XLSX', 
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'PPTX',
+      'application/vnd.ms-excel': 'XLS',
+      'application/vnd.ms-powerpoint': 'PPT',
+      'application/msword': 'DOC',
+      'application/pdf': 'PDF',
+      'text/plain': 'TXT',
+      'text/csv': 'CSV',
+      'image/jpeg': 'JPG',
+      'image/png': 'PNG',
+      'image/gif': 'GIF',
+      'video/mp4': 'MP4',
+      'video/avi': 'AVI',
+      'video/quicktime': 'MOV'
+    };
+    
+    return typeMap[fileType.toLowerCase()] || fileType.split('/').pop()?.toUpperCase() || fileType.toUpperCase();
+  };
+
   // Get analysis counts for current segment
   const getAllCounts = (data: any[]) => {
     if (!Array.isArray(data) || data.length === 0) {
@@ -409,15 +431,20 @@ export function DocumentDetailDialog({
 
   return ReactDOM.createPortal(
     <div 
-      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center"
-      style={{ zIndex: 9998 }}
+      className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center"
+      style={{ zIndex: 10000 }}
       onClick={(e) => {
+        e.stopPropagation();
         if (e.target === e.currentTarget) {
           onOpenChange(false);
+          onClose();
         }
       }}
     >
-      <div className="flex h-[90vh] w-[90vw] from-gray-900/95 via-gray-800/95 to-gray-900/95 backdrop-blur-xl border border-white/20 rounded-xl overflow-hidden shadow-[0_8px_32px_rgb(0_0_0/0.4)]">
+      <div 
+        className="flex h-[90vh] w-[90vw] from-gray-900/95 via-gray-800/95 to-gray-900/95 backdrop-blur-xl border border-white/20 rounded-xl overflow-hidden shadow-[0_8px_32px_rgb(0_0_0/0.4)]"
+        onClick={(e) => e.stopPropagation()}
+      >
         
         {/* Left Panel - Document Info */}
         <div className="w-1/3 backdrop-blur-sm border-r border-white/10 flex flex-col">
@@ -436,7 +463,10 @@ export function DocumentDetailDialog({
               <Button 
                 variant="ghost" 
                 size="sm"
-                onClick={onClose}
+                onClick={() => {
+                  onOpenChange(false);
+                  onClose();
+                }}
                 className="text-white/70 hover:text-white hover:bg-white/10 border border-white/10 hover:border-white/30"
               >
                 <X className="h-4 w-4" />
@@ -467,7 +497,7 @@ export function DocumentDetailDialog({
                   <div>
                     <Label className="text-white/60 text-xs">File Type</Label>
                     <Badge className={`mt-1 bg-white/5 text-gray-200 border-white/20`}>
-                      {document.file_type.toUpperCase()}
+                      {formatFileType(document.file_type)}
                     </Badge>
                   </div>
                   <div>
@@ -529,7 +559,9 @@ export function DocumentDetailDialog({
                   
                   <div className="grid grid-cols-3 gap-2">
                     <button
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
                         console.log('BDA analysis clicked', { currentSegmentCounts, bda: currentSegmentCounts.bda });
                         if (currentSegmentCounts.bda > 0) {
                           setAnalysisPopup({ type: 'bda', isOpen: true });
@@ -553,7 +585,9 @@ export function DocumentDetailDialog({
                     </button>
                     
                     <button
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
                         console.log('PDF analysis clicked', { currentSegmentCounts, pdf: currentSegmentCounts.pdf });
                         if (currentSegmentCounts.pdf > 0) {
                           setAnalysisPopup({ type: 'pdf', isOpen: true });
@@ -577,7 +611,9 @@ export function DocumentDetailDialog({
                     </button>
                     
                     <button
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
                         console.log('AI analysis clicked', { currentSegmentCounts, ai: currentSegmentCounts.ai });
                         if (currentSegmentCounts.ai > 0) {
                           setAnalysisPopup({ type: 'ai', isOpen: true });

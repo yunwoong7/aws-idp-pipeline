@@ -60,6 +60,8 @@ interface Reference {
   image_uri?: string;
   file_uri?: string;
   document_id?: string;
+  file_name?: string;
+  segment_index?: number;
   page_index?: number;
   page_id?: string;
   score?: number;
@@ -73,6 +75,7 @@ interface Message {
   plan?: Plan;
   references?: Reference[];
   isStreaming?: boolean;
+  planningThought?: string;  // Planning 과정 표시용
 }
 
 // Types for persistent state across tabs
@@ -93,11 +96,12 @@ interface SearchInterfaceProps {
     page_number: number;
     file_name: string;
   }) => void;
+  onReferenceClick?: (reference: any) => void;
   persistentState?: PersistentSearchState;
   onStateUpdate?: (updates: Partial<PersistentSearchState>) => void;
 }
 
-export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, persistentState, onStateUpdate }: SearchInterfaceProps) {
+export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenceClick, persistentState, onStateUpdate }: SearchInterfaceProps) {
   // Use persistent state as primary source of truth with memoization
   const messages = useMemo(() => persistentState?.messages ?? [], [persistentState?.messages]);
   const input = persistentState?.input ?? "";
@@ -144,7 +148,12 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, persistent
   useEffect(() => {
     if (!isStreaming && localMessages.length > messages.length) {
       // Only update if localMessages has more content (new messages)
-      console.log('📤 Syncing localMessages to persistent state:', localMessages.length, 'vs', messages.length);
+      console.log('📤 Syncing localMessages to persistent state:', {
+        localMessagesCount: localMessages.length,
+        messagesCount: messages.length,
+        lastLocalMessage: localMessages[localMessages.length - 1],
+        hasReferencesInLast: localMessages[localMessages.length - 1]?.references?.length
+      });
       onStateUpdate?.({ messages: localMessages });
     }
   }, [isStreaming, localMessages, localMessages.length, messages.length, onStateUpdate]);
@@ -152,10 +161,19 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, persistent
   // Handle reference click - supports both single reference and array of references
   const handleReferenceClick = useCallback((referencesOrSingle: any | any[], title?: string) => {
     const references = Array.isArray(referencesOrSingle) ? referencesOrSingle : [referencesOrSingle];
+    
+    // If we have onReferenceClick prop and it's a single reference with document info, use DocumentDetailDialog
+    if (onReferenceClick && !Array.isArray(referencesOrSingle) && referencesOrSingle.document_id) {
+      console.log('🔍 Opening document detail for reference:', referencesOrSingle);
+      onReferenceClick(referencesOrSingle);
+      return;
+    }
+    
+    // Otherwise, use the existing source dialog
     const dialogTitle = title || (references[0]?.title || references[0]?.display_name || 'Reference');
     setSourceDialogData({ title: dialogTitle, references });
     setSourceDialogOpen(true);
-  }, []);
+  }, [onReferenceClick]);
   
   const inputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -196,11 +214,184 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, persistent
 
   // Auto scroll on new messages
   useEffect(() => {
-    const displayMessages = isStreaming ? localMessages : (localMessages.length > messages.length ? localMessages : messages);
+    const displayMessages = localMessages.length > 0 ? localMessages : messages;
     if (isStreaming || displayMessages.length > 0) {
       setTimeout(() => scrollToBottom(false), 100);
     }
   }, [localMessages, messages, isStreaming, scrollToBottom]);
+
+  // Helper functions for processing different event types
+  const handlePlanningEvents = useCallback((currentMessage: Message, event: any) => {
+    const updatedMessage = { ...currentMessage };
+    
+    switch (event.type) {
+      case 'planning_start':
+        setTimeout(() => onStateUpdate?.({ currentPhase: 'planning' }), 0);
+        break;
+      
+      case 'planning_token':
+        console.log('🧠 Planning token received:', event.token);
+        if (event.token && typeof event.token === 'string') {
+          updatedMessage.planningThought = (updatedMessage.planningThought || '') + event.token;
+        }
+        break;
+      
+      case 'plan':
+      case 'plan_complete':
+        updatedMessage.plan = event.plan;
+        updatedMessage.planningThought = undefined;
+        setTimeout(() => onStateUpdate?.({ currentPhase: event.plan?.requires_tool ? 'executing' : 'responding' }), 0);
+        break;
+    }
+    
+    return updatedMessage;
+  }, [onStateUpdate]);
+  
+  const handleTaskEvents = useCallback((currentMessage: Message, event: any) => {
+    const updatedMessage = { ...currentMessage };
+    
+    // Handle execution_complete separately as it doesn't need a plan
+    if (event.type === 'execution_complete') {
+      console.log('✅ Execution complete - references received:', event.all_references);
+      console.log('✅ Execution complete - full event:', event);
+      if (event.all_references && Array.isArray(event.all_references)) {
+        if (!updatedMessage.references) {
+          updatedMessage.references = [];
+        }
+        event.all_references.forEach((ref: any) => {
+          // Use document_id for deduplication if available, otherwise use the entire ref object comparison
+          const exists = updatedMessage.references?.find((existing: any) => 
+            (ref.document_id && existing.document_id === ref.document_id) || 
+            (ref.id && existing.id === ref.id) ||
+            (JSON.stringify(existing) === JSON.stringify(ref))
+          );
+          if (!exists && updatedMessage.references) {
+            console.log('✅ Adding reference:', ref);
+            updatedMessage.references.push(ref);
+          }
+        });
+        console.log('✅ Updated message references (final):', updatedMessage.references);
+      } else {
+        console.log('❌ No all_references or not an array');
+      }
+      return updatedMessage;
+    }
+    
+    if (!updatedMessage.plan) return updatedMessage;
+    
+    const updatedPlan = { ...updatedMessage.plan };
+    const taskIndex = updatedPlan.tasks.findIndex(t => t.title === event.task?.title);
+    
+    if (taskIndex >= 0) {
+      switch (event.type) {
+        case 'task_start':
+          updatedPlan.tasks[taskIndex] = { ...updatedPlan.tasks[taskIndex], status: 'executing' };
+          break;
+        
+        case 'task_complete':
+          updatedPlan.tasks[taskIndex] = {
+            ...updatedPlan.tasks[taskIndex],
+            status: 'completed',
+            result: event.result?.text || 'Completed',
+            execution_time: event.execution_time
+          };
+          
+          // Collect references from task completion
+          if (event.references && Array.isArray(event.references)) {
+            if (!updatedMessage.references) {
+              updatedMessage.references = [];
+            }
+            event.references.forEach((ref: any) => {
+              const exists = updatedMessage.references?.find((existing: any) => 
+                (ref.document_id && existing.document_id === ref.document_id) || 
+                (ref.id && existing.id === ref.id) ||
+                (JSON.stringify(existing) === JSON.stringify(ref))
+              );
+              if (!exists && updatedMessage.references) {
+                updatedMessage.references.push(ref);
+              }
+            });
+          }
+
+          // Also try to extract references from the result if it's a JSON string
+          if (event.result && typeof event.result === 'string') {
+            try {
+              const parsed = JSON.parse(event.result);
+              if (parsed && Array.isArray(parsed) && parsed.length > 0) {
+                const firstResult = parsed[0];
+                if (firstResult && firstResult.references && Array.isArray(firstResult.references)) {
+                  console.log('🔗 Found references in task result:', firstResult.references);
+                  if (!updatedMessage.references) {
+                    updatedMessage.references = [];
+                  }
+                  firstResult.references.forEach((ref: any) => {
+                    const exists = updatedMessage.references?.find((existing: any) => 
+                      (ref.document_id && existing.document_id === ref.document_id) || 
+                      (ref.id && existing.id === ref.id) ||
+                      (JSON.stringify(existing) === JSON.stringify(ref))
+                    );
+                    if (!exists && updatedMessage.references) {
+                      updatedMessage.references.push(ref);
+                    }
+                  });
+                  console.log('🔗 Updated message references from result:', updatedMessage.references);
+                }
+              }
+            } catch (e) {
+              console.warn('Failed to parse task result as JSON:', e);
+            }
+          }
+          break;
+        
+        case 'task_failed':
+          updatedPlan.tasks[taskIndex] = {
+            ...updatedPlan.tasks[taskIndex],
+            status: 'failed',
+            result: event.error || 'Task failed'
+          };
+          break;
+      }
+      
+      updatedMessage.plan = updatedPlan;
+    }
+    
+    return updatedMessage;
+  }, []);
+  
+  const handleResponseEvents = useCallback((currentMessage: Message, event: any) => {
+    const updatedMessage = { ...currentMessage };
+    
+    switch (event.type) {
+      case 'response_start':
+        setTimeout(() => onStateUpdate?.({ currentPhase: 'responding' }), 0);
+        break;
+      
+      case 'token':
+        if (event.token && typeof event.token === 'string') {
+          updatedMessage.content += event.token;
+        }
+        break;
+      
+      case 'references':
+        if (event.references && Array.isArray(event.references)) {
+          updatedMessage.references = event.references;
+        }
+        break;
+      
+      case 'complete':
+        setTimeout(() => onStateUpdate?.({ currentPhase: 'idle' }), 0);
+        updatedMessage.isStreaming = false;
+        break;
+      
+      case 'error':
+        updatedMessage.content = `Error: ${event.error || 'Unknown error'}`;
+        updatedMessage.isStreaming = false;
+        setTimeout(() => onStateUpdate?.({ currentPhase: 'idle' }), 0);
+        break;
+    }
+    
+    return updatedMessage;
+  }, [onStateUpdate]);
 
   // Process streaming events from ChatAgent
   const processChatEvent = useCallback((event: any, messageId: string) => {
@@ -211,24 +402,17 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, persistent
       if (messageIndex === -1) return prev;
 
       const newMessages = [...prev];
-      const currentMessage = { ...newMessages[messageIndex] };
+      let currentMessage = { ...newMessages[messageIndex] };
 
+      // Route to appropriate handler based on event type
       switch (eventType) {
         case 'planning_start':
-          // Schedule state update for next tick
-          setTimeout(() => onStateUpdate?.({ currentPhase: 'planning' }), 0);
-          break;
-
         case 'planning_token':
-          // Don't accumulate planning tokens in the message content
-          break;
-
         case 'plan':
-          currentMessage.plan = event.plan;
-          // Schedule state update for next tick
-          setTimeout(() => onStateUpdate?.({ currentPhase: event.plan?.requires_tool ? 'executing' : 'responding' }), 0);
+        case 'plan_complete':
+          currentMessage = handlePlanningEvents(currentMessage, event);
           break;
-
+        
         case 'phase_start':
           if (event.phase === 'execution') {
             setTimeout(() => onStateUpdate?.({ currentPhase: 'executing' }), 0);
@@ -236,104 +420,35 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, persistent
             setTimeout(() => onStateUpdate?.({ currentPhase: 'responding' }), 0);
           }
           break;
-
+        
         case 'task_start':
-          if (currentMessage.plan) {
-            const updatedPlan = { ...currentMessage.plan };
-            const taskIndex = updatedPlan.tasks.findIndex(t => t.title === event.task?.title);
-            if (taskIndex >= 0) {
-              updatedPlan.tasks[taskIndex] = { ...updatedPlan.tasks[taskIndex], status: 'executing' };
-              currentMessage.plan = updatedPlan;
-            }
-          }
-          break;
-
         case 'task_complete':
-          if (currentMessage.plan) {
-            const updatedPlan = { ...currentMessage.plan };
-            const taskIndex = updatedPlan.tasks.findIndex(t => t.title === event.task?.title);
-            if (taskIndex >= 0) {
-              updatedPlan.tasks[taskIndex] = {
-                ...updatedPlan.tasks[taskIndex],
-                status: 'completed',
-                result: event.result?.text || 'Completed',
-                execution_time: event.execution_time
-              };
-              currentMessage.plan = updatedPlan;
-            }
-          }
-          
-          // Collect references from task completion
-          if (event.references && Array.isArray(event.references)) {
-            if (!currentMessage.references) {
-              currentMessage.references = [];
-            }
-            // Merge new references with existing ones
-            event.references.forEach((ref: any) => {
-              const exists = currentMessage.references?.find((existing: any) => existing.id === ref.id);
-              if (!exists && currentMessage.references) {
-                currentMessage.references.push(ref);
-              }
-            });
-          }
-          break;
-
         case 'task_failed':
-          if (currentMessage.plan) {
-            const updatedPlan = { ...currentMessage.plan };
-            const taskIndex = updatedPlan.tasks.findIndex(t => t.title === event.task?.title);
-            if (taskIndex >= 0) {
-              updatedPlan.tasks[taskIndex] = {
-                ...updatedPlan.tasks[taskIndex],
-                status: 'failed',
-                result: event.error || 'Task failed'
-              };
-              currentMessage.plan = updatedPlan;
-            }
-          }
+        case 'execution_complete':
+          currentMessage = handleTaskEvents(currentMessage, event);
           break;
-
+        
         case 'response_start':
-          setTimeout(() => onStateUpdate?.({ currentPhase: 'responding' }), 0);
-          break;
-
         case 'token':
-          // Properly handle token streaming - avoid infinite accumulation
-          if (event.token && typeof event.token === 'string') {
-            currentMessage.content += event.token;
-          }
-          break;
-
         case 'references':
-          if (event.references && Array.isArray(event.references)) {
-            currentMessage.references = event.references;
-          }
-          break;
-
         case 'complete':
-          setTimeout(() => onStateUpdate?.({ currentPhase: 'idle' }), 0);
-          currentMessage.isStreaming = false;
-          break;
-
         case 'error':
-          currentMessage.content = `Error: ${event.error || 'Unknown error'}`;
-          currentMessage.isStreaming = false;
-          setTimeout(() => onStateUpdate?.({ currentPhase: 'idle' }), 0);
+          currentMessage = handleResponseEvents(currentMessage, event);
           break;
       }
 
       newMessages[messageIndex] = currentMessage;
       return newMessages;
     });
-  }, [onStateUpdate]);
+  }, [onStateUpdate, handlePlanningEvents, handleTaskEvents, handleResponseEvents]);
 
   // Chat reset function
   const handleChatReset = useCallback(async () => {
+    console.log('🔄 Chat reset initiated');
+    setIsResetting(true);
+    
     try {
-      setIsResetting(true);
-      console.log('🔄 Chat reset initiated');
-      
-      // Call backend to reinitialize the search agent
+      // Reinitialize search API
       await searchApi.reinitialize();
       
       // Clear local messages
@@ -350,7 +465,16 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, persistent
       
       console.log('✅ Chat reset completed');
     } catch (error) {
-      console.error('❌ Failed to reset chat:', error);
+      console.error('❌ Chat reset failed:', error);
+      // Still reset UI even if API call fails
+      setLocalMessages([]);
+      onStateUpdate?.({
+        messages: [],
+        input: "",
+        isChatStarted: false,
+        currentPhase: 'idle',
+        toolCollapsed: {}
+      });
     } finally {
       setIsResetting(false);
       setShowResetConfirm(false);
@@ -454,9 +578,15 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, persistent
             if (dataStr === '[DONE]') {
               setIsStreaming(false);
               onStateUpdate?.({ currentPhase: "idle" });
-              setLocalMessages(prev => prev.map(msg => 
-                msg.id === aiMessageId ? { ...msg, isStreaming: false } : msg
-              ));
+              setLocalMessages(prev => prev.map(msg => {
+                if (msg.id === aiMessageId) {
+                  // Preserve all existing properties including references
+                  const updatedMsg = { ...msg, isStreaming: false };
+                  console.log('🏁 Stream complete - preserving message with references:', updatedMsg.references);
+                  return updatedMsg;
+                }
+                return msg;
+              }));
               setTimeout(() => {
                 inputRef.current?.focus();
               }, 500);
@@ -467,6 +597,7 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, persistent
 
             try {
               const event = JSON.parse(dataStr);
+              console.log('📨 Received event:', event.type, event);
               processChatEvent(event, aiMessageId);
             } catch (parseError) {
               console.warn('Failed to parse chat event:', parseError, 'Raw data:', dataStr);
@@ -676,7 +807,11 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, persistent
 
   // Render references
   const renderReferences = (references: Reference[]) => {
-    if (!references || references.length === 0) return null;
+    console.log('📚 renderReferences called with:', references);
+    if (!references || references.length === 0) {
+      console.log('📚 No references to render');
+      return null;
+    }
 
     return (
       <div className="mt-3 pt-2 border-t border-white/5">
@@ -699,28 +834,38 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, persistent
           {references.slice(0, 3).map((ref, index) => (
             <div 
               key={index} 
-              className="p-2 bg-white/[0.02] border border-white/[0.05] rounded-lg cursor-pointer hover:bg-white/[0.04] transition-colors"
-              onClick={() => handleReferenceClick([ref], ref.display_name || ref.title)}
+              className="p-2 bg-white/[0.02] border border-white/[0.05] rounded-lg cursor-pointer hover:bg-white/[0.04] transition-colors group"
+              onClick={() => {
+                // If reference has document info and we have onReferenceClick, use DocumentDetailDialog
+                if (onReferenceClick && ref.document_id) {
+                  onReferenceClick(ref);
+                } else {
+                  // Otherwise, use source dialog
+                  handleReferenceClick([ref], ref.display_name || ref.title);
+                }
+              }}
             >
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <div className="text-xs text-white/80 font-medium">
-                    {ref.display_name || ref.title || ref.value?.substring(0, 50)}
+                    {ref.file_name || ref.display_name || ref.title || ref.value?.substring(0, 50)}
                   </div>
-                  {ref.document_id && (
+                  {(ref.segment_index !== undefined || ref.page_index !== undefined) && (
                     <div className="text-xs text-white/50 mt-0.5">
-                      {ref.document_id} {ref.page_index !== undefined && `• Page ${ref.page_index}`}
-                    </div>
-                  )}
-                  {ref.score !== undefined && (
-                    <div className="text-xs text-cyan-300/70 mt-0.5">
-                      Score: {ref.score.toFixed(3)}
+                      Segment {(ref.segment_index ?? ref.page_index ?? 0) + 1}
                     </div>
                   )}
                 </div>
-                {ref.type === 'image' && (
-                  <FileText className="w-3 h-3 text-white/40 ml-2 flex-shrink-0" />
-                )}
+                <div className="ml-2 flex-shrink-0 flex items-center gap-1">
+                  {ref.type === 'image' && (
+                    <FileText className="w-3 h-3 text-white/40" />
+                  )}
+                  {ref.document_id && onReferenceClick && (
+                    <div className="text-xs text-purple-300/70 group-hover:text-purple-300 transition-colors">
+                      상세보기
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           ))}
@@ -765,8 +910,15 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, persistent
             )}
             
             {(() => {
-              // Use localMessages during streaming, persistent messages otherwise
-              const displayMessages = isStreaming ? localMessages : (localMessages.length > messages.length ? localMessages : messages);
+              // Always use localMessages as primary source since it has the most up-to-date data
+              // Fall back to persistent messages only if localMessages is empty
+              const displayMessages = localMessages.length > 0 ? localMessages : messages;
+              console.log('🎨 Display messages selection:', {
+                usingLocalMessages: localMessages.length > 0,
+                localMessagesCount: localMessages.length,
+                messagesCount: messages.length,
+                lastMessageReferences: displayMessages[displayMessages.length - 1]?.references?.length
+              });
               return displayMessages;
             })().map((message) => (
               message.sender === "user" ? (
@@ -781,9 +933,22 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, persistent
                     <div className="flex-1 max-w-full">
                       <div className="text-white/90 text-sm break-words overflow-wrap-anywhere max-w-full">
                         {/* Streaming and no content: show loading */}
-                        {!message.content && message.isStreaming && (
+                        {!message.content && !message.planningThought && message.isStreaming && (
                           <div className="flex items-center justify-center py-3">
                             <MessageLoading />
+                          </div>
+                        )}
+                        
+                        {/* Show planning thought while planning */}
+                        {message.planningThought && (
+                          <div className="p-3 bg-purple-950/30 border border-purple-500/30 rounded-lg">
+                            <div className="flex items-center gap-2 mb-2">
+                              <Brain className="h-4 w-4 text-purple-400 animate-pulse" />
+                              <span className="text-sm font-medium text-purple-300">Planning your search...</span>
+                            </div>
+                            <p className="text-white/60 text-xs whitespace-pre-wrap font-mono">
+                              {message.planningThought}
+                            </p>
                           </div>
                         )}
                         
@@ -798,7 +963,17 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, persistent
                         )}
                         
                         {/* Show references */}
-                        {message.references && renderReferences(message.references)}
+                        {(() => {
+                          const hasRefs = message.references && Array.isArray(message.references) && message.references.length > 0;
+                          console.log(`🔍 Rendering message ${message.id}:`, { 
+                            hasReferences: hasRefs, 
+                            referencesLength: message.references?.length,
+                            references: message.references,
+                            isArray: Array.isArray(message.references),
+                            messageKeys: Object.keys(message || {})
+                          });
+                          return hasRefs ? renderReferences(message.references!) : null;
+                        })()}
                       </div>
                     </div>
                   </div>
@@ -930,37 +1105,47 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, persistent
                         
                         {/* Additional metadata */}
                         <div className="flex gap-4 text-xs text-white/60 mt-2">
-                          {ref.document_id && <span>Doc: {ref.document_id}</span>}
-                          {ref.page_index !== undefined && <span>Page: {ref.page_index}</span>}
-                          {ref.score !== undefined && <span>Score: {ref.score.toFixed(3)}</span>}
+                          {ref.file_name && <span>File: {ref.file_name}</span>}
+                          {(ref.segment_index !== undefined || ref.page_index !== undefined) && (
+                            <span>Segment: {(ref.segment_index ?? ref.page_index ?? 0) + 1}</span>
+                          )}
                         </div>
 
                         {/* Actions */}
-                        {(ref.file_uri || (onOpenPdf && ref.document_id)) && (
-                          <div className="flex gap-2 mt-3">
-                            {ref.file_uri && (
-                              <button
-                                onClick={() => window.open(ref.file_uri, '_blank')}
-                                className="px-3 py-1 bg-blue-500/20 text-blue-300 border border-blue-500/30 rounded text-sm hover:bg-blue-500/30 transition"
-                              >
-                                PDF 보기
-                              </button>
-                            )}
-                            {onAttachToChat && ref.document_id && ref.page_index !== undefined && (
-                              <button
-                                onClick={() => onAttachToChat({
-                                  document_id: ref.document_id!,
-                                  page_index: ref.page_index!,
-                                  page_number: ref.page_index! + 1,
-                                  file_name: ref.title || 'Unknown'
-                                })}
-                                className="px-3 py-1 bg-green-500/20 text-green-300 border border-green-500/30 rounded text-sm hover:bg-green-500/30 transition"
-                              >
-                                채팅에 첨부
-                              </button>
-                            )}
-                          </div>
-                        )}
+                        <div className="flex gap-2 mt-3">
+                          {ref.document_id && onReferenceClick && (
+                            <button
+                              onClick={() => {
+                                setSourceDialogOpen(false);
+                                onReferenceClick(ref);
+                              }}
+                              className="px-3 py-1 bg-purple-500/20 text-purple-300 border border-purple-500/30 rounded text-sm hover:bg-purple-500/30 transition"
+                            >
+                              문서 상세보기
+                            </button>
+                          )}
+                          {ref.file_uri && (
+                            <button
+                              onClick={() => window.open(ref.file_uri, '_blank')}
+                              className="px-3 py-1 bg-blue-500/20 text-blue-300 border border-blue-500/30 rounded text-sm hover:bg-blue-500/30 transition"
+                            >
+                              PDF 보기
+                            </button>
+                          )}
+                          {onAttachToChat && ref.document_id && ref.page_index !== undefined && (
+                            <button
+                              onClick={() => onAttachToChat({
+                                document_id: ref.document_id!,
+                                page_index: ref.page_index!,
+                                page_number: ref.page_index! + 1,
+                                file_name: ref.title || 'Unknown'
+                              })}
+                              className="px-3 py-1 bg-green-500/20 text-green-300 border border-green-500/30 rounded text-sm hover:bg-green-500/30 transition"
+                            >
+                              채팅에 첨부
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -986,6 +1171,21 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, persistent
         cancelText="Cancel"
         variant="destructive"
       />
+
+      {/* Reset Loading Overlay */}
+      {isResetting && (
+        <div className="fixed inset-0 bg-black/80 z-[9999] flex items-center justify-center">
+          <div className="bg-gray-900/90 border border-white/20 rounded-2xl p-8 shadow-2xl">
+            <div className="flex items-center space-x-4">
+              <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
+              <div>
+                <h3 className="text-white text-lg font-medium">채팅을 초기화하고 있습니다...</h3>
+                <p className="text-white/60 text-sm mt-1">잠시만 기다려주세요</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
