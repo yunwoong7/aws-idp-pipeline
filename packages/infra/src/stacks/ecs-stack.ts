@@ -236,11 +236,13 @@ export class EcsStack extends cdk.Stack {
         path: '/',
         port: '8000',
         protocol: elbv2.Protocol.HTTP,
-        timeout: cdk.Duration.seconds(10),
-        interval: cdk.Duration.seconds(30),
+        timeout: cdk.Duration.seconds(30),
+        interval: cdk.Duration.seconds(60),
         healthyThresholdCount: 2,
-        unhealthyThresholdCount: 5,
+        unhealthyThresholdCount: 3,
       },
+      // 스트리밍 응답을 위한 타임아웃 설정
+      deregistrationDelay: cdk.Duration.seconds(60),
     });
 
     // Backend 서비스를 Target Group에 연결
@@ -260,6 +262,9 @@ export class EcsStack extends cdk.Stack {
 
     // ALB 액세스 로그 설정
     this.frontendService.loadBalancer.logAccessLogs(albLogsBucket, 'alb-access-logs');
+    
+    // ALB idle timeout 설정 (스트리밍 응답을 위해 300초로 증가)
+    this.frontendService.loadBalancer.setAttribute('idle_timeout.timeout_seconds', '300');
 
     // 보안 그룹 설정: TOML 설정에서 IP whitelist 가져와서 명시적으로 허용
     const securityConfig = getSecurityConfig();
