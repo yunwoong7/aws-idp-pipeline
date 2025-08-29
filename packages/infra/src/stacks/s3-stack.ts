@@ -118,6 +118,7 @@ export class S3Stack extends cdk.Stack {
           ],
           allowedOrigins: ['*'], // Allow all origins for Prototyping
           allowedHeaders: [
+            // Original headers
             'Content-Type',
             'Content-Length',
             'Authorization',
@@ -127,6 +128,18 @@ export class S3Stack extends cdk.Stack {
             'X-Amz-User-Agent',
             'x-amz-content-sha256',
             'x-amz-storage-class',
+            // Browser default headers
+            'Origin',
+            'Referer',
+            'User-Agent',
+            'Accept',
+            'Accept-Language',
+            'Accept-Encoding',
+            'Cache-Control',
+            'Host',
+            // Additional headers for compatibility
+            'Access-Control-Request-Method',
+            'Access-Control-Request-Headers',
           ],
           exposedHeaders: ['ETag', 'x-amz-meta-custom-header'],
           maxAge: 3000,

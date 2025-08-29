@@ -101,10 +101,16 @@ class PromptLoader:
                     processed_value = processed_value.replace(f"{{{{{var_name}}}}}", str(var_value))
                 
                 try:
-                    # 일반 변수 대체 ({VARIABLE} 형식)
-                    result[key] = processed_value.format(**kwargs)
-                except KeyError as e:
-                    raise ValueError(f"Missing format variable {e} in {key}")
+                    # 일반 변수 대체 ({VARIABLE} 형식) - 템플릿에 실제 단일 중괄호 플레이스홀더가 있을 때만 수행
+                    # 원본 값 기준으로 단일 중괄호 패턴 존재 여부 확인 (이중 중괄호는 제외)
+                    if re.search(r'{(?!{)[^{}]+}', value):
+                        result[key] = processed_value.format(**kwargs)
+                    else:
+                        # 단일 중괄호 플레이스홀더가 없다면, 이미 {{VAR}} 치환만으로 충분하므로 그대로 사용
+                        result[key] = processed_value
+                except (KeyError, ValueError):
+                    # 치환 중 오류가 발생하면 포맷을 적용하지 않고 원문을 사용 (분석 텍스트 내 중괄호 안전성 보장)
+                    result[key] = processed_value
             else:
                 result[key] = value
         

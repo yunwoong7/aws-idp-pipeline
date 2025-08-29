@@ -25,6 +25,7 @@ async function getBackendUrl(): Promise<string> {
       console.log('🏠 Using local backend base URL:', localBase);
       return localBase;
     }
+    
     const originBase = window.location.origin;
     console.log('🌐 Using runtime origin as backend base URL:', originBase);
     return originBase;
@@ -807,6 +808,17 @@ export interface SearchRequest {
   segment_id?: string;
 }
 
+// Strands SearchAgent API types
+export interface StrandsSearchRequest {
+  message: string;
+  stream?: boolean;
+  model_id?: string;
+  index_id?: string;
+  document_id?: string;
+  segment_id?: string;
+  thread_id?: string;
+}
+
 export interface SearchHealthResponse {
   search_agent: boolean;
   mcp_service: boolean;
@@ -1039,6 +1051,93 @@ export const verificationApi = {
     
     if (!response.ok) {
       throw new Error('Verification health check failed');
+    }
+    
+    return response.json();
+  },
+};
+
+// Strands Search Agent API
+export const strandsSearchApi = {
+  // Strands Search 스트리밍
+  async searchStream(request: StrandsSearchRequest): Promise<Response> {
+    const backendUrl = await getBackendUrl();
+    
+    // FormData로 전송
+    const formData = new FormData();
+    formData.append('message', request.message);
+    formData.append('stream', 'true');
+    if (request.model_id) {
+      formData.append('model_id', request.model_id);
+    }
+    if (request.index_id) {
+      formData.append('index_id', request.index_id);
+    }
+    if (request.document_id) {
+      formData.append('document_id', request.document_id);
+    }
+    if (request.segment_id) {
+      formData.append('segment_id', request.segment_id);
+    }
+    if (request.thread_id) {
+      formData.append('thread_id', request.thread_id);
+    }
+    
+    return fetch(`${backendUrl}/api/strands-search`, {
+      method: 'POST',
+      body: formData,
+    });
+  },
+
+  // Strands Search 논스트리밍
+  async search(request: StrandsSearchRequest): Promise<any> {
+    const backendUrl = await getBackendUrl();
+    
+    const response = await fetch(`${backendUrl}/api/strands-search`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        ...request,
+        stream: false
+      }),
+    });
+    
+    if (!response.ok) {
+      throw new Error('Strands search failed');
+    }
+    
+    return response.json();
+  },
+
+  // Strands Search 헬스체크
+  async healthCheck(): Promise<any> {
+    const backendUrl = await getBackendUrl();
+    const response = await fetch(`${backendUrl}/api/strands-search/health`);
+    
+    if (!response.ok) {
+      throw new Error('Strands search health check failed');
+    }
+    
+    return response.json();
+  },
+
+  // Strands Search 시스템 재초기화
+  async reinitialize(model_id?: string): Promise<any> {
+    const backendUrl = await getBackendUrl();
+    const formData = new FormData();
+    if (model_id) {
+      formData.append('model_id', model_id);
+    }
+    
+    const response = await fetch(`${backendUrl}/api/strands-search/reinit`, {
+      method: 'POST',
+      body: formData,
+    });
+    
+    if (!response.ok) {
+      throw new Error('Strands search system 재초기화에 실패했습니다');
     }
     
     return response.json();
