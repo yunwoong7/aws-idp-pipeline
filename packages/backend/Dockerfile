@@ -12,15 +12,11 @@ RUN apt-get update && apt-get install -y \
     && pip install uv
 
 # Copy requirements and install Python dependencies with uv
-COPY packages/backend/requirements.txt .
+COPY requirements.txt .
 RUN uv pip install --system --no-cache -r requirements.txt
 
-# Copy .env file for environment variables and remove AWS_PROFILE
-COPY .env .env.tmp
-RUN grep -v '^AWS_PROFILE=' .env.tmp > .env && rm .env.tmp
-
 # Copy application code
-COPY packages/backend/ .
+COPY . .
 
 # Create necessary directories
 RUN mkdir -p config mcp-workspace
