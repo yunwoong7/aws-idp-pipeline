@@ -175,6 +175,10 @@ Resources:
                 - echo "Deploying CDK stacks..."
                 - cd ../infra
                 
+                # Install infra dependencies
+                - echo "Installing infra dependencies..."
+                - pnpm install
+                
                 # Create .toml config file
                 - |
                   cat > .toml << EOF
