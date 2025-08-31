@@ -276,12 +276,15 @@ Resources:
                   if [ "$ENABLE_COGNITO" = "true" ]; then
                     echo "Deploying Cognito stack..."
                     npx cdk deploy aws-idp-ai-cognito --require-approval never \
-                      --parameters adminUserEmail=$ADMIN_USER_EMAIL
+                      --context adminUserEmail="$ADMIN_USER_EMAIL" \
+                      --context useCustomDomain="$USE_CUSTOM_DOMAIN" \
+                      --context domainName="$DOMAIN_NAME" \
+                      --context hostedZoneName="$HOSTED_ZONE_NAME"
                   fi
                 
                 # Deploy service stacks
-                - echo "Deploying Step Functions stack..."
-                - npx cdk deploy aws-idp-ai-step-functions --require-approval never
+                - echo "Deploying Workflow stack..."
+                - npx cdk deploy aws-idp-ai-workflow --require-approval never
                 
                 - echo "Deploying Document Management stack..."
                 - npx cdk deploy aws-idp-ai-document-management --require-approval never
@@ -290,11 +293,14 @@ Resources:
                 - |
                   if [ "$USE_CUSTOM_DOMAIN" = "true" ]; then
                     npx cdk deploy aws-idp-ai-ecs --require-approval never \
-                      --parameters useCustomDomain=true \
-                      --parameters domainName=$DOMAIN_NAME \
-                      --parameters hostedZoneName=$HOSTED_ZONE_NAME
+                      --context adminUserEmail="$ADMIN_USER_EMAIL" \
+                      --context useCustomDomain="true" \
+                      --context domainName="$DOMAIN_NAME" \
+                      --context hostedZoneName="$HOSTED_ZONE_NAME"
                   else
-                    npx cdk deploy aws-idp-ai-ecs --require-approval never
+                    npx cdk deploy aws-idp-ai-ecs --require-approval never \
+                      --context adminUserEmail="$ADMIN_USER_EMAIL" \
+                      --context useCustomDomain="false"
                   fi
                 
                 # Get outputs
