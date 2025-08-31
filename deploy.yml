@@ -103,6 +103,12 @@ Resources:
                   - ssm:PutParameter
                   - ssm:DeleteParameter
                 Resource: '*'
+              - Effect: Allow
+                Action:
+                  - iam:UpdateAssumeRolePolicy
+                  - iam:UpdateRole
+                Resource: 
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/cdk-*'
 
   CodeBuildProject:
     Type: AWS::CodeBuild::Project
