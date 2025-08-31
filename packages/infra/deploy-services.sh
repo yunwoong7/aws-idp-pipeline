@@ -3,16 +3,19 @@
 # -----------------------------------------------------------------------------
 # AWS IDP Pipeline ― Container Services Deployment Script
 # -----------------------------------------------------------------------------
-#  * Deploy ECR and ECS stacks only
+#  * Deploy Cognito authentication (required)
+#  * Deploy ECR and ECS stacks with Cognito integration
 #  * Build and push Docker images to ECR
-#  * Update .env file with ALB DNS information
+#  * Update .env file with service information
 # -----------------------------------------------------------------------------
-# Examples:
-#   ./deploy-services.sh <aws-profile>                # deploy services
-#   ./deploy-services.sh <aws-profile> --destroy      # destroy services
-#   ./deploy-services.sh <aws-profile> --build-only   # build images only
-#   ./deploy-services.sh <aws-profile> --build-frontend  # build frontend image only
-#   ./deploy-services.sh <aws-profile> --build-backend   # build backend image only
+# Usage:
+#   ./deploy-services.sh <aws-profile> [options]
+#
+# Options:
+#   --destroy                     Destroy existing services
+#   --build-only                  Build and push images only (skip deployment)
+#   --build-frontend              Build and push frontend image only
+#   --build-backend               Build and push backend image only
 # -----------------------------------------------------------------------------
 
 set -euo pipefail
@@ -83,11 +86,57 @@ get_os_type() {
   esac
 }
 
+# ────────────── Self-signed certificate generation ──────────────
+generate_self_signed_cert() {
+  local domain="aws-idp-ai.internal"
+  local cert_dir="certs"
+  
+  print_info "Generating self-signed certificate for $domain..."
+  mkdir -p "$cert_dir"
+
+  openssl req -x509 -newkey rsa:2048 -sha256 -days 365 -nodes \
+    -keyout "$cert_dir/private.key" \
+    -out "$cert_dir/certificate.pem" \
+    -subj "/CN=$domain" \
+    -addext "subjectAltName=DNS:$domain" >/dev/null 2>&1
+
+  openssl x509 -in "$cert_dir/certificate.pem" -out "$cert_dir/certificate.pem" -outform PEM >/dev/null 2>&1
+  
+  print_success "Self-signed certificate generated in $cert_dir/"
+}
+
+import_certificate_to_acm() {
+  local profile="$1"
+  local cert_dir="certs"
+  local cert_file="$cert_dir/certificate.pem"
+  local key_file="$cert_dir/private.key"
+
+  print_info "Importing certificate to AWS Certificate Manager..." >&2
+  
+  local certificate_arn
+  certificate_arn=$(aws acm import-certificate \
+    --certificate fileb://$cert_file \
+    --private-key fileb://$key_file \
+    --profile "$profile" \
+    --output text \
+    --query 'CertificateArn')
+
+  if [[ $? -eq 0 && -n "$certificate_arn" ]]; then
+    print_success "Certificate imported with ARN: $certificate_arn" >&2
+    # Only output the ARN to stdout
+    echo "$certificate_arn"
+  else
+    print_error "Failed to import certificate to ACM" >&2
+    exit 1
+  fi
+}
+
 # ────────────── Service Stack List ──────────────
 get_service_stacks() {
   cat <<EOF
-aws-idp-ecr
-aws-idp-ecs
+aws-idp-ai-cognito
+aws-idp-ai-ecr
+aws-idp-ai-ecs
 EOF
 }
 
@@ -120,6 +169,18 @@ check_prerequisites() {
   # Check pnpm
   if ! command -v pnpm >/dev/null 2>&1; then
     print_error "pnpm is not installed"
+    exit 1
+  fi
+  
+  # Check jq (needed for Cognito features)
+  if ! command -v jq >/dev/null 2>&1; then
+    print_error "jq is not installed (required for Cognito features)"
+    exit 1
+  fi
+  
+  # Check OpenSSL (needed for self-signed certificate generation)
+  if ! command -v openssl >/dev/null 2>&1; then
+    print_error "openssl is not installed (required for certificate generation)"
     exit 1
   fi
   
@@ -338,6 +399,56 @@ build_and_push_images() {
   cd packages/infra/
 }
 
+# ────────────── Deploy Cognito stacks ──────────────
+deploy_cognito_stacks() {
+  local profile="$1"
+  local admin_email="$2"
+  local domain_name="${3:-}"
+  local hosted_zone_id="${4:-}"
+  local hosted_zone_name="${5:-}"
+  local existing_user_pool="${6:-}"
+  local existing_domain="${7:-}"
+  local cert_arn="${8:-}"
+  
+  print_step "3.5" "Deploying Cognito authentication"
+  
+  # Prepare CDK context for Cognito
+  local cdk_context="-c adminUserEmail=$admin_email"
+  
+  if [[ -n "$domain_name" && -n "$hosted_zone_id" && -n "$hosted_zone_name" ]]; then
+    cdk_context="$cdk_context -c useCustomDomain=true"
+    cdk_context="$cdk_context -c domainName=$domain_name"
+    cdk_context="$cdk_context -c hostedZoneId=$hosted_zone_id"
+    cdk_context="$cdk_context -c hostedZoneName=$hosted_zone_name"
+  fi
+  
+  if [[ -n "$cert_arn" ]]; then
+    cdk_context="$cdk_context -c existingCertificateArn=$cert_arn"
+  fi
+  
+  if [[ -n "$existing_user_pool" ]]; then
+    cdk_context="$cdk_context -c existingUserPoolId=$existing_user_pool"
+  fi
+  
+  if [[ -n "$existing_domain" ]]; then
+    cdk_context="$cdk_context -c existingUserPoolDomain=$existing_domain"
+  fi
+  
+  # Deploy Cognito stack
+  print_info "Deploying Cognito User Pool..."
+  npx cdk deploy aws-idp-ai-cognito $cdk_context --require-approval=never --profile "$profile"
+  
+  # Deploy Certificate stack only if custom domain is configured
+  if [[ -n "$domain_name" && -n "$hosted_zone_id" && -n "$hosted_zone_name" ]]; then
+    print_info "Deploying SSL Certificate..."
+    npx cdk deploy aws-idp-ai-certificate $cdk_context --require-approval=never --profile "$profile"
+  else
+    print_info "Using existing SSL Certificate (ARN: ${cert_arn})"
+  fi
+  
+  print_success "Cognito authentication stacks deployed"
+}
+
 # ────────────── Deploy ECR stack first ──────────────
 deploy_ecr_stack() {
   local profile="$1"
@@ -367,8 +478,15 @@ deploy_ecr_stack() {
 # ────────────── Deploy ECS stack ──────────────
 deploy_ecs_stack() {
   local profile="$1"
+  local admin_email="$2"
+  local domain_name="${3:-}"
+  local hosted_zone_id="${4:-}"
+  local hosted_zone_name="${5:-}"
+  local existing_user_pool="${6:-}"
+  local existing_domain="${7:-}"
+  local cert_arn="${8:-}"
   
-  print_step "6" "Deploying ECS services"
+  print_step "6" "Deploying ECS services with Cognito integration"
   
   # Check and clean up existing ALB logs S3 bucket
   local region
@@ -388,13 +506,32 @@ deploy_ecs_stack() {
     print_success "ALB logs bucket deleted"
   fi
   
-  # Deploy ECS stack
-  print_info "Deploying ECS stack..."
-  npx cdk deploy aws-idp-ai-ecs \
-    --require-approval=never \
-    --profile "$profile" \
-    --progress=events \
-    --rollback=false
+  # Prepare CDK context for ECS deployment with Cognito
+  local cdk_context="-c adminUserEmail=$admin_email"
+  
+  if [[ -n "$domain_name" && -n "$hosted_zone_id" && -n "$hosted_zone_name" ]]; then
+    cdk_context="$cdk_context -c useCustomDomain=true"
+    cdk_context="$cdk_context -c domainName=$domain_name"
+    cdk_context="$cdk_context -c hostedZoneId=$hosted_zone_id"
+    cdk_context="$cdk_context -c hostedZoneName=$hosted_zone_name"
+  fi
+  
+  if [[ -n "$cert_arn" ]]; then
+    cdk_context="$cdk_context -c existingCertificateArn=$cert_arn"
+  fi
+  
+  if [[ -n "$existing_user_pool" ]]; then
+    cdk_context="$cdk_context -c existingUserPoolId=$existing_user_pool"
+  fi
+  
+  if [[ -n "$existing_domain" ]]; then
+    cdk_context="$cdk_context -c existingUserPoolDomain=$existing_domain"
+  fi
+  
+  # Deploy ECS stack with Cognito integration
+  print_info "Deploying ECS stack with Cognito authentication..."
+  print_info "CDK Context: $cdk_context"
+  npx cdk deploy aws-idp-ai-ecs $cdk_context --require-approval=never --profile "$profile" --progress=events --rollback=false
   
   print_success "ECS stack deployment completed"
 }
@@ -429,14 +566,17 @@ destroy_service_stacks() {
   print_success "Service stacks destruction completed"
 }
 
-# ────────────── Update .env file ──────────────
+# ────────────── Update .env file and create Cognito info ──────────────
 update_env_file() {
   local profile="$1"
+  local admin_email="$2"
+  local domain_name="${3:-}"
+  local hosted_zone_name="${4:-}"
   local region
   
   region=$(aws configure get region --profile "$profile" 2>/dev/null || echo "us-west-2")
   
-  print_step "7" "Updating .env file with service endpoints"
+  print_step "7" "Updating .env file with service information"
   
   local env_file="../../.env"
   
@@ -445,56 +585,111 @@ update_env_file() {
     return
   fi
   
-  # Get ALB DNS name from CloudFormation
-  local alb_dns_name
+  # Get stack outputs
+  local account_id
+  account_id=$(aws sts get-caller-identity --profile "$profile" --query 'Account' --output text)
+  
+  local alb_dns_name user_pool_id user_pool_client_id user_pool_domain
+  
   alb_dns_name=$(aws cloudformation describe-stacks --stack-name "aws-idp-ai-ecs" \
     --query "Stacks[0].Outputs[?OutputKey=='LoadBalancerDnsName'].OutputValue" \
     --output text --profile "$profile" --region "$region" 2>/dev/null || true)
+    
+  user_pool_id=$(aws cloudformation describe-stacks --stack-name "aws-idp-ai-cognito" \
+    --query "Stacks[0].Outputs[?OutputKey=='UserPoolId'].OutputValue" \
+    --output text --profile "$profile" 2>/dev/null || true)
+    
+  user_pool_client_id=$(aws cloudformation describe-stacks --stack-name "aws-idp-ai-cognito" \
+    --query "Stacks[0].Outputs[?OutputKey=='UserPoolClientId'].OutputValue" \
+    --output text --profile "$profile" 2>/dev/null || true)
+    
+  user_pool_domain=$(aws cloudformation describe-stacks --stack-name "aws-idp-ai-cognito" \
+    --query "Stacks[0].Outputs[?OutputKey=='UserPoolDomain'].OutputValue" \
+    --output text --profile "$profile" 2>/dev/null || true)
+  
+  # Determine application URL
+  local app_url protocol
+  if [[ -n "$domain_name" && -n "$hosted_zone_name" ]]; then
+    app_url="https://$domain_name.$hosted_zone_name"
+    protocol="https"
+  elif [[ -n "$alb_dns_name" ]]; then
+    app_url="https://$alb_dns_name"
+    protocol="https"
+  else
+    app_url="https://placeholder.domain"
+    protocol="https"
+  fi
   
   if [[ -n "$alb_dns_name" && "$alb_dns_name" != "None" ]]; then
     print_info "ALB DNS Name: $alb_dns_name"
     
-    # Add or update ECS service endpoints in .env file
+    # Remove existing ECS and Cognito sections
     if grep -q "# ECS Service Endpoints" "$env_file"; then
-      # Update existing section
       sed -i.bak "/# ECS Service Endpoints/,/^$/d" "$env_file"
     fi
+    if grep -q "# Cognito Authentication Configuration" "$env_file"; then
+      sed -i.bak "/# Cognito Authentication Configuration/,/^$/d" "$env_file"
+    fi
     
-    # Add new section
+    # Add new sections
     cat >> "$env_file" <<EOF
 
 # ECS Service Endpoints
-# NEXT_PUBLIC_ECS_BACKEND_URL=http://$alb_dns_name
 ALB_DNS_NAME=$alb_dns_name
-FRONTEND_URL=http://$alb_dns_name
-BACKEND_API_URL=http://$alb_dns_name/api
-ENVIRONMENT=local
+FRONTEND_URL=$app_url
+BACKEND_API_URL=$app_url/api
+ENVIRONMENT=production
+
+# Cognito Authentication Configuration
+COGNITO_USER_POOL_ID=$user_pool_id
+COGNITO_USER_POOL_CLIENT_ID=$user_pool_client_id
+COGNITO_USER_POOL_DOMAIN=$user_pool_domain
+COGNITO_REGION=$region
+APPLICATION_URL=$app_url
+COGNITO_CALLBACK_URL=$app_url/oauth2/idpresponse
+COGNITO_LOGOUT_URL=$app_url
+ADMIN_USER_EMAIL=$admin_email
 EOF
     
-    print_success "Updated $env_file with service endpoints"
+    print_success "Updated $env_file with service and authentication information"
     
-    # Show service URLs
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    print_success "🎉 Service deployment completed successfully!"
-    echo ""
-    print_info "Service URLs:"
-    print_info "  Frontend:    http://$alb_dns_name"
-    print_info "  Backend API: http://$alb_dns_name/api"
-    echo ""
-    print_warning "Note: Services may take a few minutes to be ready"
-    print_info "💡 Chat and reinit functions will now use the ECS backend"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    # Show deployment summary
+    show_deployment_summary "$app_url" "$admin_email" "$user_pool_id"
   else
     print_warning "Could not retrieve ALB DNS name. .env file not updated."
   fi
+}
+
+
+# ────────────── Show deployment summary ──────────────
+show_deployment_summary() {
+  local app_url="$1"
+  local admin_email="$2"
+  local user_pool_id="$3"
+  
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  print_success "AWS IDP Pipeline deployment completed successfully"
+  echo ""
+  print_info "Authentication: Cognito User Pool"
+  print_info "Application URL: $app_url"
+  print_info "Admin Email: $admin_email"
+  echo ""
+  print_warning "Next Steps:"
+  print_info "1. Access your application at $app_url"
+  print_info "2. Sign in with:"
+  echo "   Username: ${admin_email%%@*}"
+  echo "   Temporary Password: TempPass123! (must be changed on first login)"
+  print_info "3. You will be prompted to set a new password on first login"
+  print_info "4. Services may take a few minutes to be fully ready"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 }
 
 # ────────────── Main execution logic ──────────────
 main() {
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "   AWS IDP Pipeline - Container Services"
+  echo "   AWS IDP Pipeline - Container Services with Cognito"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo ""
   
@@ -526,12 +721,11 @@ main() {
       -*)
         print_error "Unknown option: $1"
         echo ""
-        echo "Usage: $0 <aws-profile> [--destroy] [--build-only] [--build-frontend] [--build-backend]"
+        echo "Usage: $0 <aws-profile> [options]"
         echo ""
         echo "Options:"
-        echo "  <aws-profile>     AWS profile to use for deployment"
         echo "  --destroy         Destroy existing services"
-        echo "  --build-only      Build and push both images only (skip deployment)"
+        echo "  --build-only      Build and push images only (skip deployment)"
         echo "  --build-frontend  Build and push frontend image only"
         echo "  --build-backend   Build and push backend image only"
         echo ""
@@ -549,16 +743,96 @@ main() {
     esac
   done
   
-  # Validate AWS profile argument
+  # Validate required arguments
   if [[ -z "$aws_profile" ]]; then
     print_error "AWS profile is required"
     echo ""
-    echo "Usage: $0 <aws-profile> [--destroy] [--build-only]"
+    echo "Usage: $0 <aws-profile> [options]"
     exit 1
   fi
   
   # Set environment variables
   export AWS_PROFILE="$aws_profile"
+  
+  # Interactive configuration for full deployment
+  local admin_email=""
+  local domain_name=""
+  local hosted_zone_id=""
+  local hosted_zone_name=""
+  local existing_user_pool=""
+  local existing_domain=""
+  local cert_arn=""
+  
+  if [[ "$destroy_services" != "true" && "$build_frontend" != "true" && "$build_backend" != "true" && "$build_only" != "true" ]]; then
+    echo "AWS IDP Pipeline - Container Services with Cognito"
+    echo "This tool will deploy containerized services with Cognito authentication."
+    echo ""
+    
+    # Admin email (required)
+    while [[ -z "$admin_email" ]]; do
+      read -p "Admin User Email (required): " admin_email
+      if [[ ! "$admin_email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
+        print_error "Invalid email format. Please try again."
+        admin_email=""
+      fi
+    done
+    
+    # Existing Cognito User Pool (optional)
+    read -p "Existing Cognito User Pool ID (enter to create new): " existing_user_pool
+    if [[ -n "$existing_user_pool" ]]; then
+      read -p "Existing Cognito User Pool Domain (enter to skip): " existing_domain
+    fi
+    
+    # Certificate Configuration
+    echo ""
+    echo "Certificate Configuration:"
+    echo "For ALB to work with Cognito authentication, you need an SSL certificate."
+    echo ""
+    read -p "Existing SSL Certificate ARN (enter to generate self-signed): " cert_arn
+    
+    # Generate self-signed certificate if none provided
+    if [[ -z "$cert_arn" ]]; then
+      print_info "No certificate ARN provided. Generating self-signed certificate..."
+      
+      # Clean up existing aws-idp-ai.internal certificates
+      print_info "Cleaning up existing certificates..."
+      local existing_certs
+      existing_certs=$(aws acm list-certificates --query 'CertificateSummaryList[?DomainName==`aws-idp-ai.internal`].CertificateArn' --output text --profile "$aws_profile" 2>/dev/null || true)
+      
+      if [[ -n "$existing_certs" ]]; then
+        for cert_arn_to_delete in $existing_certs; do
+          print_info "Deleting certificate: $cert_arn_to_delete"
+          aws acm delete-certificate --certificate-arn "$cert_arn_to_delete" --profile "$aws_profile" 2>/dev/null || true
+        done
+      fi
+      
+      # Clean up existing certificate files
+      rm -rf certs/ 2>/dev/null || true
+      
+      generate_self_signed_cert
+      cert_arn=$(import_certificate_to_acm "$aws_profile")
+      print_success "Using generated certificate ARN: $cert_arn"
+    fi
+    
+    # Show configuration summary
+    echo ""
+    echo "Deploying AWS IDP Pipeline with the following configuration:"
+    echo "AWS Profile: $aws_profile"
+    echo "Admin User Email: $admin_email"
+    if [[ -n "$existing_user_pool" ]]; then
+      echo "Cognito: Using existing User Pool $existing_user_pool"
+    else
+      echo "Cognito: Creating new User Pool"
+    fi
+    echo "SSL Certificate: $cert_arn"
+    echo "Domain: ALB DNS with HTTPS"
+    echo ""
+    read -p "Please confirm (y/n): " confirm
+    if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+      print_info "Deployment cancelled"
+      exit 0
+    fi
+  fi
   
   # Execute main workflow
   check_prerequisites
@@ -578,10 +852,12 @@ main() {
     build_and_push_images "$aws_profile"
   else
     check_base_infrastructure "$aws_profile"
+    # Deploy in sequence: Cognito -> Certificate -> ECR -> ECS
+    deploy_cognito_stacks "$aws_profile" "$admin_email" "$domain_name" "$hosted_zone_id" "$hosted_zone_name" "$existing_user_pool" "$existing_domain" "$cert_arn"
     deploy_ecr_stack "$aws_profile"
     build_and_push_images "$aws_profile"
-    deploy_ecs_stack "$aws_profile"
-    update_env_file "$aws_profile"
+    deploy_ecs_stack "$aws_profile" "$admin_email" "$domain_name" "$hosted_zone_id" "$hosted_zone_name" "$existing_user_pool" "$existing_domain" "$cert_arn"
+    update_env_file "$aws_profile" "$admin_email" "$domain_name" "$hosted_zone_name"
   fi
   
   echo ""

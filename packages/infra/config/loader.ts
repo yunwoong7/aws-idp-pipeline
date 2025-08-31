@@ -13,9 +13,9 @@ export interface IConfig {
     ns: string;
     stage: 'dev' | 'prod';
   };
-  security?: {
-    whitelist?: string[];
-  };
+  // security?: {
+  //   whitelist?: string[];  // Removed - using Cognito authentication
+  // };
   vpc?: {
     vpcId?: string;
     vpcCidr?: string;
@@ -278,12 +278,7 @@ export const getStepFunctionsConfig = () => ({
   ...Config.stepfunctions,
 });
 
-export const getSecurityConfig = () => ({
-  whitelist: Config.security?.whitelist || [
-    '15.248.0.0/16',      // Default development network
-  ],
-  ...Config.security,
-});
+// getSecurityConfig removed - IP whitelist replaced with Cognito authentication
 
 // Helper to update config dynamically during deployment
 export const updateConfig = (updates: Partial<IConfig>): void => {

@@ -37,6 +37,7 @@ from handlers.document_handlers import (
     handle_upload_document,
     handle_get_documents,
     handle_get_document_detail,
+    handle_get_document_status,
     handle_delete_document,
     handle_generate_presigned_url,
     handle_generate_presigned_url_standalone,
@@ -177,6 +178,9 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
                 if '/segments/' in path:
                     # GET /api/documents/{doc_id}/segments/{segment_index}
                     response = handle_get_segment_detail(event)
+                elif '/status' in path and path_parameters.get('document_id'):
+                    # GET /api/documents/{document_id}/status
+                    response = handle_get_document_status(event)
                 elif path_parameters.get('document_id'):
                     # GET /api/documents/{document_id}
                     response = handle_get_document_detail(event)

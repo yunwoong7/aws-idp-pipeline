@@ -4,13 +4,18 @@ import * as ecsPatterns from 'aws-cdk-lib/aws-ecs-patterns';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
+import * as elbv2Actions from 'aws-cdk-lib/aws-elasticloadbalancingv2-actions';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as cognito from 'aws-cdk-lib/aws-cognito';
+import * as acm from 'aws-cdk-lib/aws-certificatemanager';
+import * as r53 from 'aws-cdk-lib/aws-route53';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as cr from 'aws-cdk-lib/custom-resources';
 
 import { Construct } from 'constructs';
 import { NagSuppressions } from 'cdk-nag';
-import { getSecurityConfig } from '../../config/loader.js';
 
 export interface EcsStackProps extends cdk.StackProps {
   stage: string;
@@ -18,6 +23,17 @@ export interface EcsStackProps extends cdk.StackProps {
   backendRepository: ecr.IRepository;
   frontendRepository: ecr.IRepository;
   apiGatewayUrl: string;
+  // Cognito configuration
+  userPool?: cognito.IUserPool;
+  userPoolClient?: cognito.IUserPoolClient;
+  userPoolDomain?: cognito.IUserPoolDomain;
+  certificate?: acm.ICertificate;
+  existingCertificateArn?: string;
+  // Domain configuration
+  useCustomDomain?: boolean;
+  domainName?: string;
+  hostedZoneId?: string;
+  hostedZoneName?: string;
 }
 
 export class EcsStack extends cdk.Stack {
@@ -29,7 +45,28 @@ export class EcsStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: EcsStackProps) {
     super(scope, id, props);
 
-    const { stage, vpc, backendRepository, frontendRepository, apiGatewayUrl } = props;
+    const { 
+      stage, 
+      vpc, 
+      backendRepository, 
+      frontendRepository, 
+      apiGatewayUrl,
+      userPool,
+      userPoolClient,
+      userPoolDomain,
+      certificate,
+      existingCertificateArn,
+      useCustomDomain,
+      domainName,
+      hostedZoneId,
+      hostedZoneName
+    } = props;
+
+    // Handle certificate - use provided certificate or existing ARN
+    const finalCertificate = certificate || (existingCertificateArn ? 
+      acm.Certificate.fromCertificateArn(this, 'ExistingCertificate', existingCertificateArn) : 
+      undefined
+    );
 
     // ECS Cluster 생성
     this.cluster = new ecs.Cluster(this, 'EcsCluster', {
@@ -140,7 +177,20 @@ export class EcsStack extends cdk.Stack {
       },
     });
 
+    // Determine domain configuration
+    let domainZone: r53.IHostedZone | undefined;
+    let fullDomainName: string | undefined;
+
+    if (useCustomDomain && domainName && hostedZoneId && hostedZoneName) {
+      domainZone = r53.HostedZone.fromHostedZoneAttributes(this, 'HostedZone', {
+        hostedZoneId,
+        zoneName: hostedZoneName,
+      });
+      fullDomainName = `${domainName}.${hostedZoneName}`;
+    }
+
     // Frontend Fargate Service (ApplicationLoadBalancedFargateService 사용)
+    // Note: openListener must be false when using Cognito authentication
     this.frontendService = new ecsPatterns.ApplicationLoadBalancedFargateService(this, 'FrontendService', {
       cluster: this.cluster,
       serviceName: `aws-idp-frontend-${stage}`,
@@ -148,7 +198,7 @@ export class EcsStack extends cdk.Stack {
       memoryLimitMiB: 1024,
       desiredCount: 1,
       publicLoadBalancer: true,
-      openListener: false,
+      openListener: true,  // Let the service create the listener, we'll modify it afterwards
       taskImageOptions: {
         image: ecs.ContainerImage.fromEcrRepository(frontendRepository, 'latest'),
         containerName: 'frontend',
@@ -164,9 +214,12 @@ export class EcsStack extends cdk.Stack {
           PORT: '3000',
         },
       },
-      listenerPort: 80,
-      protocol: elbv2.ApplicationProtocol.HTTP,
-      domainZone: undefined,
+      certificate: finalCertificate,
+      domainName: fullDomainName,
+      domainZone: domainZone,
+      listenerPort: finalCertificate ? 443 : 80,
+      protocol: finalCertificate ? elbv2.ApplicationProtocol.HTTPS : elbv2.ApplicationProtocol.HTTP,
+      redirectHTTP: finalCertificate ? true : false,
     });
 
     // ALB DNS 이름을 기반으로 백엔드 URL 생성 및 API Gateway URL과 함께 프론트엔드 환경변수에 추가
@@ -248,17 +301,65 @@ export class EcsStack extends cdk.Stack {
     // Backend 서비스를 Target Group에 연결
     backendTargetGroup.addTarget(backendService);
 
-    // Frontend ALB의 기본 리스너에 경로 기반 라우팅만 추가
+    // Configure Cognito authentication using the existing listener
     const listener = this.frontendService.listener;
     
-    // Backend API 경로 라우팅
-    listener.addAction('BackendRoutingAction', {
-      priority: 100,
-      conditions: [
-        elbv2.ListenerCondition.pathPatterns(['/api/*']),
-      ],
-      action: elbv2.ListenerAction.forward([backendTargetGroup]),
-    });
+    if (userPool && userPoolClient && userPoolDomain) {
+      // Modify the existing listener's default action to use Cognito authentication
+      const cfnListener = listener.node.defaultChild as elbv2.CfnListener;
+      cfnListener.defaultActions = [
+        {
+          type: 'authenticate-cognito',
+          authenticateCognitoConfig: {
+            userPoolArn: userPool.userPoolArn,
+            userPoolClientId: userPoolClient.userPoolClientId,
+            userPoolDomain: userPoolDomain.domainName,
+            sessionCookieName: 'AWSELBAuthSessionCookie',
+            scope: 'openid email profile',
+            sessionTimeout: '604800',
+            onUnauthenticatedRequest: 'authenticate',
+          },
+          order: 1,
+        },
+        {
+          type: 'forward',
+          targetGroupArn: this.frontendService.targetGroup.targetGroupArn,
+          order: 2,
+        },
+      ];
+
+      // Add backend routing with Cognito auth
+      listener.addAction('BackendApiAction', {
+        priority: 50,
+        conditions: [
+          elbv2.ListenerCondition.pathPatterns(['/api/*']),
+        ],
+        action: new elbv2Actions.AuthenticateCognitoAction({
+          userPool,
+          userPoolClient,
+          userPoolDomain,
+          next: elbv2.ListenerAction.forward([backendTargetGroup]),
+        }),
+      });
+
+      // Update Cognito callback URL with actual ALB DNS (only if not using custom domain)
+      if (!useCustomDomain) {
+        this.createCallbackUpdater(
+          userPool,
+          userPoolClient,
+          this.frontendService.loadBalancer.loadBalancerDnsName
+        );
+      }
+    } else {
+      // No authentication - add backend routing only
+      listener.addAction('BackendRoutingAction', {
+        priority: 100,
+        conditions: [
+          elbv2.ListenerCondition.pathPatterns(['/api/*']),
+        ],
+        action: elbv2.ListenerAction.forward([backendTargetGroup]),
+      });
+    }
 
     // ALB 액세스 로그 설정
     this.frontendService.loadBalancer.logAccessLogs(albLogsBucket, 'alb-access-logs');
@@ -266,25 +367,31 @@ export class EcsStack extends cdk.Stack {
     // ALB idle timeout 설정 (스트리밍 응답을 위해 300초로 증가)
     this.frontendService.loadBalancer.setAttribute('idle_timeout.timeout_seconds', '300');
 
-    // 보안 그룹 설정: TOML 설정에서 IP whitelist 가져와서 명시적으로 허용
-    const securityConfig = getSecurityConfig();
-    const allowedCidrs = securityConfig.whitelist;
+    // Security group configuration - allow internet access for Cognito authentication
+    // Remove IP whitelist since we're using Cognito for authentication
+    const httpsPort = finalCertificate ? 443 : 80;
+    const httpPort = 80;
 
-    // VPC 내부 통신 허용
-    this.frontendService.loadBalancer.connections.allowFrom(
-      ec2.Peer.ipv4(vpc.vpcCidrBlock),
-      ec2.Port.tcp(80),
-      'Allow HTTP from VPC'
+    // Allow HTTPS/HTTP from anywhere for Cognito authentication
+    this.frontendService.loadBalancer.connections.allowFromAnyIpv4(
+      ec2.Port.tcp(httpsPort),
+      `Allow ${finalCertificate ? 'HTTPS' : 'HTTP'} from anywhere for Cognito auth`
     );
 
-    // Whitelist IP들만 허용
-    allowedCidrs.forEach((cidr: string, index: number) => {
-      this.frontendService.loadBalancer.connections.allowFrom(
-        ec2.Peer.ipv4(cidr),
-        ec2.Port.tcp(80),
-        `Allow HTTP from authorized network ${index + 1}: ${cidr}`
+    // If HTTPS, also allow HTTP for redirect
+    if (finalCertificate) {
+      this.frontendService.loadBalancer.connections.allowFromAnyIpv4(
+        ec2.Port.tcp(httpPort),
+        'Allow HTTP for HTTPS redirect'
       );
-    });
+    }
+
+    // VPC internal communication
+    this.frontendService.loadBalancer.connections.allowFrom(
+      ec2.Peer.ipv4(vpc.vpcCidrBlock),
+      ec2.Port.tcp(httpsPort),
+      'Allow internal VPC communication'
+    );
 
 
     // CloudFormation Outputs
@@ -414,5 +521,123 @@ export class EcsStack extends cdk.Stack {
     // Tag resources
     cdk.Tags.of(this).add('Project', 'aws-idp-pipeline');
     cdk.Tags.of(this).add('Environment', stage);
+  }
+
+  private createCallbackUpdater(userPool: cognito.IUserPool, userPoolClient: cognito.IUserPoolClient, albDnsName: string) {
+    // Lambda function to update callback URL
+    const updateCallbackLambda = new lambda.Function(this, 'UpdateCallbackLambda', {
+      runtime: lambda.Runtime.NODEJS_18_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromInline(`
+        const { CognitoIdentityProviderClient, DescribeUserPoolClientCommand, UpdateUserPoolClientCommand } = require('@aws-sdk/client-cognito-identity-provider');
+        
+        exports.handler = async (event) => {
+          console.log('Event:', JSON.stringify(event, null, 2));
+          
+          if (event.RequestType === 'Delete') {
+            return { PhysicalResourceId: event.PhysicalResourceId || 'UpdateCallbackResource' };
+          }
+          
+          try {
+            const { UserPoolId, UserPoolClientId, AlbDnsName } = event.ResourceProperties;
+            const baseUrl = \`https://\${AlbDnsName.toLowerCase()}\`;
+            const callbackUrl = \`\${baseUrl}/oauth2/idpresponse\`;
+            
+            const client = new CognitoIdentityProviderClient({ region: process.env.AWS_REGION });
+            
+            // Get current client configuration
+            const describeCommand = new DescribeUserPoolClientCommand({
+              UserPoolId,
+              ClientId: UserPoolClientId,
+            });
+            const describeResponse = await client.send(describeCommand);
+            const userPoolClient = describeResponse.UserPoolClient;
+            
+            // Update with new callback URL
+            const updateCommand = new UpdateUserPoolClientCommand({
+              UserPoolId,
+              ClientId: UserPoolClientId,
+              ...userPoolClient,
+              CallbackURLs: [callbackUrl, baseUrl],
+              LogoutURLs: [baseUrl],
+            });
+            await client.send(updateCommand);
+            
+            console.log('Successfully updated callback URLs to:', callbackUrl);
+            return {
+              PhysicalResourceId: 'UpdateCallbackResource',
+              Data: { CallbackUrl: callbackUrl, BaseUrl: baseUrl }
+            };
+          } catch (error) {
+            console.error('Error updating callback URL:', error);
+            throw error;
+          }
+        };
+      `),
+      timeout: cdk.Duration.minutes(5),
+    });
+
+    // Grant permissions
+    updateCallbackLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: [
+          'cognito-idp:DescribeUserPoolClient',
+          'cognito-idp:UpdateUserPoolClient',
+        ],
+        resources: ['*'],
+      })
+    );
+
+    // Create custom resource provider
+    const provider = new cr.Provider(this, 'UpdateCallbackProvider', {
+      onEventHandler: updateCallbackLambda,
+    });
+
+    // Create custom resource
+    new cdk.CustomResource(this, 'UpdateCallbackResource', {
+      serviceToken: provider.serviceToken,
+      properties: {
+        UserPoolId: userPool.userPoolId,
+        UserPoolClientId: userPoolClient.userPoolClientId,
+        AlbDnsName: albDnsName,
+      },
+    });
+
+    // Apply NAG suppressions for Lambda function
+    NagSuppressions.addResourceSuppressions(
+      updateCallbackLambda,
+      [
+        {
+          id: 'AwsSolutions-IAM4',
+          reason: 'Lambda requires AWS managed policy for basic execution',
+        },
+        {
+          id: 'AwsSolutions-IAM5',
+          reason: 'Lambda requires wildcard permissions for Cognito operations',
+        },
+        {
+          id: 'AwsSolutions-L1',
+          reason: 'Using Node.js 18 which is a supported runtime',
+        },
+      ],
+      true
+    );
+
+    // Apply NAG suppressions for Provider framework
+    NagSuppressions.addResourceSuppressions(
+      provider,
+      [
+        {
+          id: 'AwsSolutions-IAM4',
+          reason: 'Provider framework requires AWS managed policies for Lambda execution',
+          appliesTo: ['Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'],
+        },
+        {
+          id: 'AwsSolutions-IAM5',
+          reason: 'Provider framework requires wildcard permissions for Lambda invocation',
+        },
+      ],
+      true
+    );
   }
 }

@@ -1,0 +1,246 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CodeBuild project for deploying AWS IDP AI Pipeline
+
+Parameters:
+  AdminUserEmail:
+    Type: String
+    Description: Admin user email for Cognito authentication
+    AllowedPattern: '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    ConstraintDescription: Must be a valid email address
+  
+  Stage:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+    Description: Deployment stage
+  
+  EnableCognito:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Enable Cognito authentication
+  
+  UseCustomDomain:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Use custom domain for ALB
+  
+  DomainName:
+    Type: String
+    Default: ''
+    Description: Custom domain name (required if UseCustomDomain is true)
+  
+  HostedZoneName:
+    Type: String
+    Default: ''
+    Description: Route53 hosted zone name (required if UseCustomDomain is true)
+  
+  RepoUrl:
+    Type: String
+    Default: 'https://github.com/aws-samples/aws-idp-pipeline.git'
+    Description: Repository URL
+  
+  Version:
+    Type: String
+    Default: 'main'
+    Description: Branch or tag to deploy
+
+Resources:
+  CodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/PowerUserAccess
+      Policies:
+        - PolicyName: CodeBuildServiceRolePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - iam:AttachRolePolicy
+                  - iam:DetachRolePolicy
+                  - iam:PutRolePolicy
+                  - iam:DeleteRolePolicy
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:PassRole
+                  - iam:TagRole
+                  - iam:UntagRole
+                  - iam:ListRolePolicies
+                  - iam:ListAttachedRolePolicies
+                  - iam:CreatePolicy
+                  - iam:DeletePolicy
+                  - iam:GetPolicy
+                  - iam:GetPolicyVersion
+                  - iam:ListPolicyVersions
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:PutParameter
+                  - ssm:DeleteParameter
+                Resource: '*'
+
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub 'aws-idp-ai-deploy-${Stage}'
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Artifacts:
+        Type: NO_ARTIFACTS
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_LARGE
+        Image: aws/codebuild/standard:7.0
+        PrivilegedMode: true
+        EnvironmentVariables:
+          - Name: ADMIN_USER_EMAIL
+            Value: !Ref AdminUserEmail
+          - Name: STAGE
+            Value: !Ref Stage
+          - Name: ENABLE_COGNITO
+            Value: !Ref EnableCognito
+          - Name: USE_CUSTOM_DOMAIN
+            Value: !Ref UseCustomDomain
+          - Name: DOMAIN_NAME
+            Value: !Ref DomainName
+          - Name: HOSTED_ZONE_NAME
+            Value: !Ref HostedZoneName
+          - Name: REPO_URL
+            Value: !Ref RepoUrl
+          - Name: VERSION
+            Value: !Ref Version
+          - Name: AWS_DEFAULT_REGION
+            Value: !Ref AWS::Region
+          - Name: AWS_ACCOUNT_ID
+            Value: !Ref AWS::AccountId
+      Source:
+        Type: NO_SOURCE
+        BuildSpec: |
+          version: 0.2
+          phases:
+            pre_build:
+              commands:
+                - echo "Installing dependencies..."
+                - npm install -g aws-cdk@latest
+                - npm install -g pnpm
+                - echo "Cloning repository..."
+                - git clone $REPO_URL /tmp/aws-idp-pipeline
+                - cd /tmp/aws-idp-pipeline
+                - git checkout $VERSION
+            build:
+              commands:
+                - echo "Starting deployment..."
+                - cd /tmp/aws-idp-pipeline
+                - pnpm install
+                
+                # Build backend container
+                - echo "Building backend container..."
+                - cd packages/backend
+                - docker build -t aws-idp-ai-backend:latest .
+                - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+                - aws ecr create-repository --repository-name aws-idp-ai-backend --region $AWS_DEFAULT_REGION || true
+                - docker tag aws-idp-ai-backend:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/aws-idp-ai-backend:latest
+                - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/aws-idp-ai-backend:latest
+                
+                # Build frontend
+                - echo "Building frontend..."
+                - cd ../frontend
+                - pnpm build
+                
+                # Deploy CDK stacks
+                - echo "Deploying CDK stacks..."
+                - cd ../infra
+                
+                # Bootstrap CDK if needed
+                - cdk bootstrap aws://$AWS_ACCOUNT_ID/$AWS_DEFAULT_REGION
+                
+                # Deploy infrastructure stacks
+                - echo "Deploying VPC stack..."
+                - cdk deploy aws-idp-ai-vpc --require-approval never
+                
+                - echo "Deploying DynamoDB stack..."
+                - cdk deploy aws-idp-ai-dynamodb --require-approval never
+                
+                - echo "Deploying S3 stack..."
+                - cdk deploy aws-idp-ai-s3 --require-approval never
+                
+                - echo "Deploying OpenSearch stack..."
+                - cdk deploy aws-idp-ai-opensearch --require-approval never
+                
+                # Deploy Cognito if enabled
+                - |
+                  if [ "$ENABLE_COGNITO" = "true" ]; then
+                    echo "Deploying Cognito stack..."
+                    cdk deploy aws-idp-ai-cognito --require-approval never \
+                      --parameters adminUserEmail=$ADMIN_USER_EMAIL
+                  fi
+                
+                # Deploy service stacks
+                - echo "Deploying Step Functions stack..."
+                - cdk deploy aws-idp-ai-step-functions --require-approval never
+                
+                - echo "Deploying Document Management stack..."
+                - cdk deploy aws-idp-ai-document-management --require-approval never
+                
+                - echo "Deploying ECS stack..."
+                - |
+                  if [ "$USE_CUSTOM_DOMAIN" = "true" ]; then
+                    cdk deploy aws-idp-ai-ecs --require-approval never \
+                      --parameters useCustomDomain=true \
+                      --parameters domainName=$DOMAIN_NAME \
+                      --parameters hostedZoneName=$HOSTED_ZONE_NAME
+                  else
+                    cdk deploy aws-idp-ai-ecs --require-approval never
+                  fi
+                
+                # Get outputs
+                - |
+                  echo "Getting stack outputs..."
+                  ALB_URL=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-ecs --query 'Stacks[0].Outputs[?OutputKey==`ApplicationLoadBalancerDNS`].OutputValue' --output text)
+                  if [ "$USE_CUSTOM_DOMAIN" = "true" ]; then
+                    FRONTEND_URL="https://${DOMAIN_NAME}.${HOSTED_ZONE_NAME}"
+                  else
+                    FRONTEND_URL="https://${ALB_URL}"
+                  fi
+                  echo "FrontendURL = $FRONTEND_URL"
+                  
+                  if [ "$ENABLE_COGNITO" = "true" ]; then
+                    TEMP_PASSWORD=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-cognito --query 'Stacks[0].Outputs[?OutputKey==`TemporaryPassword`].OutputValue' --output text)
+                    ADMIN_USERNAME=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-cognito --query 'Stacks[0].Outputs[?OutputKey==`AdminUsername`].OutputValue' --output text)
+                    echo "AdminUsername = $ADMIN_USERNAME"
+                    echo "TemporaryPassword = $TEMP_PASSWORD"
+                    echo "Note: You must change the password on first login"
+                  fi
+            post_build:
+              commands:
+                - echo "Deployment completed successfully!"
+      TimeoutInMinutes: 60
+
+Outputs:
+  ProjectName:
+    Value: !Ref CodeBuildProject
+    Description: CodeBuild project name

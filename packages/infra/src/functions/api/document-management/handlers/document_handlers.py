@@ -1247,3 +1247,90 @@ def handle_generate_presigned_url_standalone(event: Dict[str, Any]) -> Dict[str,
     except Exception as e:
         logger.error(f"Error handling standalone Pre-signed URL request: {str(e)}")
         return handle_lambda_error(e)
+
+
+def handle_get_document_status(event: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Handle GET /api/documents/{document_id}/status request
+    Returns document status including existence and total pages
+    """
+    logger = logging.getLogger()
+    
+    try:
+        logger.info("🔍 Starting document status check")
+        
+        # Extract document ID from path parameters
+        document_id = extract_path_parameter(event, 'document_id')
+        if not document_id:
+            logger.warning("Document ID not provided in path parameters")
+            return create_validation_error_response("Document ID is required")
+        
+        # Validate document ID format
+        if not validate_uuid(document_id):
+            logger.warning(f"Invalid document ID format: {document_id}")
+            return create_validation_error_response("Invalid document ID format")
+        
+        logger.info(f"📄 Checking status for document: {document_id}")
+        
+        # Check if document exists in DynamoDB using existing db_service
+        try:
+            logger.info(f"Querying DynamoDB documents table")
+            document = db_service.get_item('documents', {'document_id': document_id})
+            
+            if not document:
+                logger.info(f"Document {document_id} not found in DynamoDB")
+                return create_not_found_response("Document not found")
+            
+            logger.info(f"Found document in DynamoDB: {document.get('file_name', 'unknown')}")
+                
+        except Exception as e:
+            logger.error(f"Error checking document in DynamoDB: {str(e)}")
+            return create_internal_error_response("Error checking document status")
+        
+        # Get data from DynamoDB document record
+        total_pages = document.get('total_pages', 0)
+        processing_status = document.get('status', 'unknown')
+        
+        # Get segment information from segments table
+        segment_ids = []
+        try:
+            from boto3.dynamodb.conditions import Key
+            segments_response = db_service.query_items(
+                table_name='segments',
+                key_condition_expression=Key('document_id').eq(document_id),
+                index_name='DocumentIdIndex',
+                scan_index_forward=True  # Sort ascending
+            )
+            
+            if segments_response and segments_response.get('Items'):
+                segment_ids = [item['segment_id'] for item in segments_response['Items']]
+                logger.info(f"Found {len(segment_ids)} segments for document {document_id}")
+            else:
+                logger.warning(f"No segments found for document {document_id}")
+                
+        except Exception as e:
+            logger.warning(f"Error getting segment IDs: {str(e)}")
+            # Continue without segment data
+        
+        # Prepare status response
+        status_data = {
+            'document_id': document_id,
+            'exists': True,
+            'status': processing_status,
+            'total_pages': total_pages,
+            'segment_ids': segment_ids,
+            'total_segments': len(segment_ids),
+            'file_name': document.get('file_name', ''),
+            'file_size': document.get('file_size', 0),
+            'media_type': document.get('media_type', ''),
+            'created_at': document.get('created_at', ''),
+            'updated_at': document.get('updated_at', ''),
+            'checked_at': datetime.now(timezone.utc).isoformat()
+        }
+        
+        logger.info(f"✅ Document status check completed for {document_id}: {total_pages} pages, status: {processing_status}")
+        return create_success_response(status_data)
+        
+    except Exception as e:
+        logger.error(f"Error handling document status request: {str(e)}")
+        return handle_lambda_error(e)

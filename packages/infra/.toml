@@ -2,13 +2,9 @@
 ns = "aws-idp-ai"
 stage = "dev"
 
-[security]
-# IP Whitelist for ALB access control
-# Add your authorized IP addresses or CIDR blocks here
-whitelist = [
-  "15.248.0.0/16",
-  "219.250.0.0/16",
-]
+# [security]
+# IP Whitelist no longer used - replaced with Cognito authentication
+# whitelist = []
 
 # VPC 설정 (주석 해제 시 기존 VPC 사용, 주석 처리 시 새 VPC 생성)
 # [vpc]

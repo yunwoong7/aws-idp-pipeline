@@ -46,25 +46,18 @@ def handle_get_segment_detail(event: Dict[str, Any]) -> Dict[str, Any]:
     """Get detailed information for a specific page (OpenSearch-based)"""
     try:
         path_parameters = event.get('pathParameters', {})
-        project_id = path_parameters.get('project_id')
+        query_params = event.get('queryStringParameters') or {}
+        index_id = query_params.get('index_id')
         document_id = path_parameters.get('document_id')
-        page_index = path_parameters.get('page_index')
+        segment_id = path_parameters.get('segment_id')
         
-        if not project_id or not document_id or page_index is None:
-            return create_validation_error_response("project_id, document_id, page_index가 필요합니다")
+        if not index_id or not document_id or segment_id is None:
+            return create_validation_error_response("index_id, document_id, segment_id is required")
         
-        try:
-            page_index = int(page_index)
-            if page_index < 0:
-                return create_validation_error_response("page_index must be 0 or greater")
-        except ValueError:
-            return create_validation_error_response("page_index must be a number")
-        
-        logger.info(f"Page detail lookup request: project_id={project_id}, document_id={document_id}, page_index={page_index}")
+        logger.info(f"Page detail lookup request: index_id={index_id}, document_id={document_id}, segment_id={segment_id}")
         
         # OpenSearch environment settings
         OPENSEARCH_ENDPOINT = get_opensearch_endpoint()
-        OPENSEARCH_INDEX_NAME = get_opensearch_index_name()
         DOCUMENTS_BUCKET_NAME = get_documents_bucket_name()
         
         if not OPENSEARCH_ENDPOINT:
@@ -81,9 +74,8 @@ def handle_get_segment_detail(event: Dict[str, Any]) -> Dict[str, Any]:
                 "query": {
                     "bool": {
                         "must": [
-                            {"term": {"project_id": project_id}},
                             {"term": {"document_id": document_id}},
-                            {"term": {"segment_index": page_index}}
+                            {"term": {"segment_id": segment_id}}
                         ]
                     }
                 }
@@ -91,9 +83,9 @@ def handle_get_segment_detail(event: Dict[str, Any]) -> Dict[str, Any]:
             
             logger.info(f"OpenSearch search query: {search_body}")
             
-            # Execute OpenSearch search
-            response = opensearch.search(
-                index=OPENSEARCH_INDEX_NAME,
+            # Execute OpenSearch search (align with opensearch_handlers usage)
+            response = opensearch.client.search(
+                index=index_id,
                 body=search_body
             )
             
@@ -101,48 +93,14 @@ def handle_get_segment_detail(event: Dict[str, Any]) -> Dict[str, Any]:
             hits = response.get('hits', {}).get('hits', [])
             
             if not hits:
-                return create_not_found_response(f"Segment not found: project_id={project_id}, document_id={document_id}, segment_index={page_index}")
+                return create_not_found_response(f"Segment not found: index_id={index_id}, document_id={document_id}, segment_id={segment_id}")
             
             hit = hits[0]
             source = hit['_source']
             
             # Create Pre-signed URL (handle both image_uri and file_uri)
             page_uri = source.get('image_uri', '')
-            file_uri = source.get('file_uri', '')
-            page_uri_presigned = None
-            file_uri_presigned = None
-            
-            if page_uri and DOCUMENTS_BUCKET_NAME:
-                try:
-                    # Extract key from S3 URI
-                    if page_uri.startswith('s3://'):
-                        s3_key = '/'.join(page_uri.split('/')[3:])
-                    else:
-                        s3_key = page_uri
-                    
-                    page_uri_presigned = s3.generate_presigned_url(
-                        'get_object',
-                        Params={'Bucket': DOCUMENTS_BUCKET_NAME, 'Key': s3_key},
-                        ExpiresIn=3600
-                    )
-                except Exception as e:
-                    logger.warning(f"Page URI Pre-signed URL creation failed: {str(e)}")
-            
-            if file_uri and DOCUMENTS_BUCKET_NAME:
-                try:
-                    # Extract key from S3 URI
-                    if file_uri.startswith('s3://'):
-                        s3_key = '/'.join(file_uri.split('/')[3:])
-                    else:
-                        s3_key = file_uri
-                    
-                    file_uri_presigned = s3.generate_presigned_url(
-                        'get_object',
-                        Params={'Bucket': DOCUMENTS_BUCKET_NAME, 'Key': s3_key},
-                        ExpiresIn=3600
-                    )
-                except Exception as e:
-                    logger.warning(f"File URI Pre-signed URL creation failed: {str(e)}")
+            file_uri = source.get('file_uri', '')   
             
             # Extract analysis results by tool
             tools = source.get('tools', {})
@@ -196,14 +154,11 @@ def handle_get_segment_detail(event: Dict[str, Any]) -> Dict[str, Any]:
         
         # Construct response data
         response_data = {
-            "project_id": project_id,
+            "index_id": index_id,
             "document_id": document_id,
-            "segment_index": page_index,
-            "segment_number": page_index + 1,
+            "segment_id": segment_id,
             "total_analysis_results": len(analysis_results),
             "analysis_results": analysis_results,
-            "file_download_url": file_uri_presigned or file_uri,
-            "image_url": page_uri_presigned or page_uri,
             "file_uri": file_uri,
             "image_file_uri": page_uri
         }

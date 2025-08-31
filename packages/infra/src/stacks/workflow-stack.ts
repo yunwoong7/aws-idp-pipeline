@@ -59,7 +59,7 @@ export interface WorkflowStackProps extends cdk.StackProps {
  * - BDA Status Checker
  * - Document Indexer
  * - PDF Text Extractor
- * - ReAct Analysis
+ * - Vision ReAct Analysis (NEW - iterative image-based analysis)
  * - ReAct Analysis Finalizer
  * - Get Document Pages
  * - SQS Trigger
@@ -144,8 +144,36 @@ export class WorkflowStack extends cdk.Stack {
       commonLayer,
     );
 
-    // 5. Create ReAct Analysis Lambda
-    this.reactAnalysisLambda = this.createReactAnalysisLambda(
+    // 5. Create ReAct Analysis Lambda (commenting out to replace with Vision Plan Execute)
+    // this.reactAnalysisLambda = this.createReactAnalysisLambda(
+    //   stage,
+    //   indicesTable,
+    //   documentsTable,
+    //   segmentsTable,
+    //   documentsBucket,
+    //   opensearchEndpoint,
+    //   props.opensearchDomain,
+    //   props.vpc,
+    //   bedrock,
+    //   analysis,
+    // );
+
+    // 5-NEW. Create Vision Plan Execute Analysis Lambda (commented out for Vision ReAct)
+    // this.reactAnalysisLambda = this.createVisionPlanExecuteAnalysisLambda(
+    //   stage,
+    //   indicesTable,
+    //   documentsTable,
+    //   segmentsTable,
+    //   documentsBucket,
+    //   opensearchEndpoint,
+    //   props.opensearchDomain,
+    //   props.vpc,
+    //   bedrock,
+    //   analysis,
+    // );
+
+    // 5-REACT. Create Vision ReAct Analysis Lambda
+    this.reactAnalysisLambda = this.createVisionReactAnalysisLambda(
       stage,
       indicesTable,
       documentsTable,
@@ -492,7 +520,393 @@ export class WorkflowStack extends cdk.Stack {
   /**
    * Create React Analysis Lambda
    */
-  private createReactAnalysisLambda(
+  // private createReactAnalysisLambda(
+  //   stage: string,
+  //   indicesTable: dynamodb.ITable,
+  //   documentsTable: dynamodb.ITable,
+  //   segmentsTable: dynamodb.ITable,
+  //   documentsBucket: s3.IBucket,
+  //   opensearchEndpoint?: string,
+  //   opensearchDomain?: oss.IDomain,
+  //   vpc?: ec2.IVpc,
+  //   bedrock?: {
+  //     analysisAgentModelId?: string;
+  //     analysisAgentMaxToken?: number;
+  //     analysisImageModelId?: string;
+  //     analysisImageMaxToken?: number;
+  //     analysisVideoModelId?: string;
+  //   },
+  //   analysis?: {
+  //     previousAnalysisMaxCharacters?: number;
+  //     maxIterations?: number;
+  //   },
+  // ): lambda.Function {
+  //   // Create Analysis Package Lambda Layer
+  //   const analysisPackageLayer = new lambda.LayerVersion(
+  //     this,
+  //     'AnalysisPackageLayer',
+  //     {
+  //       code: lambda.Code.fromAsset(
+  //         path.join(
+  //           __dirname,
+  //           '../lambda_layer/custom_layer_analysis_package.zip',
+  //         ),
+  //       ),
+  //       compatibleRuntimes: [lambda.Runtime.PYTHON_3_13],
+  //       description: 'Analysis package dependencies for Lambda functions',
+  //     },
+  //   );
+
+  //   // Create Image Processing Lambda Layer (for ReAct analysis)
+  //   const imageProcessingLayerForReact = new lambda.LayerVersion(
+  //     this,
+  //     'ImageProcessingLayerForReact',
+  //     {
+  //       layerVersionName: `aws-idp-ai-image-processing-layer-react-${stage}`,
+  //       code: lambda.Code.fromAsset(
+  //         'src/lambda_layer/custom_layer_image_processing.zip',
+  //       ),
+  //       compatibleRuntimes: [lambda.Runtime.PYTHON_3_13],
+  //       description:
+  //         'Image processing libraries including PyMuPDF (fitz) for ReAct analysis image processing',
+  //     },
+  //   );
+
+  //   const reactAnalysisConstruct = new StandardLambda(this, 'ReactAnalysis', {
+  //     functionName: 'aws-idp-ai-react-analysis',
+  //     codePath: 'step-functions/react-analysis',
+  //     description: 'AWS IDP AI ReAct Analysis Lambda Function',
+  //     environment: {
+  //       STAGE: stage,
+  //       BEDROCK_AGENT_MODEL_ID: bedrock?.analysisAgentModelId || '',
+  //       BEDROCK_AGENT_MAX_TOKENS:
+  //         bedrock?.analysisAgentMaxToken?.toString() || '8192',
+  //       BEDROCK_IMAGE_MODEL_ID: bedrock?.analysisImageModelId || '',
+  //       BEDROCK_IMAGE_MAX_TOKENS:
+  //         bedrock?.analysisImageMaxToken?.toString() || '8192',
+  //       BEDROCK_VIDEO_MODEL_ID: bedrock?.analysisVideoModelId || '',
+  //       PREVIOUS_ANALYSIS_MAX_CHARACTERS:
+  //         analysis?.previousAnalysisMaxCharacters?.toString() || '100000',
+  //       MAX_ITERATIONS:
+  //         analysis?.maxIterations?.toString() || '10',
+  //       DOCUMENTS_TABLE_NAME: documentsTable.tableName,
+  //       SEGMENTS_TABLE_NAME: segmentsTable.tableName,
+  //       INDICES_TABLE_NAME: indicesTable.tableName,
+  //       BUCKET_OWNER_ACCOUNT_ID: cdk.Stack.of(this).account, // VideoAnalyzerTool용 계정 ID
+  //       ...(opensearchEndpoint && {
+  //         OPENSEARCH_ENDPOINT: opensearchEndpoint,
+  //         OPENSEARCH_INDEX_NAME: 'aws-idp-ai-analysis',
+  //         OPENSEARCH_REGION: cdk.Stack.of(this).region,
+  //       }),
+  //     },
+  //     deadLetterQueueEnabled: false,
+  //     layers: [analysisPackageLayer, imageProcessingLayerForReact],
+  //     timeout: cdk.Duration.minutes(15),
+  //     memorySize: 3008,
+  //     vpc: vpc,
+  //     stage: stage,
+  //   });
+
+  //   const lambdaFunction = reactAnalysisConstruct.function;
+
+  //   // DynamoDB table access permission
+  //   documentsTable.grantReadData(lambdaFunction);
+  //   segmentsTable.grantReadWriteData(lambdaFunction);
+
+  //   // S3 bucket access permission
+  //   documentsBucket.grantReadWrite(lambdaFunction);
+
+  //   // Additional S3 permission (explicit permission for image access)
+  //   lambdaFunction.addToRolePolicy(
+  //     new iam.PolicyStatement({
+  //       effect: iam.Effect.ALLOW,
+  //       actions: [
+  //         's3:GetObject',
+  //         's3:GetObjectVersion',
+  //         's3:PutObject',
+  //         's3:PutObjectAcl',
+  //         's3:DeleteObject',
+  //         's3:ListBucket',
+  //       ],
+  //       resources: [
+  //         documentsBucket.bucketArn,
+  //         `${documentsBucket.bucketArn}/*`,
+  //       ],
+  //     }),
+  //   );
+
+  //   // OpenSearch permission
+  //   if (opensearchDomain) {
+  //     opensearchDomain.grantWrite(lambdaFunction);
+  //     opensearchDomain.grantRead(lambdaFunction);
+  //   }
+
+  //   // Bedrock permission (for all AI models)
+  //   lambdaFunction.addToRolePolicy(
+  //     new iam.PolicyStatement({
+  //       effect: iam.Effect.ALLOW,
+  //       actions: [
+  //         'bedrock:InvokeModel',
+  //         'bedrock:InvokeModelWithResponseStream',
+  //         'bedrock:Converse',
+  //         'bedrock:ConverseStream',
+  //       ],
+  //       resources: [
+  //         // Foundation Models
+  //         'arn:aws:bedrock:*::foundation-model/anthropic.claude-*',
+  //         'arn:aws:bedrock:*::foundation-model/amazon.titan-*',
+  //         'arn:aws:bedrock:*::foundation-model/amazon.nova-*',
+  //         'arn:aws:bedrock:*::foundation-model/meta.llama-*',
+  //         'arn:aws:bedrock:*::foundation-model/mistral.*',
+  //         'arn:aws:bedrock:*::foundation-model/cohere.*',
+  //         'arn:aws:bedrock:*::foundation-model/ai21.*',
+  //         'arn:aws:bedrock:*::foundation-model/twelvelabs.*',
+  //         'arn:aws:bedrock:*::foundation-model/us.twelvelabs.*',
+  //         // Inference Profiles (Cross-region)
+  //         `arn:aws:bedrock:*:${this.account}:inference-profile/*`,
+  //         // Application Inference Profiles
+  //         `arn:aws:bedrock:*:${this.account}:application-inference-profile/*`,
+  //       ],
+  //     }),
+  //   );
+
+  //   // OpenSearch permission (if OpenSearch domain exists)
+  //   if (opensearchDomain) {
+  //     lambdaFunction.addToRolePolicy(
+  //       new iam.PolicyStatement({
+  //         effect: iam.Effect.ALLOW,
+  //         actions: [
+  //           'es:ESHttpPost',
+  //           'es:ESHttpPut',
+  //           'es:ESHttpGet',
+  //           'es:ESHttpDelete',
+  //           'es:ESHttpHead',
+  //         ],
+  //         resources: [
+  //           opensearchDomain.domainArn,
+  //           `${opensearchDomain.domainArn}/*`,
+  //         ],
+  //       }),
+  //     );
+
+  //     // Additional permission for OpenSearch access within VPC
+  //     if (vpc) {
+  //       lambdaFunction.addToRolePolicy(
+  //         new iam.PolicyStatement({
+  //           effect: iam.Effect.ALLOW,
+  //           actions: [
+  //             'ec2:CreateNetworkInterface',
+  //             'ec2:DescribeNetworkInterfaces',
+  //             'ec2:DeleteNetworkInterface',
+  //             'ec2:AttachNetworkInterface',
+  //             'ec2:DetachNetworkInterface',
+  //           ],
+  //           resources: ['*'],
+  //         }),
+  //       );
+  //     }
+  //   }
+
+  //   return lambdaFunction;
+  // }
+
+  /**
+   * Create Vision Plan Execute Analysis Lambda (NEW)
+   */
+  // private createVisionPlanExecuteAnalysisLambda(
+  //   stage: string,
+  //   indicesTable: dynamodb.ITable,
+  //   documentsTable: dynamodb.ITable,
+  //   segmentsTable: dynamodb.ITable,
+  //   documentsBucket: s3.IBucket,
+  //   opensearchEndpoint?: string,
+  //   opensearchDomain?: oss.IDomain,
+  //   vpc?: ec2.IVpc,
+  //   bedrock?: {
+  //     analysisAgentModelId?: string;
+  //     analysisAgentMaxToken?: number;
+  //     analysisImageModelId?: string;
+  //     analysisImageMaxToken?: number;
+  //     analysisVideoModelId?: string;
+  //   },
+  //   analysis?: {
+  //     previousAnalysisMaxCharacters?: number;
+  //     maxIterations?: number;
+  //   },
+  // ): lambda.Function {
+  //   // Create Analysis Package Lambda Layer
+  //   const analysisPackageLayer = new lambda.LayerVersion(
+  //     this,
+  //     'VisionAnalysisPackageLayer',
+  //     {
+  //       code: lambda.Code.fromAsset(
+  //         path.join(
+  //           __dirname,
+  //           '../lambda_layer/custom_layer_analysis_package.zip',
+  //         ),
+  //       ),
+  //       compatibleRuntimes: [lambda.Runtime.PYTHON_3_13],
+  //       description: 'Analysis package dependencies for Vision Plan Execute Lambda functions',
+  //     },
+  //   );
+
+  //   // Create Image Processing Lambda Layer (for Vision Plan Execute analysis)
+  //   const imageProcessingLayerForVision = new lambda.LayerVersion(
+  //     this,
+  //     'ImageProcessingLayerForVision',
+  //     {
+  //       layerVersionName: `aws-idp-ai-image-processing-layer-vision-${stage}`,
+  //       code: lambda.Code.fromAsset(
+  //         'src/lambda_layer/custom_layer_image_processing.zip',
+  //       ),
+  //       compatibleRuntimes: [lambda.Runtime.PYTHON_3_13],
+  //       description:
+  //         'Image processing libraries including PyMuPDF (fitz) for Vision Plan Execute analysis image processing',
+  //     },
+  //   );
+
+  //   const visionPlanExecuteConstruct = new StandardLambda(this, 'VisionPlanExecuteAnalysis', {
+  //     functionName: 'aws-idp-ai-vision-plan-execute-analysis',
+  //     codePath: 'step-functions/vision-plan-execute',
+  //     description: 'AWS IDP AI Vision Plan Execute Analysis Lambda Function',
+  //     environment: {
+  //       STAGE: stage,
+  //       BEDROCK_AGENT_MODEL_ID: bedrock?.analysisAgentModelId || '',
+  //       BEDROCK_AGENT_MAX_TOKENS:
+  //         bedrock?.analysisAgentMaxToken?.toString() || '8192',
+  //       BEDROCK_IMAGE_MODEL_ID: bedrock?.analysisImageModelId || '',
+  //       BEDROCK_IMAGE_MAX_TOKENS:
+  //         bedrock?.analysisImageMaxToken?.toString() || '8192',
+  //       BEDROCK_VIDEO_MODEL_ID: bedrock?.analysisVideoModelId || '',
+  //       PREVIOUS_ANALYSIS_MAX_CHARACTERS:
+  //         analysis?.previousAnalysisMaxCharacters?.toString() || '100000',
+  //       MAX_ITERATIONS:
+  //         analysis?.maxIterations?.toString() || '10',
+  //       DOCUMENTS_TABLE_NAME: documentsTable.tableName,
+  //       SEGMENTS_TABLE_NAME: segmentsTable.tableName,
+  //       INDICES_TABLE_NAME: indicesTable.tableName,
+  //       BUCKET_OWNER_ACCOUNT_ID: cdk.Stack.of(this).account, // VideoAnalyzerTool용 계정 ID
+  //       ...(opensearchEndpoint && {
+  //         OPENSEARCH_ENDPOINT: opensearchEndpoint,
+  //         OPENSEARCH_INDEX_NAME: 'aws-idp-ai-analysis',
+  //         OPENSEARCH_REGION: cdk.Stack.of(this).region,
+  //       }),
+  //     },
+  //     deadLetterQueueEnabled: false,
+  //     layers: [analysisPackageLayer, imageProcessingLayerForVision],
+  //     timeout: cdk.Duration.minutes(15),
+  //     memorySize: 3008,
+  //     vpc: vpc,
+  //     stage: stage,
+  //   });
+
+  //   const lambdaFunction = visionPlanExecuteConstruct.function;
+
+  //   // DynamoDB table access permission
+  //   documentsTable.grantReadData(lambdaFunction);
+  //   segmentsTable.grantReadWriteData(lambdaFunction);
+
+  //   // S3 bucket access permission
+  //   documentsBucket.grantReadWrite(lambdaFunction);
+
+  //   // Additional S3 permission (explicit permission for image access)
+  //   lambdaFunction.addToRolePolicy(
+  //     new iam.PolicyStatement({
+  //       effect: iam.Effect.ALLOW,
+  //       actions: [
+  //         's3:GetObject',
+  //         's3:GetObjectVersion',
+  //         's3:PutObject',
+  //         's3:PutObjectAcl',
+  //         's3:DeleteObject',
+  //         's3:ListBucket',
+  //       ],
+  //       resources: [
+  //         documentsBucket.bucketArn,
+  //         `${documentsBucket.bucketArn}/*`,
+  //       ],
+  //     }),
+  //   );
+
+  //   // OpenSearch permission
+  //   if (opensearchDomain) {
+  //     opensearchDomain.grantWrite(lambdaFunction);
+  //     opensearchDomain.grantRead(lambdaFunction);
+  //   }
+
+  //   // Bedrock permission (for all AI models)
+  //   lambdaFunction.addToRolePolicy(
+  //     new iam.PolicyStatement({
+  //       effect: iam.Effect.ALLOW,
+  //       actions: [
+  //         'bedrock:InvokeModel',
+  //         'bedrock:InvokeModelWithResponseStream',
+  //         'bedrock:Converse',
+  //         'bedrock:ConverseStream',
+  //       ],
+  //       resources: [
+  //         // Foundation Models
+  //         'arn:aws:bedrock:*::foundation-model/anthropic.claude-*',
+  //         'arn:aws:bedrock:*::foundation-model/amazon.titan-*',
+  //         'arn:aws:bedrock:*::foundation-model/amazon.nova-*',
+  //         'arn:aws:bedrock:*::foundation-model/meta.llama-*',
+  //         'arn:aws:bedrock:*::foundation-model/mistral.*',
+  //         'arn:aws:bedrock:*::foundation-model/cohere.*',
+  //         'arn:aws:bedrock:*::foundation-model/ai21.*',
+  //         'arn:aws:bedrock:*::foundation-model/twelvelabs.*',
+  //         'arn:aws:bedrock:*::foundation-model/us.twelvelabs.*',
+  //         // Inference Profiles (Cross-region)
+  //         `arn:aws:bedrock:*:${this.account}:inference-profile/*`,
+  //         // Application Inference Profiles
+  //         `arn:aws:bedrock:*:${this.account}:application-inference-profile/*`,
+  //       ],
+  //     }),
+  //   );
+
+  //   // OpenSearch permission (if OpenSearch domain exists)
+  //   if (opensearchDomain) {
+  //     lambdaFunction.addToRolePolicy(
+  //       new iam.PolicyStatement({
+  //         effect: iam.Effect.ALLOW,
+  //         actions: [
+  //           'es:ESHttpPost',
+  //           'es:ESHttpPut',
+  //           'es:ESHttpGet',
+  //           'es:ESHttpDelete',
+  //           'es:ESHttpHead',
+  //         ],
+  //         resources: [
+  //           opensearchDomain.domainArn,
+  //           `${opensearchDomain.domainArn}/*`,
+  //         ],
+  //       }),
+  //     );
+
+  //     // Additional permission for OpenSearch access within VPC
+  //     if (vpc) {
+  //       lambdaFunction.addToRolePolicy(
+  //         new iam.PolicyStatement({
+  //           effect: iam.Effect.ALLOW,
+  //           actions: [
+  //             'ec2:CreateNetworkInterface',
+  //             'ec2:DescribeNetworkInterfaces',
+  //             'ec2:DeleteNetworkInterface',
+  //             'ec2:AttachNetworkInterface',
+  //             'ec2:DetachNetworkInterface',
+  //           ],
+  //           resources: ['*'],
+  //         }),
+  //       );
+  //     }
+  //   }
+
+  //   return lambdaFunction;
+  // }
+
+  /**
+   * Create Vision ReAct Analysis Lambda
+   */
+  private createVisionReactAnalysisLambda(
     stage: string,
     indicesTable: dynamodb.ITable,
     documentsTable: dynamodb.ITable,
@@ -516,7 +930,7 @@ export class WorkflowStack extends cdk.Stack {
     // Create Analysis Package Lambda Layer
     const analysisPackageLayer = new lambda.LayerVersion(
       this,
-      'AnalysisPackageLayer',
+      'VisionReactAnalysisPackageLayer',
       {
         code: lambda.Code.fromAsset(
           path.join(
@@ -525,11 +939,11 @@ export class WorkflowStack extends cdk.Stack {
           ),
         ),
         compatibleRuntimes: [lambda.Runtime.PYTHON_3_13],
-        description: 'Analysis package dependencies for Lambda functions',
+        description: 'Analysis package dependencies for Vision ReAct Lambda functions',
       },
     );
 
-    // Create Image Processing Lambda Layer (for ReAct analysis)
+    // Create Image Processing Lambda Layer (for Vision ReAct analysis)
     const imageProcessingLayerForReact = new lambda.LayerVersion(
       this,
       'ImageProcessingLayerForReact',
@@ -540,14 +954,14 @@ export class WorkflowStack extends cdk.Stack {
         ),
         compatibleRuntimes: [lambda.Runtime.PYTHON_3_13],
         description:
-          'Image processing libraries including PyMuPDF (fitz) for ReAct analysis image processing',
+          'Image processing libraries including PyMuPDF (fitz) for Vision ReAct analysis image processing',
       },
     );
 
-    const reactAnalysisConstruct = new StandardLambda(this, 'ReactAnalysis', {
-      functionName: 'aws-idp-ai-react-analysis',
-      codePath: 'step-functions/react-analysis',
-      description: 'AWS IDP AI ReAct Analysis Lambda Function',
+    const visionReactConstruct = new StandardLambda(this, 'VisionReactAnalysis', {
+      functionName: 'aws-idp-ai-vision-react-analysis',
+      codePath: 'step-functions/vision-react',
+      description: 'AWS IDP AI Vision ReAct Analysis Lambda Function',
       environment: {
         STAGE: stage,
         BEDROCK_AGENT_MODEL_ID: bedrock?.analysisAgentModelId || '',
@@ -560,10 +974,11 @@ export class WorkflowStack extends cdk.Stack {
         PREVIOUS_ANALYSIS_MAX_CHARACTERS:
           analysis?.previousAnalysisMaxCharacters?.toString() || '100000',
         MAX_ITERATIONS:
-          analysis?.maxIterations?.toString() || '10',
+          analysis?.maxIterations?.toString() || '5',
         DOCUMENTS_TABLE_NAME: documentsTable.tableName,
         SEGMENTS_TABLE_NAME: segmentsTable.tableName,
         INDICES_TABLE_NAME: indicesTable.tableName,
+        DOCUMENTS_BUCKET_NAME: documentsBucket.bucketName,
         BUCKET_OWNER_ACCOUNT_ID: cdk.Stack.of(this).account, // VideoAnalyzerTool용 계정 ID
         ...(opensearchEndpoint && {
           OPENSEARCH_ENDPOINT: opensearchEndpoint,
@@ -579,7 +994,7 @@ export class WorkflowStack extends cdk.Stack {
       stage: stage,
     });
 
-    const lambdaFunction = reactAnalysisConstruct.function;
+    const lambdaFunction = visionReactConstruct.function;
 
     // DynamoDB table access permission
     documentsTable.grantReadData(lambdaFunction);

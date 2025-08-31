@@ -268,9 +268,9 @@ export class DocumentManagementStack extends cdk.Stack {
         path: '/api/documents/{document_id}',
         methods: [apigw.HttpMethod.DELETE],
       },
-      // GET /api/documents/{document_id}/pages/{page_index} - Retrieve specific page details (OpenSearch-based)
+      // GET /api/documents/{document_id}/segments/{segment_id} - Retrieve specific segment details (OpenSearch-based)
       {
-        path: '/api/documents/{document_id}/pages/{page_index}',
+        path: '/api/documents/{document_id}/segments/{segment_id}',
         methods: [apigw.HttpMethod.GET],
       },
       // POST /api/documents/presigned-url - Generate pre-signed URL for S3 URI
@@ -305,9 +305,9 @@ export class DocumentManagementStack extends cdk.Stack {
         path: '/api/opensearch/documents/{document_id}',
         methods: [apigw.HttpMethod.GET],
       },
-      // GET /api/opensearch/documents/{document_id}/pages/{page_index} - Retrieve specific document+page
+      // GET /api/opensearch/documents/{document_id}/segments/{segment_id} - Retrieve specific document+segment
       {
-        path: '/api/opensearch/documents/{document_id}/pages/{page_index}',
+        path: '/api/opensearch/documents/{document_id}/segments/{segment_id}',
         methods: [apigw.HttpMethod.GET],
       },
       // POST /api/opensearch/search/hybrid - Hybrid search

@@ -62,6 +62,7 @@ docs/PRD.md
 .windsurfrules
 .cursor/
 /backup
+/packages/backend/src/research_data
 
 # Added by Claude Task Master
 # Logs
@@ -77,6 +78,7 @@ pnpm-lock.yaml
 # Environment variables
 .env
 .env.bak
+certificate.pem
 # Editor directories and files
 conversation_checkpoints.db
 conversation_checkpoints.db-shm
