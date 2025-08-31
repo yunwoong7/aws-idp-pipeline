@@ -175,11 +175,8 @@ Resources:
                 - echo "Deploying CDK stacks..."
                 - cd ../infra
                 
-                # Install infra dependencies
-                - echo "Installing infra dependencies..."
-                - pnpm install
-                
-                # Create .toml config file
+                # Create .toml config file first
+                - echo "Creating .toml configuration..."
                 - |
                   cat > .toml << EOF
                   [app]
@@ -243,46 +240,51 @@ Resources:
                   reservedConcurrency = 1
                   EOF
                 
+                # Install infra dependencies
+                - echo "Installing infra dependencies..."
+                - pnpm install
+                
                 # Bootstrap CDK if needed
-                - cdk bootstrap aws://$AWS_ACCOUNT_ID/$AWS_DEFAULT_REGION --require-approval never
+                - echo "Bootstrapping CDK..."
+                - npx cdk bootstrap aws://$AWS_ACCOUNT_ID/$AWS_DEFAULT_REGION --require-approval never
                 
                 # Deploy infrastructure stacks
                 - echo "Deploying VPC stack..."
-                - cdk deploy aws-idp-ai-vpc --require-approval never
+                - npx cdk deploy aws-idp-ai-vpc --require-approval never
                 
                 - echo "Deploying DynamoDB stack..."
-                - cdk deploy aws-idp-ai-dynamodb --require-approval never
+                - npx cdk deploy aws-idp-ai-dynamodb --require-approval never
                 
                 - echo "Deploying S3 stack..."
-                - cdk deploy aws-idp-ai-s3 --require-approval never
+                - npx cdk deploy aws-idp-ai-s3 --require-approval never
                 
                 - echo "Deploying OpenSearch stack..."
-                - cdk deploy aws-idp-ai-opensearch --require-approval never
+                - npx cdk deploy aws-idp-ai-opensearch --require-approval never
                 
                 # Deploy Cognito if enabled
                 - |
                   if [ "$ENABLE_COGNITO" = "true" ]; then
                     echo "Deploying Cognito stack..."
-                    cdk deploy aws-idp-ai-cognito --require-approval never \
+                    npx cdk deploy aws-idp-ai-cognito --require-approval never \
                       --parameters adminUserEmail=$ADMIN_USER_EMAIL
                   fi
                 
                 # Deploy service stacks
                 - echo "Deploying Step Functions stack..."
-                - cdk deploy aws-idp-ai-step-functions --require-approval never
+                - npx cdk deploy aws-idp-ai-step-functions --require-approval never
                 
                 - echo "Deploying Document Management stack..."
-                - cdk deploy aws-idp-ai-document-management --require-approval never
+                - npx cdk deploy aws-idp-ai-document-management --require-approval never
                 
                 - echo "Deploying ECS stack..."
                 - |
                   if [ "$USE_CUSTOM_DOMAIN" = "true" ]; then
-                    cdk deploy aws-idp-ai-ecs --require-approval never \
+                    npx cdk deploy aws-idp-ai-ecs --require-approval never \
                       --parameters useCustomDomain=true \
                       --parameters domainName=$DOMAIN_NAME \
                       --parameters hostedZoneName=$HOSTED_ZONE_NAME
                   else
-                    cdk deploy aws-idp-ai-ecs --require-approval never
+                    npx cdk deploy aws-idp-ai-ecs --require-approval never
                   fi
                 
                 # Get outputs
