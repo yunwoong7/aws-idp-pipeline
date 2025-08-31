@@ -175,8 +175,72 @@ Resources:
                 - echo "Deploying CDK stacks..."
                 - cd ../infra
                 
+                # Create .toml config file
+                - |
+                  cat > .toml << EOF
+                  [app]
+                  ns = "aws-idp-ai"
+                  stage = "$STAGE"
+                  
+                  [dynamodb]
+                  documentsTableName = "aws-idp-ai-documents"
+                  pagesTableName = "aws-idp-ai-pages"
+                  
+                  [s3]
+                  documentsBucketName = "aws-idp-ai-documents"
+                  
+                  [opensearch]
+                  domainName = "aws-idp-ai-opensearch"
+                  indexName = "aws-idp-ai-analysis"
+                  instanceType = "t3.small.search"
+                  instanceCount = 1
+                  dedicatedMasterEnabled = false
+                  
+                  [apigateway]
+                  throttleRateLimit = 1000
+                  throttleBurstLimit = 2000
+                  
+                  [bedrock]
+                  analysisAgentModelId = "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
+                  analysisAgentMaxToken = 8192
+                  analysisImageModelId = "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
+                  analysisImageMaxToken = 8192
+                  analysisVideoModelId = "us.twelvelabs.pegasus-1-2-v1:0"
+                  analysisSummarizerModelId = "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
+                  analysisSummarizerMaxToken = 64000
+                  embeddingsModelId = "amazon.titan-embed-text-v2:0"
+                  embeddingsDimensions = 1024
+                  rerankModelId = "cohere.rerank-v3-5:0"
+                  vectorWeight = 0.6
+                  keywordWeight = 0.4
+                  searchThresholdScore = 0.4
+                  
+                  [search]
+                  hybridSearchSize = 25
+                  rerankTopN = 10
+                  maxSearchSize = 100
+                  rerankScoreThreshold = 0.07
+                  
+                  [analysis]
+                  previousAnalysisMaxCharacters = 1000000000
+                  maxIterations = 10
+                  
+                  [lambda]
+                  timeout = 30
+                  memorySize = 512
+                  runtime = "python3.13"
+                  
+                  [stepfunctions]
+                  documentProcessingTimeout = 6000
+                  maxConcurrency = 10
+                  
+                  [sqs]
+                  sqsBatchSize = 1
+                  reservedConcurrency = 1
+                  EOF
+                
                 # Bootstrap CDK if needed
-                - cdk bootstrap aws://$AWS_ACCOUNT_ID/$AWS_DEFAULT_REGION
+                - cdk bootstrap aws://$AWS_ACCOUNT_ID/$AWS_DEFAULT_REGION --require-approval never
                 
                 # Deploy infrastructure stacks
                 - echo "Deploying VPC stack..."
