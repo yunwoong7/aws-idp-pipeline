@@ -17,24 +17,24 @@ ENV NEXT_PUBLIC_ECS_BACKEND_URL=$NEXT_PUBLIC_ECS_BACKEND_URL
 ENV NEXT_PUBLIC_WEBSOCKET_URL=$NEXT_PUBLIC_WEBSOCKET_URL
 
 # Copy package files first
-COPY package.json ./
-COPY pnpm-lock.yaml* ./
+COPY packages/frontend/package.json ./
+COPY packages/frontend/pnpm-lock.yaml* ./
 
 # Install dependencies
 RUN pnpm install
 
 # Copy source files (excluding node_modules)
-COPY src ./src
-COPY public ./public
-COPY *.js ./
-COPY *.ts ./
-COPY *.json ./
-COPY *.mjs ./
-COPY tailwind.config.* ./
-COPY next.config.* ./
-COPY postcss.config.* ./
-COPY tsconfig* ./
-COPY components.json ./
+COPY packages/frontend/src ./src
+COPY packages/frontend/public ./public
+COPY packages/frontend/*.js ./
+COPY packages/frontend/*.ts ./
+COPY packages/frontend/*.json ./
+COPY packages/frontend/*.mjs ./
+COPY packages/frontend/tailwind.config.* ./
+COPY packages/frontend/next.config.* ./
+COPY packages/frontend/postcss.config.* ./
+COPY packages/frontend/tsconfig* ./
+COPY packages/frontend/components.json ./
 
 # Build the application with memory optimization
 ENV NEXT_TELEMETRY_DISABLED=1

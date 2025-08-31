@@ -12,11 +12,11 @@ RUN apt-get update && apt-get install -y \
     && pip install uv
 
 # Copy requirements and install Python dependencies with uv
-COPY requirements.txt .
+COPY packages/backend/requirements.txt .
 RUN uv pip install --system --no-cache -r requirements.txt
 
 # Copy application code
-COPY . .
+COPY packages/backend/ .
 
 # Create necessary directories
 RUN mkdir -p config mcp-workspace

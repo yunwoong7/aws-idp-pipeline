@@ -12,7 +12,16 @@ if (isBrowser()) {
 
 // Helper functions for backward compatibility
 async function getApiBaseUrl(): Promise<string> {
-  return process.env.NEXT_PUBLIC_API_BASE_URL || '';
+  const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+  console.log('🔧 getApiBaseUrl() - NEXT_PUBLIC_API_BASE_URL:', apiBaseUrl);
+  
+  // API Gateway URL이 설정되지 않은 경우 backend URL로 폴백
+  if (!apiBaseUrl || apiBaseUrl.trim() === '') {
+    console.log('⚠️ NEXT_PUBLIC_API_BASE_URL is empty, falling back to backend URL');
+    return await getBackendUrl();
+  }
+  
+  return apiBaseUrl;
 }
 
 async function getBackendUrl(): Promise<string> {

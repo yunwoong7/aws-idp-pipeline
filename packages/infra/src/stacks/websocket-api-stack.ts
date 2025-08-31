@@ -123,6 +123,12 @@ export class WebSocketApiStack extends cdk.Stack {
     executionRole: iam.Role,
     props: WebSocketApiStackProps
   ): lambda.Function {
+    const connectLogGroup = new logs.LogGroup(this, 'WebSocketConnectLogGroup', {
+      logGroupName: `/aws/lambda/aws-idp-ai-websocket-connect-${stage}`,
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
     return new lambda.Function(this, 'WebSocketConnectFunction', {
       functionName: `aws-idp-ai-websocket-connect-${stage}`,
       runtime: lambda.Runtime.PYTHON_3_13,
@@ -133,7 +139,7 @@ export class WebSocketApiStack extends cdk.Stack {
       environment: {
         WEBSOCKET_CONNECTIONS_TABLE: props.webSocketConnectionsTableName,
       },
-      logRetention: logs.RetentionDays.ONE_WEEK,
+      logGroup: connectLogGroup,
       description: 'WebSocket connection handler for AWS IDP AI',
     });
   }
@@ -146,6 +152,12 @@ export class WebSocketApiStack extends cdk.Stack {
     executionRole: iam.Role,
     props: WebSocketApiStackProps
   ): lambda.Function {
+    const disconnectLogGroup = new logs.LogGroup(this, 'WebSocketDisconnectLogGroup', {
+      logGroupName: `/aws/lambda/aws-idp-ai-websocket-disconnect-${stage}`,
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
     return new lambda.Function(this, 'WebSocketDisconnectFunction', {
       functionName: `aws-idp-ai-websocket-disconnect-${stage}`,
       runtime: lambda.Runtime.PYTHON_3_13,
@@ -156,7 +168,7 @@ export class WebSocketApiStack extends cdk.Stack {
       environment: {
         WEBSOCKET_CONNECTIONS_TABLE: props.webSocketConnectionsTableName,
       },
-      logRetention: logs.RetentionDays.ONE_WEEK,
+      logGroup: disconnectLogGroup,
       description: 'WebSocket disconnection handler for AWS IDP AI',
     });
   }

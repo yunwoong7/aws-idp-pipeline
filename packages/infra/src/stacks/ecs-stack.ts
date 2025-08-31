@@ -231,6 +231,8 @@ export class EcsStack extends cdk.Stack {
     if (frontendContainer) {
       frontendContainer.addEnvironment('NEXT_PUBLIC_ECS_BACKEND_URL', backendUrl);
       frontendContainer.addEnvironment('NEXT_PUBLIC_API_BASE_URL', apiGatewayUrl);
+      // 디버깅을 위한 로그
+      console.log(`Frontend container env vars: API_BASE_URL=${apiGatewayUrl}, ECS_BACKEND_URL=${backendUrl}`);
     }
 
     // Backend Fargate Service (별도 ALB 대신 Frontend ALB에 리스너 규칙 추가)
