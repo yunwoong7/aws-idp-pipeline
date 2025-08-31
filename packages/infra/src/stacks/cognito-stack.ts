@@ -1,5 +1,6 @@
 import * as cdk from 'aws-cdk-lib';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
+import * as cr from 'aws-cdk-lib/custom-resources';
 import { Construct } from 'constructs';
 import { NagSuppressions } from 'cdk-nag';
 
@@ -82,7 +83,7 @@ export class CognitoStack extends cdk.Stack {
       });
     }
 
-    // Create admin user with temporary password - force change on first login
+    // Create admin user - temporary password will be set via custom resource
     this.adminUser = new cognito.CfnUserPoolUser(this, 'AdminUser', {
       userPoolId: this.userPool.userPoolId,
       username: props.adminUserEmail.split('@')[0],
@@ -90,7 +91,6 @@ export class CognitoStack extends cdk.Stack {
         { name: 'email', value: props.adminUserEmail },
         { name: 'email_verified', value: 'true' },
       ],
-      temporaryPassword: 'TempPass123!',  // Temporary password
       messageAction: 'SUPPRESS', // Don't send welcome email
     });
 
@@ -119,6 +119,27 @@ export class CognitoStack extends cdk.Stack {
       groupName: userGroup.groupName,
       username: this.adminUser.username!,
     });
+
+    // Set temporary password using AWS custom resource
+    new cr.AwsCustomResource(this, 'SetAdminPassword', {
+      onCreate: {
+        service: 'CognitoIdentityServiceProvider',
+        action: 'adminSetUserPassword',
+        parameters: {
+          UserPoolId: this.userPool.userPoolId,
+          Username: this.adminUser.username,
+          Password: 'TempPass123!',
+          Permanent: false, // Force password change on first login
+        },
+        physicalResourceId: cr.PhysicalResourceId.of('set-admin-password'),
+      },
+      policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
+        resources: [this.userPool.userPoolArn],
+      }),
+    });
+
+    // Add NAG suppression for the custom resource at the stack level
+    this.addNagSuppressionsForCustomResource();
 
     // Use temporary callback URL - will be updated by ECS stack after ALB creation
     const baseUrl = props.useCustomDomain && props.domainName && props.hostedZoneName
@@ -209,4 +230,23 @@ export class CognitoStack extends cdk.Stack {
     });
   }
 
+  /**
+   * Add CDK Nag suppressions for custom resource
+   */
+  private addNagSuppressionsForCustomResource(): void {
+    // Suppress IAM4 warning for custom resource service roles
+    NagSuppressions.addStackSuppressions(this, [
+      {
+        id: 'AwsSolutions-IAM4',
+        reason: [
+          'AWS Lambda Basic Execution Role is required for custom resource Lambda functions.',
+          'Custom resources created by CDK for Cognito password setting require AWS managed policies.',
+          'These managed policies provide necessary CloudWatch logging permissions for custom resource execution.',
+        ].join(' '),
+        appliesTo: [
+          'Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole',
+        ],
+      },
+    ]);
+  }
 }

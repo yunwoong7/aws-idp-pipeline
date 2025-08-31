@@ -163,23 +163,9 @@ Resources:
                 - cd /tmp/aws-idp-pipeline
                 - pnpm install
                 
-                # Build backend container
-                - echo "Building backend container..."
-                - cd packages/backend
-                - docker build -t aws-idp-ai-backend:latest .
-                - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
-                - aws ecr create-repository --repository-name aws-idp-ai-backend --region $AWS_DEFAULT_REGION || true
-                - docker tag aws-idp-ai-backend:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/aws-idp-ai-backend:latest
-                - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/aws-idp-ai-backend:latest
-                
-                # Build frontend
-                - echo "Building frontend..."
-                - cd ../frontend
-                - pnpm build
-                
                 # Deploy CDK stacks
                 - echo "Deploying CDK stacks..."
-                - cd ../infra
+                - cd packages/infra
                 
                 # Create .toml config file first
                 - echo "Creating .toml configuration..."
@@ -254,6 +240,10 @@ Resources:
                 - echo "Bootstrapping CDK..."
                 - npx cdk bootstrap aws://$AWS_ACCOUNT_ID/$AWS_DEFAULT_REGION --require-approval never
                 
+                # Deploy ECR stack first (needed for container images)
+                - echo "Deploying ECR stack..."
+                - npx cdk deploy aws-idp-ai-ecr --require-approval never
+                
                 # Deploy infrastructure stacks
                 - echo "Deploying VPC stack..."
                 - npx cdk deploy aws-idp-ai-vpc --require-approval never
@@ -326,6 +316,45 @@ Resources:
                 
                 - echo "Deploying Document Management stack..."
                 - npx cdk deploy aws-idp-ai-document-management --require-approval never
+                
+                - echo "Deploying API Gateway stack..."
+                - npx cdk deploy aws-idp-ai-api-gateway --require-approval never
+                
+                - echo "Deploying WebSocket API stack..."
+                - npx cdk deploy aws-idp-ai-websocket-api --require-approval never
+                
+                # Get API URLs for frontend build
+                - |
+                  echo "Getting API Gateway and WebSocket URLs..."
+                  API_GATEWAY_URL=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-api-gateway --query 'Stacks[0].Outputs[?OutputKey==`ApiUrl`].OutputValue' --output text)
+                  WEBSOCKET_URL=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-websocket-api --query 'Stacks[0].Outputs[?OutputKey==`WebSocketApiUrl`].OutputValue' --output text)
+                  echo "API Gateway URL: $API_GATEWAY_URL"
+                  echo "WebSocket URL: $WEBSOCKET_URL"
+                
+                # Build and push Docker images to ECR
+                - echo "Building and pushing container images..."
+                - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+                
+                # Build backend container
+                - echo "Building backend container..."
+                - cd ../backend
+                - docker build -t aws-idp-backend-${STAGE}:latest .
+                - docker tag aws-idp-backend-${STAGE}:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/aws-idp-backend-${STAGE}:latest
+                - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/aws-idp-backend-${STAGE}:latest
+                
+                # Build frontend container with environment variables
+                - echo "Building frontend container..."
+                - cd ../frontend
+                - |
+                  docker build -t aws-idp-frontend-${STAGE}:latest \
+                    --build-arg NEXT_PUBLIC_API_BASE_URL="$API_GATEWAY_URL" \
+                    --build-arg NEXT_PUBLIC_WEBSOCKET_URL="$WEBSOCKET_URL" \
+                    .
+                - docker tag aws-idp-frontend-${STAGE}:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/aws-idp-frontend-${STAGE}:latest
+                - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/aws-idp-frontend-${STAGE}:latest
+                
+                # Return to infra directory
+                - cd ../infra
                 
                 - echo "Deploying ECS stack..."
                 - |
