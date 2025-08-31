@@ -264,6 +264,10 @@ Resources:
                 - echo "Deploying S3 stack..."
                 - npx cdk deploy aws-idp-ai-s3 --require-approval never
                 
+                # Create OpenSearch Service-Linked Role before deploying OpenSearch
+                - echo "Creating OpenSearch Service-Linked Role..."
+                - aws iam create-service-linked-role --aws-service-name opensearch.amazonaws.com || echo "Service-Linked Role already exists"
+                
                 - echo "Deploying OpenSearch stack..."
                 - npx cdk deploy aws-idp-ai-opensearch --require-approval never
                 

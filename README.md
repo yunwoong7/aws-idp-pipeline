@@ -86,8 +86,8 @@ aws-idp/
 │  ├── backend/                   # FastAPI + MCP Tools + ReAct agent
 │  ├── infra/                     # AWS CDK-based infrastructure
 │  │  ├── .toml                   # Infrastructure configuration file (e.g., dev.toml)
-│  │  ├── destroy-infra.sh        # Deploys core infrastructure (VPC, S3, etc.)
-│  │  └── destroy-services.sh     # Optional: Deploys services like ECS and ALB
+│  │  ├── deploy-infra.sh         # Deploys core infrastructure (VPC, S3, etc.)
+│  │  └── deploy-services.sh     # Optional: Deploys services like ECS and ALB
 │  └── results/                   # Analysis results
 ├── docs/                         # Documentation and diagrams
 └── .env                          # Auto-generated env vars
