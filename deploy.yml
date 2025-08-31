@@ -44,7 +44,7 @@ Parameters:
   
   RepoUrl:
     Type: String
-    Default: 'https://github.com/aws-samples/aws-idp-pipeline.git'
+    Default: 'https://github.com/yunwoong7/aws-idp-pipeline.git'
     Description: Repository URL
   
   Version:

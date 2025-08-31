@@ -26,7 +26,7 @@ ENABLE_COGNITO="true"
 USE_CUSTOM_DOMAIN="false"
 DOMAIN_NAME=""
 HOSTED_ZONE_NAME=""
-REPO_URL="https://github.com/aws-samples/aws-idp-pipeline.git"
+REPO_URL="https://github.com/yunwoong7/aws-idp-pipeline.git"
 VERSION="main"
 
 # Function to prompt for email with validation
