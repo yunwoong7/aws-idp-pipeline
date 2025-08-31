@@ -1,4 +1,4 @@
-# CloudShell & CodeBuild Quick Deployment Guide
+<h2 align="center">CloudShell & CodeBuild Quick Deployment Guide</h2>
 
 The easiest way to deploy AWS IDP is to run a script in **AWS CloudShell** and automatically deploy it through **CodeBuild**.
 
@@ -16,8 +16,11 @@ The easiest way to deploy AWS IDP is to run a script in **AWS CloudShell** and a
 ## Deployment Steps
 
 ### 1) Launch CloudShell
-- Launch **CloudShell** from the AWS Console. (Click the CloudShell icon at the top right)  
-- _(Screenshot example placeholder)_
+- Launch **CloudShell** from the AWS Console.
+
+  <div align="center">   
+    <img src="assets/cloudshell-click.png" alt="cloudshell click" width="900"/>
+  </div>
 
 ---
 
@@ -32,7 +35,7 @@ aws-idp-pipeline $ ./bin.sh
 ---
 
 ### 3) Provide input during execution
-You will be prompted for the following inputs during execution:
+You will be prompted for the following inputs during execution
 
 ```
 Enter admin user email address: admin@example.com
@@ -41,7 +44,7 @@ Do you want to use a custom domain? (y/N): N
 Do you want to proceed with deployment? (y/N): y
 ```
 
-- **Admin user email**: Enter your desired email (e.g., `admin@example.com`)  
+- **Admin user email**: Enter your desired email (e.g., `admin@example.com`) 
   → The initial admin username will be created as `"admin"` in this example.  
 - **Custom domain**: Choose `N` for test environments  
 - **Proceed with deployment**: Choose `y`  

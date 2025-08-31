@@ -271,15 +271,53 @@ Resources:
                 - echo "Deploying OpenSearch stack..."
                 - npx cdk deploy aws-idp-ai-opensearch --require-approval never
                 
-                # Deploy Cognito if enabled
+                # Generate self-signed certificate and deploy Cognito if enabled
                 - |
                   if [ "$ENABLE_COGNITO" = "true" ]; then
+                    echo "Generating self-signed certificate for HTTPS..."
+                    
+                    # Clean up existing aws-idp-ai.internal certificates
+                    echo "Cleaning up existing certificates..."
+                    EXISTING_CERTS=$(aws acm list-certificates --query 'CertificateSummaryList[?DomainName==`aws-idp-ai.internal`].CertificateArn' --output text 2>/dev/null || true)
+                    if [ -n "$EXISTING_CERTS" ]; then
+                      for CERT_TO_DELETE in $EXISTING_CERTS; do
+                        echo "Deleting certificate: $CERT_TO_DELETE"
+                        aws acm delete-certificate --certificate-arn "$CERT_TO_DELETE" 2>/dev/null || true
+                      done
+                    fi
+                    
+                    # Clean up existing certificate files
+                    rm -rf certs/ 2>/dev/null || true
+                    
+                    # Create certs directory
+                    mkdir -p certs
+                    
+                    # Generate self-signed certificate
+                    openssl req -x509 -newkey rsa:2048 -sha256 -days 365 -nodes \
+                      -keyout "certs/private.key" \
+                      -out "certs/certificate.pem" \
+                      -subj "/CN=aws-idp-ai.internal" \
+                      -addext "subjectAltName=DNS:aws-idp-ai.internal"
+                    
+                    # Ensure certificate is in PEM format
+                    openssl x509 -in "certs/certificate.pem" -out "certs/certificate.pem" -outform PEM >/dev/null 2>&1
+                    
+                    # Import certificate to ACM
+                    CERT_ARN=$(aws acm import-certificate \
+                      --certificate fileb://certs/certificate.pem \
+                      --private-key fileb://certs/private.key \
+                      --output text \
+                      --query 'CertificateArn')
+                    
+                    echo "Certificate imported with ARN: $CERT_ARN"
+                    
                     echo "Deploying Cognito stack..."
                     npx cdk deploy aws-idp-ai-cognito --require-approval never \
                       --context adminUserEmail="$ADMIN_USER_EMAIL" \
-                      --context useCustomDomain="$USE_CUSTOM_DOMAIN" \
-                      --context domainName="$DOMAIN_NAME" \
-                      --context hostedZoneName="$HOSTED_ZONE_NAME"
+                      --context useCustomDomain="false" \
+                      --context existingCertificateArn="$CERT_ARN"
+                  else
+                    CERT_ARN=""
                   fi
                 
                 # Deploy service stacks
@@ -292,15 +330,29 @@ Resources:
                 - echo "Deploying ECS stack..."
                 - |
                   if [ "$USE_CUSTOM_DOMAIN" = "true" ]; then
-                    npx cdk deploy aws-idp-ai-ecs --require-approval never \
-                      --context adminUserEmail="$ADMIN_USER_EMAIL" \
-                      --context useCustomDomain="true" \
-                      --context domainName="$DOMAIN_NAME" \
-                      --context hostedZoneName="$HOSTED_ZONE_NAME"
+                    if [ "$ENABLE_COGNITO" = "true" ]; then
+                      npx cdk deploy aws-idp-ai-ecs --require-approval never \
+                        --context adminUserEmail="$ADMIN_USER_EMAIL" \
+                        --context useCustomDomain="true" \
+                        --context domainName="$DOMAIN_NAME" \
+                        --context hostedZoneName="$HOSTED_ZONE_NAME" \
+                        --context existingCertificateArn="$CERT_ARN"
+                    else
+                      npx cdk deploy aws-idp-ai-ecs --require-approval never \
+                        --context useCustomDomain="true" \
+                        --context domainName="$DOMAIN_NAME" \
+                        --context hostedZoneName="$HOSTED_ZONE_NAME"
+                    fi
                   else
-                    npx cdk deploy aws-idp-ai-ecs --require-approval never \
-                      --context adminUserEmail="$ADMIN_USER_EMAIL" \
-                      --context useCustomDomain="false"
+                    if [ "$ENABLE_COGNITO" = "true" ]; then
+                      npx cdk deploy aws-idp-ai-ecs --require-approval never \
+                        --context adminUserEmail="$ADMIN_USER_EMAIL" \
+                        --context useCustomDomain="false" \
+                        --context existingCertificateArn="$CERT_ARN"
+                    else
+                      npx cdk deploy aws-idp-ai-ecs --require-approval never \
+                        --context useCustomDomain="false"
+                    fi
                   fi
                 
                 # Get outputs
@@ -319,7 +371,9 @@ Resources:
                     ADMIN_USERNAME=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-cognito --query 'Stacks[0].Outputs[?OutputKey==`AdminUsername`].OutputValue' --output text)
                     echo "AdminUsername = $ADMIN_USERNAME"
                     echo "TemporaryPassword = $TEMP_PASSWORD"
+                    echo "SSL Certificate ARN = $CERT_ARN"
                     echo "Note: You must change the password on first login"
+                    echo "Note: The certificate is self-signed and browsers will show a security warning"
                   fi
             post_build:
               commands:
