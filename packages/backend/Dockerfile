@@ -1,5 +1,6 @@
 # Backend Dockerfile for ECS deployment
-FROM python:3.12-slim
+# Use ECR Public Gallery Python image to avoid Docker Hub rate limits
+FROM public.ecr.aws/docker/library/python:3.12-slim
 
 # Set working directory
 WORKDIR /app

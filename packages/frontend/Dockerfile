@@ -1,5 +1,6 @@
 # Frontend Dockerfile for ECS deployment
-FROM node:20-alpine AS builder
+# Use ECR Public Gallery Node image to avoid Docker Hub rate limits
+FROM public.ecr.aws/docker/library/node:20-alpine AS builder
 
 # Install dependencies
 RUN apk add --no-cache libc6-compat
@@ -42,7 +43,7 @@ ENV NODE_OPTIONS="--max-old-space-size=2048"
 RUN pnpm build
 
 # Production image, copy all the files and run next
-FROM node:20-alpine AS runner
+FROM public.ecr.aws/docker/library/node:20-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
