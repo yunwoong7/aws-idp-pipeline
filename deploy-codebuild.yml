@@ -245,6 +245,8 @@ Resources:
                 - npx cdk deploy aws-idp-ai-ecr --require-approval never
                 
                 # Deploy infrastructure stacks
+                - echo "Pre-cleaning existing VPC log groups..."
+                - aws logs delete-log-group --log-group-name "/aws-idp-ai/vpc/flowlogs" 2>/dev/null || echo "VPC flow logs group does not exist or already deleted"
                 - echo "Deploying VPC stack..."
                 - npx cdk deploy aws-idp-ai-vpc --require-approval never
                 
