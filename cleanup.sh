@@ -80,75 +80,114 @@ force_delete_ecs_services() {
     done
 }
 
-# Function to delete a stack using CDK destroy
+# Function to delete a stack using direct CloudFormation
 delete_stack() {
     local stack_name=$1
     
     echo "Deleting stack: $stack_name"
     
     # Check if stack exists first
-    aws cloudformation describe-stacks --stack-name $stack_name &>/dev/null
-    if [ $? -ne 0 ]; then
+    local stack_status=$(aws cloudformation describe-stacks --stack-name $stack_name --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "NOT_EXISTS")
+    
+    if [ "$stack_status" == "NOT_EXISTS" ]; then
         echo "✅ $stack_name does not exist or already deleted"
         return 0
     fi
     
+    echo "  Current stack status: $stack_status"
+    
+    # Handle different stack states
+    case "$stack_status" in
+        "DELETE_IN_PROGRESS")
+            echo "  Stack is already being deleted, skipping..."
+            return 0
+            ;;
+        "UPDATE_ROLLBACK_COMPLETE"|"ROLLBACK_COMPLETE"|"UPDATE_ROLLBACK_FAILED"|"CREATE_FAILED")
+            echo "  Stack is in $stack_status state, attempting to delete..."
+            ;;
+        "DELETE_FAILED")
+            echo "  Previous deletion failed, retrying with resource retention..."
+            # Get the resources that failed to delete
+            local failed_resources=$(aws cloudformation list-stack-resources --stack-name $stack_name --query 'StackResourceSummaries[?ResourceStatus==`DELETE_FAILED`].LogicalResourceId' --output text 2>/dev/null)
+            if [ -n "$failed_resources" ]; then
+                echo "  Failed resources: $failed_resources"
+                echo "  Attempting delete with resource retention..."
+                aws cloudformation delete-stack --stack-name $stack_name --retain-resources $failed_resources 2>/dev/null || true
+            fi
+            ;;
+    esac
+    
     # If this is an ECS stack, force cleanup first
     if [[ "$stack_name" == *"ecs"* ]]; then
         echo "  Pre-cleaning ECS resources..."
-        force_delete_ecs_services "aws-idp-ai-cluster" 2>/dev/null || true
-        force_delete_ecs_services "aws-idp-ai-ecs-cluster" 2>/dev/null || true
-        force_delete_ecs_services "aws-idp-cluster-dev" 2>/dev/null || true
-    fi
-    
-    # Try CDK destroy first (if in infra directory and CDK is available)
-    if [ -d "packages/infra" ] && command -v npx >/dev/null 2>&1; then
-        echo "  Using CDK destroy for $stack_name..."
-        cd packages/infra 2>/dev/null || cd ../packages/infra 2>/dev/null || true
-        npx cdk destroy $stack_name --force --require-approval never 2>/dev/null
-        if [ $? -eq 0 ]; then
-            echo "✅ $stack_name deleted successfully via CDK"
-            cd - >/dev/null 2>&1
-            return 0
-        fi
-        cd - >/dev/null 2>&1
-    fi
-    
-    # Fallback to CloudFormation delete
-    echo "  Using CloudFormation delete for $stack_name..."
-    aws cloudformation delete-stack --stack-name $stack_name 2>/dev/null
-    
-    if [ $? -eq 0 ]; then
-        echo "  Waiting for deletion to complete (timeout: 5 minutes)..."
-        aws cloudformation wait stack-delete-complete --stack-name $stack_name 2>/dev/null &
-        wait_pid=$!
-        
-        # Add timeout for wait command (5 minutes)
-        sleep_count=0
-        while kill -0 $wait_pid 2>/dev/null && [ $sleep_count -lt 30 ]; do
-            sleep 10
-            sleep_count=$((sleep_count + 1))
+        # Stop all ECS tasks first
+        local cluster_names=("aws-idp-ai-cluster" "aws-idp-ai-ecs-cluster" "aws-idp-cluster-dev" "aws-idp-ai-cluster-dev")
+        for cluster in "${cluster_names[@]}"; do
+            # Check if cluster exists
+            aws ecs describe-clusters --clusters $cluster --query 'clusters[0].clusterArn' 2>/dev/null || continue
+            
+            # List and stop all tasks
+            local tasks=$(aws ecs list-tasks --cluster $cluster --query 'taskArns[]' --output text 2>/dev/null)
+            for task in $tasks; do
+                echo "    Stopping task in $cluster"
+                aws ecs stop-task --cluster $cluster --task $task --reason "Cleanup script" 2>/dev/null || true
+            done
+            
+            # Delete services
+            local services=$(aws ecs list-services --cluster $cluster --query 'serviceArns[]' --output text 2>/dev/null)
+            for service in $services; do
+                echo "    Deleting service in $cluster"
+                aws ecs update-service --cluster $cluster --service $service --desired-count 0 2>/dev/null || true
+                aws ecs delete-service --cluster $cluster --service $service --force 2>/dev/null || true
+            done
         done
-        
-        # Check if stack still exists
-        aws cloudformation describe-stacks --stack-name $stack_name &>/dev/null
-        if [ $? -ne 0 ]; then
-            echo "✅ $stack_name deleted successfully"
-            return 0
-        else
-            echo "⚠️  $stack_name deletion timed out or failed"
-            return 1
-        fi
-    else
-        echo "⚠️  Failed to initiate deletion for $stack_name"
+    fi
+    
+    # Try multiple delete approaches
+    echo "  Attempting CloudFormation delete for $stack_name..."
+    
+    # First try with FORCE_DELETE_STACK (newer AWS CLI versions)
+    aws cloudformation delete-stack --stack-name $stack_name --deletion-mode FORCE_DELETE_STACK 2>/dev/null
+    local result=$?
+    
+    # If that fails, try regular delete
+    if [ $result -ne 0 ]; then
+        aws cloudformation delete-stack --stack-name $stack_name 2>/dev/null
+        result=$?
+    fi
+    
+    # If still failing, try with client request token
+    if [ $result -ne 0 ]; then
+        aws cloudformation delete-stack --stack-name $stack_name --client-request-token "cleanup-$(date +%s)" 2>/dev/null
+        result=$?
+    fi
+    
+    # Give it a moment to start
+    sleep 3
+    
+    # Check final status
+    local new_status=$(aws cloudformation describe-stacks --stack-name $stack_name --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "NOT_EXISTS")
+    
+    if [ "$new_status" == "DELETE_IN_PROGRESS" ] || [ "$new_status" == "NOT_EXISTS" ]; then
+        echo "✅ $stack_name deletion initiated successfully"
+        return 0
+    elif [ "$new_status" == "$stack_status" ]; then
+        echo "⚠️  $stack_name deletion didn't start (still in $new_status). Manual intervention may be required."
+        echo "    Try deleting from AWS Console or check for resource dependencies."
         return 1
+    else
+        echo "  Stack status changed to: $new_status"
+        return 0
     fi
 }
 
 # Delete stacks in reverse order of dependencies
 echo ""
 echo "Step 1: Pre-emptively emptying ALL S3 buckets before ECS deletion..."
-ALL_BUCKETS=$(aws s3api list-buckets --query 'Buckets[?contains(Name, `aws-idp-ai`)].Name' --output text 2>/dev/null)
+
+# Get all aws-idp related buckets (including ALB logs)
+ALL_BUCKETS=$(aws s3api list-buckets --query 'Buckets[?contains(Name, `aws-idp`)].Name' --output text 2>/dev/null)
+
 for bucket in $ALL_BUCKETS; do
     echo -n "Force emptying bucket: $bucket... "
     # Delete all objects including versions (suppress output)
@@ -170,6 +209,10 @@ if [ -d "packages/infra" ] && command -v npx >/dev/null 2>&1; then
     CURRENT_DIR=$(pwd)
     cd packages/infra 2>/dev/null || cd ../packages/infra 2>/dev/null || cd ../../packages/infra 2>/dev/null || true
     
+    # Install necessary dependencies
+    echo "Installing required dependencies..."
+    npm install tsx --save-dev 2>/dev/null || pnpm add -D tsx 2>/dev/null || true
+    
     # Create .toml file if it doesn't exist
     if [ ! -f ".toml" ]; then
         echo "Creating .toml configuration..."
@@ -180,18 +223,26 @@ stage = "dev"
 EOF
     fi
     
-    # Try to destroy all stacks at once
-    echo "Running CDK destroy --all..."
-    npx cdk destroy --all --force --require-approval never
-    CDK_RESULT=$?
+    # List all stacks first
+    echo "Getting list of stacks..."
+    STACK_LIST=$(npx cdk list 2>/dev/null | grep "aws-idp-ai" || true)
+    
+    if [ -n "$STACK_LIST" ]; then
+        echo "Found stacks to delete:"
+        echo "$STACK_LIST"
+        
+        # Delete stacks in reverse order (to handle dependencies)
+        echo "$STACK_LIST" | tac | while read stack; do
+            if [ -n "$stack" ]; then
+                echo "Destroying stack: $stack"
+                npx cdk destroy $stack --force --require-approval never 2>/dev/null || true
+            fi
+        done
+    else
+        echo "No CDK stacks found, trying direct CloudFormation deletion..."
+    fi
     
     cd "$CURRENT_DIR"
-    
-    if [ $CDK_RESULT -eq 0 ]; then
-        echo "✅ All stacks deleted successfully via CDK"
-    else
-        echo "⚠️  CDK destroy encountered issues, continuing with individual stack deletion..."
-    fi
 else
     echo "CDK not available, proceeding with individual stack deletion..."
 fi
