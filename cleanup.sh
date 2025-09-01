@@ -132,6 +132,8 @@ echo ""
 echo "Step 1: Deleting service stacks..."
 delete_stack "aws-idp-ai-ecs-${STAGE}"
 delete_stack "aws-idp-ai-ecs"  # Try without stage suffix
+delete_stack "aws-idp-ai-api-gateway"
+delete_stack "aws-idp-ai-websocket-api"
 delete_stack "aws-idp-ai-indices-management"
 delete_stack "aws-idp-ai-document-management"
 delete_stack "aws-idp-ai-step-functions"
@@ -150,19 +152,50 @@ echo "Step 3: Deleting data stacks..."
 echo "Emptying S3 buckets..."
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 REGION=$(aws configure get region)
-BUCKET_NAME="aws-idp-ai-documents-${ACCOUNT_ID}-${REGION}"
+DOCUMENTS_BUCKET="aws-idp-ai-documents-${ACCOUNT_ID}-${REGION}"
 
-aws s3 rm s3://${BUCKET_NAME} --recursive 2>/dev/null
+# Empty documents bucket
+aws s3 rm s3://${DOCUMENTS_BUCKET} --recursive 2>/dev/null
 if [ $? -eq 0 ]; then
-    echo "✅ S3 bucket emptied: $BUCKET_NAME"
+    echo "✅ S3 bucket emptied: $DOCUMENTS_BUCKET"
+fi
+
+# Empty ALB logs bucket (get bucket name from CloudFormation stack)
+echo "Emptying ALB logs bucket..."
+ALB_LOGS_BUCKET=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-ecs --query 'Stacks[0].Resources[?LogicalResourceId==`AlbLogsBucket9F12F2B8`].PhysicalResourceId' --output text 2>/dev/null || echo "")
+if [ -z "$ALB_LOGS_BUCKET" ]; then
+    # Try alternative method - get from stack outputs or list buckets
+    ALB_LOGS_BUCKET=$(aws s3api list-buckets --query 'Buckets[?contains(Name, `aws-idp-ai`) && contains(Name, `alb-logs`)].Name' --output text 2>/dev/null | head -1)
+fi
+
+if [ -n "$ALB_LOGS_BUCKET" ]; then
+    echo "Emptying ALB logs bucket: $ALB_LOGS_BUCKET"
+    aws s3 rm s3://${ALB_LOGS_BUCKET} --recursive 2>/dev/null
+    if [ $? -eq 0 ]; then
+        echo "✅ ALB logs bucket emptied: $ALB_LOGS_BUCKET"
+    fi
+else
+    echo "ALB logs bucket not found, trying to empty all aws-idp-ai buckets..."
+    # Fallback: empty all aws-idp-ai related buckets
+    ALL_BUCKETS=$(aws s3api list-buckets --query 'Buckets[?contains(Name, `aws-idp-ai`)].Name' --output text 2>/dev/null)
+    for bucket in $ALL_BUCKETS; do
+        echo "Emptying bucket: $bucket"
+        aws s3 rm s3://${bucket} --recursive 2>/dev/null
+        if [ $? -eq 0 ]; then
+            echo "✅ Bucket emptied: $bucket"
+        fi
+    done
 fi
 
 delete_stack "aws-idp-ai-opensearch"
 delete_stack "aws-idp-ai-s3"
 delete_stack "aws-idp-ai-dynamodb"
+delete_stack "aws-idp-ai-dynamodb-streams"
+delete_stack "aws-idp-ai-lambda-layer"
 
 echo ""
-echo "Step 4: Deleting network stack..."
+echo "Step 4: Deleting infrastructure stacks..."
+delete_stack "aws-idp-ai-ecr"
 delete_stack "aws-idp-ai-vpc"
 
 echo ""
