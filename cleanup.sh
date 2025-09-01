@@ -56,136 +56,14 @@ while true; do
     fi
 done
 
-# Function to forcefully stop and delete ECS services
-force_delete_ecs_services() {
-    local cluster_name="$1"
-    echo "Forcing deletion of ECS services in cluster: $cluster_name"
-    
-    # Get all services in the cluster
-    local services=$(aws ecs list-services --cluster $cluster_name --query 'serviceArns[]' --output text 2>/dev/null)
-    
-    for service_arn in $services; do
-        local service_name=$(basename $service_arn)
-        echo "  Stopping service: $service_name"
-        
-        # Update service to 0 desired count
-        aws ecs update-service --cluster $cluster_name --service $service_name --desired-count 0 2>/dev/null
-        
-        # Wait for tasks to stop
-        aws ecs wait services-stable --cluster $cluster_name --services $service_name 2>/dev/null
-        
-        # Delete service
-        aws ecs delete-service --cluster $cluster_name --service $service_name --force 2>/dev/null
-        echo "  ✅ Service deleted: $service_name"
-    done
-}
-
-# Function to delete a stack using direct CloudFormation
-delete_stack() {
-    local stack_name=$1
-    
-    echo "Deleting stack: $stack_name"
-    
-    # Check if stack exists first
-    local stack_status=$(aws cloudformation describe-stacks --stack-name $stack_name --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "NOT_EXISTS")
-    
-    if [ "$stack_status" == "NOT_EXISTS" ]; then
-        echo "✅ $stack_name does not exist or already deleted"
-        return 0
-    fi
-    
-    echo "  Current stack status: $stack_status"
-    
-    # Handle different stack states
-    case "$stack_status" in
-        "DELETE_IN_PROGRESS")
-            echo "  Stack is already being deleted, skipping..."
-            return 0
-            ;;
-        "UPDATE_ROLLBACK_COMPLETE"|"ROLLBACK_COMPLETE"|"UPDATE_ROLLBACK_FAILED"|"CREATE_FAILED")
-            echo "  Stack is in $stack_status state, attempting to delete..."
-            ;;
-        "DELETE_FAILED")
-            echo "  Previous deletion failed, retrying with resource retention..."
-            # Get the resources that failed to delete
-            local failed_resources=$(aws cloudformation list-stack-resources --stack-name $stack_name --query 'StackResourceSummaries[?ResourceStatus==`DELETE_FAILED`].LogicalResourceId' --output text 2>/dev/null)
-            if [ -n "$failed_resources" ]; then
-                echo "  Failed resources: $failed_resources"
-                echo "  Attempting delete with resource retention..."
-                aws cloudformation delete-stack --stack-name $stack_name --retain-resources $failed_resources 2>/dev/null || true
-            fi
-            ;;
-    esac
-    
-    # If this is an ECS stack, force cleanup first
-    if [[ "$stack_name" == *"ecs"* ]]; then
-        echo "  Pre-cleaning ECS resources..."
-        # Stop all ECS tasks first
-        local cluster_names=("aws-idp-ai-cluster" "aws-idp-ai-ecs-cluster" "aws-idp-cluster-dev" "aws-idp-ai-cluster-dev")
-        for cluster in "${cluster_names[@]}"; do
-            # Check if cluster exists
-            aws ecs describe-clusters --clusters $cluster --query 'clusters[0].clusterArn' 2>/dev/null || continue
-            
-            # List and stop all tasks
-            local tasks=$(aws ecs list-tasks --cluster $cluster --query 'taskArns[]' --output text 2>/dev/null)
-            for task in $tasks; do
-                echo "    Stopping task in $cluster"
-                aws ecs stop-task --cluster $cluster --task $task --reason "Cleanup script" 2>/dev/null || true
-            done
-            
-            # Delete services
-            local services=$(aws ecs list-services --cluster $cluster --query 'serviceArns[]' --output text 2>/dev/null)
-            for service in $services; do
-                echo "    Deleting service in $cluster"
-                aws ecs update-service --cluster $cluster --service $service --desired-count 0 2>/dev/null || true
-                aws ecs delete-service --cluster $cluster --service $service --force 2>/dev/null || true
-            done
-        done
-    fi
-    
-    # Try multiple delete approaches
-    echo "  Attempting CloudFormation delete for $stack_name..."
-    
-    # First try with FORCE_DELETE_STACK (newer AWS CLI versions)
-    aws cloudformation delete-stack --stack-name $stack_name --deletion-mode FORCE_DELETE_STACK 2>/dev/null
-    local result=$?
-    
-    # If that fails, try regular delete
-    if [ $result -ne 0 ]; then
-        aws cloudformation delete-stack --stack-name $stack_name 2>/dev/null
-        result=$?
-    fi
-    
-    # If still failing, try with client request token
-    if [ $result -ne 0 ]; then
-        aws cloudformation delete-stack --stack-name $stack_name --client-request-token "cleanup-$(date +%s)" 2>/dev/null
-        result=$?
-    fi
-    
-    # Give it a moment to start
-    sleep 3
-    
-    # Check final status
-    local new_status=$(aws cloudformation describe-stacks --stack-name $stack_name --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "NOT_EXISTS")
-    
-    if [ "$new_status" == "DELETE_IN_PROGRESS" ] || [ "$new_status" == "NOT_EXISTS" ]; then
-        echo "✅ $stack_name deletion initiated successfully"
-        return 0
-    elif [ "$new_status" == "$stack_status" ]; then
-        echo "⚠️  $stack_name deletion didn't start (still in $new_status). Manual intervention may be required."
-        echo "    Try deleting from AWS Console or check for resource dependencies."
-        return 1
-    else
-        echo "  Stack status changed to: $new_status"
-        return 0
-    fi
-}
+# Placeholder for any helper functions if needed later
 
 # Delete stacks in reverse order of dependencies
 echo ""
-echo "Step 1: Pre-emptively emptying ALL S3 buckets before ECS deletion..."
+echo "Step 1: Pre-emptively emptying ALL S3 buckets and ECR repositories..."
 
-# Get all aws-idp related buckets (including ALB logs)
+# Empty all S3 buckets first
+echo "Emptying S3 buckets..."
 ALL_BUCKETS=$(aws s3api list-buckets --query 'Buckets[?contains(Name, `aws-idp`)].Name' --output text 2>/dev/null)
 
 for bucket in $ALL_BUCKETS; do
@@ -201,226 +79,67 @@ for bucket in $ALL_BUCKETS; do
     echo "✅ Done"
 done
 
+# Force delete all ECR repositories with images
+echo "Force deleting ECR repositories..."
+ECR_REPOS=$(aws ecr describe-repositories --query 'repositories[?contains(repositoryName, `aws-idp`)].repositoryName' --output text 2>/dev/null)
+for repo in $ECR_REPOS; do
+    echo -n "Force deleting ECR repository: $repo... "
+    aws ecr delete-repository --repository-name $repo --force >/dev/null 2>&1
+    if [ $? -eq 0 ]; then
+        echo "✅ Done"
+    else
+        echo "⚠️ Failed"
+    fi
+done
+
 echo ""
-echo "Step 2: Attempting to delete all stacks using CDK..."
-# Try to delete all stacks at once using CDK (it handles dependencies)
-if [ -d "packages/infra" ] && command -v npx >/dev/null 2>&1; then
-    echo "Using CDK to destroy all stacks..."
-    CURRENT_DIR=$(pwd)
-    cd packages/infra 2>/dev/null || cd ../packages/infra 2>/dev/null || cd ../../packages/infra 2>/dev/null || true
-    
-    # Install necessary dependencies
+echo "Step 2: Deleting all CDK stacks..."
+# Navigate to infra directory and run CDK destroy
+CURRENT_DIR=$(pwd)
+cd packages/infra 2>/dev/null || cd ../packages/infra 2>/dev/null || cd ../../packages/infra 2>/dev/null || {
+    echo "Could not find packages/infra directory"
+    exit 1
+}
+
+# Install necessary dependencies if needed
+if ! command -v tsx >/dev/null 2>&1; then
     echo "Installing required dependencies..."
     npm install tsx --save-dev 2>/dev/null || pnpm add -D tsx 2>/dev/null || true
-    
-    # Create .toml file if it doesn't exist
-    if [ ! -f ".toml" ]; then
-        echo "Creating .toml configuration..."
-        cat > .toml << 'EOF'
+fi
+
+# Create .toml file if it doesn't exist
+if [ ! -f ".toml" ]; then
+    echo "Creating .toml configuration..."
+    cat > .toml << 'EOF'
 [app]
 ns = "aws-idp-ai"
 stage = "dev"
 EOF
-    fi
-    
-    # List all stacks first
-    echo "Getting list of stacks..."
-    STACK_LIST=$(npx cdk list 2>/dev/null | grep "aws-idp-ai" || true)
-    
-    if [ -n "$STACK_LIST" ]; then
-        echo "Found stacks to delete:"
-        echo "$STACK_LIST"
-        
-        # Delete stacks in reverse order (to handle dependencies)
-        echo "$STACK_LIST" | tac | while read stack; do
-            if [ -n "$stack" ]; then
-                echo "Destroying stack: $stack"
-                npx cdk destroy $stack --force --require-approval never 2>/dev/null || true
-            fi
-        done
-    else
-        echo "No CDK stacks found, trying direct CloudFormation deletion..."
-    fi
-    
-    cd "$CURRENT_DIR"
-else
-    echo "CDK not available, proceeding with individual stack deletion..."
 fi
 
-echo ""
-echo "Step 3: Deleting remaining stacks individually..."
-delete_stack "aws-idp-ai-ecs-${STAGE}"
-delete_stack "aws-idp-ai-ecs"  # Try without stage suffix
-delete_stack "aws-idp-ai-api-gateway"
-delete_stack "aws-idp-ai-websocket-api"
-delete_stack "aws-idp-ai-indices-management"
-delete_stack "aws-idp-ai-document-management"
-delete_stack "aws-idp-ai-step-functions"
-delete_stack "aws-idp-ai-workflow-${STAGE}"
-delete_stack "aws-idp-ai-workflow"
+# Destroy all CDK stacks
+echo "Running CDK destroy --all..."
+npx cdk destroy --all --force
+
+cd "$CURRENT_DIR"
 
 echo ""
-echo "Step 4: Deleting authentication stack..."
-delete_stack "aws-idp-ai-cognito-${STAGE}"
-delete_stack "aws-idp-ai-cognito"
+echo "Step 3: Cleaning up CDK bootstrap..."
+cd packages/infra 2>/dev/null || cd ../packages/infra 2>/dev/null || cd ../../packages/infra 2>/dev/null || {
+    echo "Could not find packages/infra directory for bootstrap cleanup"
+}
+
+echo "Running cdk bootstrap --cleanup..."
+npx cdk bootstrap --cleanup
+
+cd "$CURRENT_DIR"
 
 echo ""
-echo "Step 5: Deleting data stacks..."
-
-# Empty S3 buckets before deletion
-echo "Emptying S3 buckets..."
-ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-REGION=$(aws configure get region)
-DOCUMENTS_BUCKET="aws-idp-ai-documents-${ACCOUNT_ID}-${REGION}"
-
-# Empty documents bucket
-aws s3 rm s3://${DOCUMENTS_BUCKET} --recursive 2>/dev/null
+echo "Step 4: Deleting CodeBuild deployment stack..."
+aws cloudformation delete-stack --stack-name "aws-idp-ai-codebuild-deploy-${STAGE}" 2>/dev/null
 if [ $? -eq 0 ]; then
-    echo "✅ S3 bucket emptied: $DOCUMENTS_BUCKET"
+    echo "✅ CodeBuild stack deletion initiated"
 fi
-
-# Empty ALB logs bucket (get bucket name from CloudFormation stack)
-echo "Emptying ALB logs bucket..."
-ALB_LOGS_BUCKET=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-ecs --query 'Stacks[0].Resources[?LogicalResourceId==`AlbLogsBucket9F12F2B8`].PhysicalResourceId' --output text 2>/dev/null || echo "")
-if [ -z "$ALB_LOGS_BUCKET" ]; then
-    # Try alternative method - get from stack outputs or list buckets
-    ALB_LOGS_BUCKET=$(aws s3api list-buckets --query 'Buckets[?contains(Name, `aws-idp-ai`) && contains(Name, `alb-logs`)].Name' --output text 2>/dev/null | head -1)
-fi
-
-if [ -n "$ALB_LOGS_BUCKET" ]; then
-    echo "Emptying ALB logs bucket: $ALB_LOGS_BUCKET"
-    aws s3 rm s3://${ALB_LOGS_BUCKET} --recursive 2>/dev/null
-    if [ $? -eq 0 ]; then
-        echo "✅ ALB logs bucket emptied: $ALB_LOGS_BUCKET"
-    fi
-else
-    echo "ALB logs bucket not found, trying to empty all aws-idp-ai buckets..."
-    # Fallback: empty all aws-idp-ai related buckets
-    ALL_BUCKETS=$(aws s3api list-buckets --query 'Buckets[?contains(Name, `aws-idp-ai`)].Name' --output text 2>/dev/null)
-    for bucket in $ALL_BUCKETS; do
-        echo "Emptying bucket: $bucket"
-        aws s3 rm s3://${bucket} --recursive 2>/dev/null
-        if [ $? -eq 0 ]; then
-            echo "✅ Bucket emptied: $bucket"
-        fi
-    done
-fi
-
-delete_stack "aws-idp-ai-opensearch"
-delete_stack "aws-idp-ai-s3"
-delete_stack "aws-idp-ai-dynamodb"
-delete_stack "aws-idp-ai-dynamodb-streams"
-delete_stack "aws-idp-ai-lambda-layer"
-
-echo ""
-echo "Step 6: Deleting infrastructure stacks..."
-delete_stack "aws-idp-ai-ecr"
-delete_stack "aws-idp-ai-vpc"
-
-echo ""
-echo "Step 7: Deleting ECR repositories..."
-aws ecr delete-repository --repository-name aws-idp-ai-backend --force 2>/dev/null
-if [ $? -eq 0 ]; then
-    echo "✅ ECR repository deleted: aws-idp-ai-backend"
-fi
-
-aws ecr delete-repository --repository-name aws-idp-ai-frontend --force 2>/dev/null
-if [ $? -eq 0 ]; then
-    echo "✅ ECR repository deleted: aws-idp-ai-frontend"
-fi
-
-echo ""
-echo "Step 8: Deleting additional ECR repositories..."
-# Delete any additional ECR repositories that might have been created
-ECR_REPOS=$(aws ecr describe-repositories --query 'repositories[?contains(repositoryName, `aws-idp-ai`)].repositoryName' --output text)
-for repo in $ECR_REPOS; do
-    echo "Deleting ECR repository: $repo"
-    aws ecr delete-repository --repository-name $repo --force 2>/dev/null
-    if [ $? -eq 0 ]; then
-        echo "✅ ECR repository deleted: $repo"
-    fi
-done
-
-echo ""
-echo "Step 9: Deleting DynamoDB tables..."
-echo "Deleting any remaining DynamoDB tables..."
-TABLES=$(aws dynamodb list-tables --query 'TableNames[]' --output text | tr '\t' '\n' | grep 'aws-idp-ai')
-for table in $TABLES; do
-    echo "Deleting table: $table"
-    aws dynamodb delete-table --table-name $table 2>/dev/null
-    if [ $? -eq 0 ]; then
-        echo "✅ Table deleted: $table"
-    fi
-done
-
-echo ""
-echo "Step 10: Deleting CloudWatch Log Groups..."
-echo "Deleting log groups..."
-LOG_GROUPS=$(aws logs describe-log-groups --query 'logGroups[?contains(logGroupName, `aws-idp-ai`) || contains(logGroupName, `/aws/codebuild/aws-idp-ai`)].logGroupName' --output text)
-for log_group in $LOG_GROUPS; do
-    echo "Deleting log group: $log_group"
-    aws logs delete-log-group --log-group-name "$log_group" 2>/dev/null
-    if [ $? -eq 0 ]; then
-        echo "✅ Log group deleted: $log_group"
-    fi
-done
-
-echo ""
-echo "Step 11: Cleaning up CDK bootstrap resources..."
-echo "Deleting CDK bootstrap resources..."
-
-# Get account and region info
-ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null)
-REGION=$(aws configure get region 2>/dev/null || echo "us-west-2")
-
-# Delete CDK S3 bucket
-CDK_S3_BUCKET="cdk-hnb659fds-assets-${ACCOUNT_ID}-${REGION}"
-echo "Checking for CDK S3 bucket: $CDK_S3_BUCKET"
-aws s3 ls s3://$CDK_S3_BUCKET >/dev/null 2>&1
-if [ $? -eq 0 ]; then
-    echo "Emptying and deleting CDK S3 bucket: $CDK_S3_BUCKET"
-    aws s3 rm s3://$CDK_S3_BUCKET --recursive 2>/dev/null
-    aws s3 rb s3://$CDK_S3_BUCKET 2>/dev/null
-    if [ $? -eq 0 ]; then
-        echo "✅ CDK S3 bucket deleted: $CDK_S3_BUCKET"
-    fi
-fi
-
-# Delete CDK ECR repository
-CDK_ECR_REPO="cdk-hnb659fds-container-assets-${ACCOUNT_ID}-${REGION}"
-echo "Deleting CDK ECR repository: $CDK_ECR_REPO"
-aws ecr delete-repository --repository-name $CDK_ECR_REPO --force 2>/dev/null
-if [ $? -eq 0 ]; then
-    echo "✅ CDK ECR repository deleted: $CDK_ECR_REPO"
-fi
-
-# Delete CDK IAM roles
-CDK_ROLES=(
-    "cdk-hnb659fds-file-publishing-role-${ACCOUNT_ID}-${REGION}"
-    "cdk-hnb659fds-image-publishing-role-${ACCOUNT_ID}-${REGION}"
-    "cdk-hnb659fds-lookup-role-${ACCOUNT_ID}-${REGION}"
-    "cdk-hnb659fds-cfn-exec-role-${ACCOUNT_ID}-${REGION}"
-)
-
-for role in "${CDK_ROLES[@]}"; do
-    echo "Deleting CDK IAM role: $role"
-    # Detach policies first
-    aws iam list-attached-role-policies --role-name $role --query 'AttachedPolicies[].PolicyArn' --output text 2>/dev/null | xargs -n1 aws iam detach-role-policy --role-name $role --policy-arn 2>/dev/null
-    # Delete inline policies
-    aws iam list-role-policies --role-name $role --query 'PolicyNames[]' --output text 2>/dev/null | xargs -n1 aws iam delete-role-policy --role-name $role --policy-name 2>/dev/null
-    # Delete role
-    aws iam delete-role --role-name $role 2>/dev/null
-    if [ $? -eq 0 ]; then
-        echo "✅ CDK IAM role deleted: $role"
-    fi
-done
-
-# Delete CDKToolkit stack
-delete_stack "CDKToolkit"
-
-echo ""
-echo "Step 12: Deleting CodeBuild deployment stack..."
-delete_stack "aws-idp-ai-codebuild-deploy-${STAGE}"
 
 echo ""
 echo "==========================================================================="
