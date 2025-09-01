@@ -135,40 +135,21 @@ else
         else
             # Check if it's a CDK role issue
             if echo "$DELETE_RESULT" | grep -q "cdk-.*-cfn-exec-role.*is invalid"; then
-                echo "  CDK role issue detected, creating temporary role..."
+                echo "  CDK role issue - will retain all resources and delete stack"
                 
-                # Create temporary role
-                TEMP_ROLE_NAME="temp-cleanup-role-$(date +%s)"
-                ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+                # Get all resources in the stack
+                RESOURCES=$(aws cloudformation list-stack-resources --stack-name $stack --query 'StackResourceSummaries[].LogicalResourceId' --output text 2>/dev/null)
                 
-                aws iam create-role --role-name $TEMP_ROLE_NAME --assume-role-policy-document '{
-                    "Version": "2012-10-17",
-                    "Statement": [{
-                        "Effect": "Allow",
-                        "Principal": {"Service": "cloudformation.amazonaws.com"},
-                        "Action": "sts:AssumeRole"
-                    }]
-                }' >/dev/null 2>&1
-                
-                if [ $? -eq 0 ]; then
-                    # Attach policies
-                    aws iam attach-role-policy --role-name $TEMP_ROLE_NAME --policy-arn arn:aws:iam::aws:policy/PowerUserAccess >/dev/null 2>&1
-                    aws iam attach-role-policy --role-name $TEMP_ROLE_NAME --policy-arn arn:aws:iam::aws:policy/IAMFullAccess >/dev/null 2>&1
-                    
-                    sleep 5  # Wait for role to be available
-                    
-                    # Try deletion with temp role
-                    aws cloudformation delete-stack --stack-name $stack --role-arn "arn:aws:iam::${ACCOUNT_ID}:role/${TEMP_ROLE_NAME}" >/dev/null 2>&1
+                if [ -n "$RESOURCES" ]; then
+                    echo "  Retaining resources and deleting stack..."
+                    aws cloudformation delete-stack --stack-name $stack --retain-resources $RESOURCES >/dev/null 2>&1
                     if [ $? -eq 0 ]; then
-                        echo "  ✅ Deletion initiated with temporary role for $stack"
+                        echo "  ✅ Stack $stack deleted (resources retained)"
                     else
-                        echo "  ⚠️ Failed to delete $stack even with temporary role"
+                        echo "  ⚠️ Failed to delete $stack even with resource retention"
                     fi
-                    
-                    # Clean up temp role (background)
-                    (sleep 180; aws iam detach-role-policy --role-name $TEMP_ROLE_NAME --policy-arn arn:aws:iam::aws:policy/PowerUserAccess >/dev/null 2>&1; aws iam detach-role-policy --role-name $TEMP_ROLE_NAME --policy-arn arn:aws:iam::aws:policy/IAMFullAccess >/dev/null 2>&1; aws iam delete-role --role-name $TEMP_ROLE_NAME >/dev/null 2>&1) &
                 else
-                    echo "  ⚠️ Failed to create temporary role for $stack"
+                    echo "  ⚠️ Could not get resources for $stack"
                 fi
             else
                 # Try force deletion

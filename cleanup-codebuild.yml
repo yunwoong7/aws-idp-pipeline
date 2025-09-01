@@ -1,0 +1,198 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CodeBuild project for cleaning up AWS IDP AI Pipeline resources
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+    Description: Deployment stage to clean up
+  
+  RepoUrl:
+    Type: String
+    Default: 'https://github.com/yunwoong7/aws-idp-pipeline.git'
+    Description: Repository URL
+  
+  Version:
+    Type: String
+    Default: 'main'
+    Description: Branch or tag to use
+
+Resources:
+  CleanupCodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'aws-idp-ai-cleanup-codebuild-role-${Stage}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/PowerUserAccess
+      Policies:
+        - PolicyName: CleanupCodeBuildServiceRolePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:DeleteRole
+                  - iam:AttachRolePolicy
+                  - iam:DetachRolePolicy
+                  - iam:PutRolePolicy
+                  - iam:DeleteRolePolicy
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:PassRole
+                  - iam:TagRole
+                  - iam:UntagRole
+                  - iam:ListRolePolicies
+                  - iam:ListAttachedRolePolicies
+                  - iam:CreatePolicy
+                  - iam:DeletePolicy
+                  - iam:GetPolicy
+                  - iam:GetPolicyVersion
+                  - iam:ListPolicyVersions
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - iam:UpdateAssumeRolePolicy
+                  - iam:UpdateRole
+                Resource: 
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/cdk-*'
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/temp-cleanup-*'
+
+  CleanupCodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub 'aws-idp-ai-cleanup-${Stage}'
+      ServiceRole: !GetAtt CleanupCodeBuildServiceRole.Arn
+      Artifacts:
+        Type: NO_ARTIFACTS
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_LARGE
+        Image: aws/codebuild/standard:7.0
+        PrivilegedMode: false
+        EnvironmentVariables:
+          - Name: STAGE
+            Value: !Ref Stage
+          - Name: REPO_URL
+            Value: !Ref RepoUrl
+          - Name: VERSION
+            Value: !Ref Version
+          - Name: AWS_DEFAULT_REGION
+            Value: !Ref AWS::Region
+          - Name: AWS_ACCOUNT_ID
+            Value: !Ref AWS::AccountId
+      Source:
+        Type: NO_SOURCE
+        BuildSpec: |
+          version: 0.2
+          phases:
+            pre_build:
+              commands:
+                - echo "Installing dependencies..."
+                - npm install -g aws-cdk@latest
+                - npm install -g pnpm
+                - echo "Cloning repository..."
+                - git clone $REPO_URL /tmp/aws-idp-pipeline
+                - cd /tmp/aws-idp-pipeline
+                - git checkout $VERSION
+            build:
+              commands:
+                - echo "Starting cleanup..."
+                - cd /tmp/aws-idp-pipeline
+                - chmod +x cleanup.sh
+                
+                # Step 1: Delete S3, ECR, ACM resources directly
+                - echo "Step 1: Deleting S3 buckets, ECR repositories, ACM certificates..."
+                - |
+                  # Delete S3 buckets
+                  aws s3api list-buckets --query 'Buckets[?contains(Name, `aws-idp`)].Name' --output text | while read bucket; do
+                    if [ -n "$bucket" ]; then
+                      echo "Deleting S3 bucket: $bucket"
+                      aws s3 rm s3://$bucket --recursive 2>/dev/null || true
+                      aws s3 rb s3://$bucket --force 2>/dev/null || true
+                    fi
+                  done
+                  
+                  # Delete ECR repositories
+                  aws ecr describe-repositories --query 'repositories[?contains(repositoryName, `aws-idp`)].repositoryName' --output text | while read repo; do
+                    if [ -n "$repo" ]; then
+                      echo "Deleting ECR repository: $repo"
+                      aws ecr delete-repository --repository-name $repo --force 2>/dev/null || true
+                    fi
+                  done
+                  
+                  # Delete ACM certificates
+                  aws acm list-certificates --query 'CertificateSummaryList[?contains(DomainName, `aws-idp-ai`) || DomainName==`aws-idp-ai.internal`].CertificateArn' --output text | while read cert_arn; do
+                    if [ -n "$cert_arn" ]; then
+                      echo "Deleting ACM certificate: $cert_arn"
+                      aws acm delete-certificate --certificate-arn "$cert_arn" 2>/dev/null || true
+                    fi
+                  done
+                
+                # Step 2: Use CDK to destroy all stacks
+                - echo "Step 2: Destroying CDK stacks..."
+                - cd packages/infra
+                - pnpm install
+                - |
+                  cat > .toml << 'EOF'
+                  [app]
+                  ns = "aws-idp-ai"
+                  stage = "dev"
+                  EOF
+                - npx cdk destroy --all --force || echo "CDK destroy completed with some issues (normal)"
+                
+                # Step 3: Clean remaining resources
+                - echo "Step 3: Cleaning remaining resources..."
+                - cd /tmp/aws-idp-pipeline
+                - |
+                  # Delete any remaining CloudFormation stacks
+                  aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE DELETE_FAILED ROLLBACK_COMPLETE UPDATE_ROLLBACK_COMPLETE --query 'StackSummaries[?contains(StackName, `aws-idp-ai`)].StackName' --output text | while read stack; do
+                    if [ -n "$stack" ]; then
+                      echo "Deleting remaining stack: $stack"
+                      aws cloudformation delete-stack --stack-name $stack 2>/dev/null || true
+                    fi
+                  done
+                  
+                  # Clean up CDK bootstrap
+                  ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+                  REGION=$(aws configure get region)
+                  
+                  # Delete CDK bootstrap resources
+                  aws s3 rm s3://cdk-hnb659fds-assets-${ACCOUNT_ID}-${REGION} --recursive 2>/dev/null || true
+                  aws s3 rb s3://cdk-hnb659fds-assets-${ACCOUNT_ID}-${REGION} 2>/dev/null || true
+                  aws ecr delete-repository --repository-name cdk-hnb659fds-container-assets-${ACCOUNT_ID}-${REGION} --force 2>/dev/null || true
+                  aws cloudformation delete-stack --stack-name CDKToolkit 2>/dev/null || true
+                  
+                  # Delete CodeBuild deployment stack
+                  aws cloudformation delete-stack --stack-name aws-idp-ai-codebuild-deploy-${STAGE} 2>/dev/null || true
+            post_build:
+              commands:
+                - echo "Cleanup completed!"
+                - echo "All AWS IDP AI resources have been removed."
+      TimeoutInMinutes: 60
+
+Outputs:
+  CleanupProjectName:
+    Value: !Ref CleanupCodeBuildProject
+    Description: Cleanup CodeBuild project name
+    
+  CleanupCommand:
+    Value: !Sub |
+      aws codebuild start-build --project-name ${CleanupCodeBuildProject}
+    Description: Command to start cleanup process
