@@ -132,16 +132,16 @@ echo ""
 echo "Step 1: Pre-emptively emptying ALL S3 buckets before ECS deletion..."
 ALL_BUCKETS=$(aws s3api list-buckets --query 'Buckets[?contains(Name, `aws-idp-ai`)].Name' --output text 2>/dev/null)
 for bucket in $ALL_BUCKETS; do
-    echo "Force emptying bucket: $bucket"
-    # Delete all objects including versions
-    aws s3 rm s3://${bucket} --recursive 2>/dev/null
-    # Delete all object versions (for versioned buckets)
+    echo -n "Force emptying bucket: $bucket... "
+    # Delete all objects including versions (suppress output)
+    aws s3 rm s3://${bucket} --recursive >/dev/null 2>&1
+    # Delete all object versions (for versioned buckets) - suppress output
     aws s3api delete-objects --bucket ${bucket} \
-        --delete "$(aws s3api list-object-versions --bucket ${bucket} --query='{Objects: Versions[].{Key:Key,VersionId:VersionId}}' 2>/dev/null)" 2>/dev/null || true
-    # Delete all delete markers
+        --delete "$(aws s3api list-object-versions --bucket ${bucket} --query='{Objects: Versions[].{Key:Key,VersionId:VersionId}}' 2>/dev/null)" >/dev/null 2>&1 || true
+    # Delete all delete markers - suppress output
     aws s3api delete-objects --bucket ${bucket} \
-        --delete "$(aws s3api list-object-versions --bucket ${bucket} --query='{Objects: DeleteMarkers[].{Key:Key,VersionId:VersionId}}' 2>/dev/null)" 2>/dev/null || true
-    echo "✅ Bucket force emptied: $bucket"
+        --delete "$(aws s3api list-object-versions --bucket ${bucket} --query='{Objects: DeleteMarkers[].{Key:Key,VersionId:VersionId}}' 2>/dev/null)" >/dev/null 2>&1 || true
+    echo "✅ Done"
 done
 
 echo ""
