@@ -121,7 +121,6 @@ Resources:
                 "commands": [
                   "echo 'Starting cleanup'",
                   "cd /tmp/aws-idp-pipeline",
-                  "chmod +x cleanup.sh",
                   "echo 'Step 1 Destroying CDK stacks first'",
                   "cd packages/infra",
                   "pnpm install",

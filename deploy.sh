@@ -145,9 +145,9 @@ done
 
 # Validate CloudFormation template
 echo "Validating CloudFormation template..."
-aws cloudformation validate-template --template-body file://deploy.yml > /dev/null 2>&1
+aws cloudformation validate-template --template-body file://deploy-codebuild.yml > /dev/null 2>&1
 if [[ $? -ne 0 ]]; then
-    echo "❌ Template validation failed. Please ensure deploy.yml exists and is valid."
+    echo "❌ Template validation failed. Please ensure deploy-codebuild.yml exists and is valid."
     exit 1
 fi
 
@@ -157,7 +157,7 @@ StackName="aws-idp-ai-codebuild-deploy-${STAGE}"
 echo "Deploying CloudFormation stack for CodeBuild..."
 aws cloudformation deploy \
   --stack-name $StackName \
-  --template-file deploy.yml \
+  --template-file deploy-codebuild.yml \
   --capabilities CAPABILITY_IAM \
   --parameter-overrides \
     AdminUserEmail="$ADMIN_USER_EMAIL" \
