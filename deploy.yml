@@ -261,45 +261,45 @@ Resources:
                 - echo "Deploying OpenSearch stack..."
                 - npx cdk deploy aws-idp-ai-opensearch --require-approval never
                 
-                # Generate self-signed certificate and deploy Cognito if enabled
+                # Check for existing certificate or create new one if enabled
                 - |
                   if [ "$ENABLE_COGNITO" = "true" ]; then
-                    echo "Generating self-signed certificate for HTTPS..."
+                    echo "Checking for existing self-signed certificate..."
                     
-                    # Clean up existing aws-idp-ai.internal certificates
-                    echo "Cleaning up existing certificates..."
-                    EXISTING_CERTS=$(aws acm list-certificates --query 'CertificateSummaryList[?DomainName==`aws-idp-ai.internal`].CertificateArn' --output text 2>/dev/null || true)
-                    if [ -n "$EXISTING_CERTS" ]; then
-                      for CERT_TO_DELETE in $EXISTING_CERTS; do
-                        echo "Deleting certificate: $CERT_TO_DELETE"
-                        aws acm delete-certificate --certificate-arn "$CERT_TO_DELETE" 2>/dev/null || true
-                      done
+                    # Check for existing aws-idp-ai.internal certificates
+                    EXISTING_CERT=$(aws acm list-certificates --query 'CertificateSummaryList[?DomainName==`aws-idp-ai.internal`].CertificateArn' --output text 2>/dev/null || true)
+                    
+                    if [ -n "$EXISTING_CERT" ]; then
+                      echo "Found existing certificate: $EXISTING_CERT"
+                      CERT_ARN="$EXISTING_CERT"
+                    else
+                      echo "No existing certificate found. Generating new self-signed certificate..."
+                      
+                      # Clean up existing certificate files
+                      rm -rf certs/ 2>/dev/null || true
+                      
+                      # Create certs directory
+                      mkdir -p certs
+                      
+                      # Generate self-signed certificate
+                      openssl req -x509 -newkey rsa:2048 -sha256 -days 365 -nodes \
+                        -keyout "certs/private.key" \
+                        -out "certs/certificate.pem" \
+                        -subj "/CN=aws-idp-ai.internal" \
+                        -addext "subjectAltName=DNS:aws-idp-ai.internal"
+                      
+                      # Ensure certificate is in PEM format
+                      openssl x509 -in "certs/certificate.pem" -out "certs/certificate.pem" -outform PEM >/dev/null 2>&1
+                      
+                      # Import certificate to ACM
+                      CERT_ARN=$(aws acm import-certificate \
+                        --certificate fileb://certs/certificate.pem \
+                        --private-key fileb://certs/private.key \
+                        --output text \
+                        --query 'CertificateArn')
+                      
+                      echo "New certificate imported with ARN: $CERT_ARN"
                     fi
-                    
-                    # Clean up existing certificate files
-                    rm -rf certs/ 2>/dev/null || true
-                    
-                    # Create certs directory
-                    mkdir -p certs
-                    
-                    # Generate self-signed certificate
-                    openssl req -x509 -newkey rsa:2048 -sha256 -days 365 -nodes \
-                      -keyout "certs/private.key" \
-                      -out "certs/certificate.pem" \
-                      -subj "/CN=aws-idp-ai.internal" \
-                      -addext "subjectAltName=DNS:aws-idp-ai.internal"
-                    
-                    # Ensure certificate is in PEM format
-                    openssl x509 -in "certs/certificate.pem" -out "certs/certificate.pem" -outform PEM >/dev/null 2>&1
-                    
-                    # Import certificate to ACM
-                    CERT_ARN=$(aws acm import-certificate \
-                      --certificate fileb://certs/certificate.pem \
-                      --private-key fileb://certs/private.key \
-                      --output text \
-                      --query 'CertificateArn')
-                    
-                    echo "Certificate imported with ARN: $CERT_ARN"
                     
                     echo "Deploying Cognito stack..."
                     npx cdk deploy aws-idp-ai-cognito --require-approval never \
@@ -321,6 +321,9 @@ Resources:
                 - npx cdk deploy aws-idp-ai-api-gateway --require-approval never
                 
                 - echo "Deploying WebSocket API stack..."
+                - echo "Cleaning up existing WebSocket Lambda log groups..."
+                - aws logs delete-log-group --log-group-name "/aws/lambda/aws-idp-ai-websocket-connect-${STAGE}" 2>/dev/null || echo "Connect log group does not exist or already deleted"
+                - aws logs delete-log-group --log-group-name "/aws/lambda/aws-idp-ai-websocket-disconnect-${STAGE}" 2>/dev/null || echo "Disconnect log group does not exist or already deleted"
                 - npx cdk deploy aws-idp-ai-websocket-api --require-approval never
                 
                 # Get API URLs for frontend build
@@ -335,26 +338,27 @@ Resources:
                 - echo "Building and pushing container images..."
                 - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
                 
-                # Build backend container
+                # Build backend container (from project root)
                 - echo "Building backend container..."
-                - cd ../backend
-                - docker build -t aws-idp-backend-${STAGE}:latest .
+                - cd /tmp/aws-idp-pipeline
+                - docker build --platform linux/amd64 -f packages/backend/Dockerfile -t aws-idp-backend-${STAGE}:latest .
                 - docker tag aws-idp-backend-${STAGE}:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/aws-idp-backend-${STAGE}:latest
                 - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/aws-idp-backend-${STAGE}:latest
                 
-                # Build frontend container with environment variables
+                # Build frontend container with environment variables (from project root)
                 - echo "Building frontend container..."
-                - cd ../frontend
                 - |
-                  docker build -t aws-idp-frontend-${STAGE}:latest \
+                  docker build --platform linux/amd64 \
+                    -f packages/frontend/Dockerfile \
                     --build-arg NEXT_PUBLIC_API_BASE_URL="$API_GATEWAY_URL" \
                     --build-arg NEXT_PUBLIC_WEBSOCKET_URL="$WEBSOCKET_URL" \
+                    -t aws-idp-frontend-${STAGE}:latest \
                     .
                 - docker tag aws-idp-frontend-${STAGE}:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/aws-idp-frontend-${STAGE}:latest
                 - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/aws-idp-frontend-${STAGE}:latest
                 
                 # Return to infra directory
-                - cd ../infra
+                - cd packages/infra
                 
                 - echo "Deploying ECS stack..."
                 - |
