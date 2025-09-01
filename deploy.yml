@@ -267,11 +267,25 @@ Resources:
                     echo "Checking for existing self-signed certificate..."
                     
                     # Check for existing aws-idp-ai.internal certificates
-                    EXISTING_CERT=$(aws acm list-certificates --query 'CertificateSummaryList[?DomainName==`aws-idp-ai.internal`].CertificateArn' --output text 2>/dev/null || true)
+                    EXISTING_CERTS=$(aws acm list-certificates --query 'CertificateSummaryList[?DomainName==`aws-idp-ai.internal`].CertificateArn' --output text 2>/dev/null || true)
                     
-                    if [ -n "$EXISTING_CERT" ]; then
-                      echo "Found existing certificate: $EXISTING_CERT"
-                      CERT_ARN="$EXISTING_CERT"
+                    # Count number of certificates
+                    CERT_COUNT=$(echo "$EXISTING_CERTS" | wc -w)
+                    
+                    if [ "$CERT_COUNT" -gt 1 ]; then
+                      echo "Found $CERT_COUNT certificates for aws-idp-ai.internal, using the first one"
+                      CERT_ARN=$(echo "$EXISTING_CERTS" | awk '{print $1}')
+                      echo "Using certificate: $CERT_ARN"
+                      
+                      # Optional: Clean up extra certificates
+                      echo "Cleaning up duplicate certificates..."
+                      for EXTRA_CERT in $(echo "$EXISTING_CERTS" | awk '{for(i=2;i<=NF;i++) print $i}'); do
+                        echo "Deleting duplicate certificate: $EXTRA_CERT"
+                        aws acm delete-certificate --certificate-arn "$EXTRA_CERT" 2>/dev/null || echo "Could not delete $EXTRA_CERT (may be in use)"
+                      done
+                    elif [ -n "$EXISTING_CERTS" ]; then
+                      CERT_ARN="$EXISTING_CERTS"
+                      echo "Found existing certificate: $CERT_ARN"
                     else
                       echo "No existing certificate found. Generating new self-signed certificate..."
                       
