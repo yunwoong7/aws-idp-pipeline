@@ -132,6 +132,7 @@ echo ""
 echo "Step 1: Deleting service stacks..."
 delete_stack "aws-idp-ai-ecs-${STAGE}"
 delete_stack "aws-idp-ai-ecs"  # Try without stage suffix
+delete_stack "aws-idp-ai-indices-management"
 delete_stack "aws-idp-ai-document-management"
 delete_stack "aws-idp-ai-step-functions"
 delete_stack "aws-idp-ai-workflow-${STAGE}"

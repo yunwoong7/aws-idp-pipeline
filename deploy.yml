@@ -347,9 +347,25 @@ Resources:
                 - |
                   echo "Getting API Gateway and WebSocket URLs..."
                   API_GATEWAY_URL=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-api-gateway --query 'Stacks[0].Outputs[?OutputKey==`ApiGatewayEndpoint`].OutputValue' --output text)
-                  WEBSOCKET_URL=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-websocket-api --query 'Stacks[0].Outputs[?OutputKey==`WebSocketApiEndpointOutput`].OutputValue' --output text)
+                  WEBSOCKET_BASE_URL=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-websocket-api --query 'Stacks[0].Outputs[?OutputKey==`WebSocketApiEndpointOutput`].OutputValue' --output text)
+                  WEBSOCKET_STAGE=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-websocket-api --query 'Stacks[0].Outputs[?OutputKey==`WebSocketStageNameOutput`].OutputValue' --output text)
+                  
+                  # Construct full WebSocket URL with stage (matching deploy-infra.sh pattern)
+                  if [ -n "$WEBSOCKET_BASE_URL" ] && [ -n "$WEBSOCKET_STAGE" ]; then
+                    # Check if stage is already included in the base URL
+                    if [[ "$WEBSOCKET_BASE_URL" == *"/$WEBSOCKET_STAGE" ]]; then
+                      WEBSOCKET_URL="$WEBSOCKET_BASE_URL"
+                    else
+                      WEBSOCKET_URL="${WEBSOCKET_BASE_URL}/${WEBSOCKET_STAGE}"
+                    fi
+                  else
+                    WEBSOCKET_URL="$WEBSOCKET_BASE_URL"
+                  fi
+                  
                   echo "API Gateway URL: $API_GATEWAY_URL"
-                  echo "WebSocket URL: $WEBSOCKET_URL"
+                  echo "WebSocket Base URL: $WEBSOCKET_BASE_URL"
+                  echo "WebSocket Stage: $WEBSOCKET_STAGE"
+                  echo "WebSocket Full URL: $WEBSOCKET_URL"
                 
                 # Build and push Docker images to ECR
                 - echo "Building and pushing container images..."
