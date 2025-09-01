@@ -147,7 +147,7 @@ Resources:
                 - npm install -g aws-cdk@latest
                 - npm install -g pnpm
                 - echo "Cloning repository..."
-                - git clone --depth 1 --branch main $REPO_URL /tmp/aws-idp-pipeline
+                - git clone --depth 1 --branch main "$REPO_URL" /tmp/aws-idp-pipeline
                 - cd /tmp/aws-idp-pipeline
                 - echo "Using latest commit from main branch: $(git rev-parse HEAD)"
             build:
@@ -155,37 +155,33 @@ Resources:
                 - echo "Starting deployment..."
                 - cd /tmp/aws-idp-pipeline
                 - pnpm install
-                
-                # Deploy CDK stacks
                 - echo "Deploying CDK stacks..."
                 - cd packages/infra
-                
-                # Create .toml config file first
                 - echo "Creating .toml configuration..."
                 - |
-                  cat > .toml << EOF
+                  cat > .toml << 'EOF'
                   [app]
                   ns = "aws-idp-ai"
                   stage = "$STAGE"
-                  
+
                   [dynamodb]
                   documentsTableName = "aws-idp-ai-documents"
                   pagesTableName = "aws-idp-ai-pages"
-                  
+
                   [s3]
                   documentsBucketName = "aws-idp-ai-documents"
-                  
+
                   [opensearch]
                   domainName = "aws-idp-ai-opensearch"
                   indexName = "aws-idp-ai-analysis"
                   instanceType = "t3.small.search"
                   instanceCount = 1
                   dedicatedMasterEnabled = false
-                  
+
                   [apigateway]
                   throttleRateLimit = 1000
                   throttleBurstLimit = 2000
-                  
+
                   [bedrock]
                   analysisAgentModelId = "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
                   analysisAgentMaxToken = 8192
@@ -200,77 +196,55 @@ Resources:
                   vectorWeight = 0.6
                   keywordWeight = 0.4
                   searchThresholdScore = 0.4
-                  
+
                   [search]
                   hybridSearchSize = 25
                   rerankTopN = 10
                   maxSearchSize = 100
                   rerankScoreThreshold = 0.07
-                  
+
                   [analysis]
                   previousAnalysisMaxCharacters = 1000000000
                   maxIterations = 10
-                  
+
                   [lambda]
                   timeout = 30
                   memorySize = 512
                   runtime = "python3.13"
-                  
+
                   [stepfunctions]
                   documentProcessingTimeout = 6000
                   maxConcurrency = 10
-                  
+
                   [sqs]
                   sqsBatchSize = 1
                   reservedConcurrency = 1
                   EOF
-                
-                # Install infra dependencies
                 - echo "Installing infra dependencies..."
                 - pnpm install
-                
-                # Bootstrap CDK if needed
                 - echo "Bootstrapping CDK..."
                 - npx cdk bootstrap aws://$AWS_ACCOUNT_ID/$AWS_DEFAULT_REGION --require-approval never
-                
-                # Deploy ECR stack first (needed for container images)
                 - echo "Deploying ECR stack..."
                 - npx cdk deploy aws-idp-ai-ecr --require-approval never
-                
-                # Deploy infrastructure stacks
                 - echo "Deploying VPC stack..."
                 - npx cdk deploy aws-idp-ai-vpc --require-approval never
-                
                 - echo "Deploying DynamoDB stack..."
                 - npx cdk deploy aws-idp-ai-dynamodb --require-approval never
-                
                 - echo "Deploying S3 stack..."
                 - npx cdk deploy aws-idp-ai-s3 --require-approval never
-                
-                # Create OpenSearch Service-Linked Role before deploying OpenSearch
                 - echo "Creating OpenSearch Service-Linked Role..."
                 - aws iam create-service-linked-role --aws-service-name opensearch.amazonaws.com || echo "Service-Linked Role already exists"
-                
                 - echo "Deploying OpenSearch stack..."
                 - npx cdk deploy aws-idp-ai-opensearch --require-approval never
-                
-                # Check for existing certificate or create new one if enabled
                 - |
                   if [ "$ENABLE_COGNITO" = "true" ]; then
                     echo "Checking for existing self-signed certificate..."
-                    
-                    # Check for existing aws-idp-ai.internal certificates
                     EXISTING_CERTS=$(aws acm list-certificates --query 'CertificateSummaryList[?DomainName==`aws-idp-ai.internal`].CertificateArn' --output text 2>/dev/null || true)
-                    
-                    # Count number of certificates
                     CERT_COUNT=$(echo "$EXISTING_CERTS" | wc -w)
-                    
                     if [ "$CERT_COUNT" -gt 1 ]; then
                       echo "Found $CERT_COUNT certificates for aws-idp-ai.internal, using the first one"
                       CERT_ARN=$(echo "$EXISTING_CERTS" | awk '{print $1}')
                       echo "Using certificate: $CERT_ARN"
-                      
-                      # Optional: Clean up extra certificates
                       echo "Cleaning up duplicate certificates..."
                       for EXTRA_CERT in $(echo "$EXISTING_CERTS" | awk '{for(i=2;i<=NF;i++) print $i}'); do
                         echo "Deleting duplicate certificate: $EXTRA_CERT"
@@ -281,33 +255,21 @@ Resources:
                       echo "Found existing certificate: $CERT_ARN"
                     else
                       echo "No existing certificate found. Generating new self-signed certificate..."
-                      
-                      # Clean up existing certificate files
                       rm -rf certs/ 2>/dev/null || true
-                      
-                      # Create certs directory
                       mkdir -p certs
-                      
-                      # Generate self-signed certificate
                       openssl req -x509 -newkey rsa:2048 -sha256 -days 365 -nodes \
                         -keyout "certs/private.key" \
                         -out "certs/certificate.pem" \
                         -subj "/CN=aws-idp-ai.internal" \
                         -addext "subjectAltName=DNS:aws-idp-ai.internal"
-                      
-                      # Ensure certificate is in PEM format
                       openssl x509 -in "certs/certificate.pem" -out "certs/certificate.pem" -outform PEM >/dev/null 2>&1
-                      
-                      # Import certificate to ACM
                       CERT_ARN=$(aws acm import-certificate \
                         --certificate fileb://certs/certificate.pem \
                         --private-key fileb://certs/private.key \
                         --output text \
                         --query 'CertificateArn')
-                      
                       echo "New certificate imported with ARN: $CERT_ARN"
                     fi
-                    
                     echo "Deploying Cognito stack..."
                     npx cdk deploy aws-idp-ai-cognito --require-approval never \
                       --context adminUserEmail="$ADMIN_USER_EMAIL" \
@@ -316,43 +278,30 @@ Resources:
                   else
                     CERT_ARN=""
                   fi
-                
-                # Deploy service stacks
                 - echo "Deploying Workflow stack..."
                 - npx cdk deploy aws-idp-ai-workflow --require-approval never
-                
                 - echo "Deploying Document Management stack..."
                 - npx cdk deploy aws-idp-ai-document-management --require-approval never
-                
                 - echo "Deploying API Gateway stack..."
                 - npx cdk deploy aws-idp-ai-api-gateway --require-approval never
-                
                 - echo "Deploying WebSocket API stack..."
                 - echo "Cleaning up existing WebSocket Lambda log groups..."
                 - aws logs delete-log-group --log-group-name "/aws/lambda/aws-idp-ai-websocket-connect-${STAGE}" 2>/dev/null || echo "Connect log group does not exist or already deleted"
                 - aws logs delete-log-group --log-group-name "/aws/lambda/aws-idp-ai-websocket-disconnect-${STAGE}" 2>/dev/null || echo "Disconnect log group does not exist or already deleted"
                 - npx cdk deploy aws-idp-ai-websocket-api --require-approval never
-                
-                # Get API URLs for frontend build
                 - |
                   echo "Getting API Gateway and WebSocket URLs..."
                   API_GATEWAY_URL=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-api-gateway --query 'Stacks[0].Outputs[?OutputKey==`ApiGatewayEndpoint`].OutputValue' --output text)
                   WEBSOCKET_URL=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-websocket-api --query 'Stacks[0].Outputs[?OutputKey==`WebSocketApiEndpointOutput`].OutputValue' --output text)
                   echo "API Gateway URL: $API_GATEWAY_URL"
                   echo "WebSocket URL: $WEBSOCKET_URL"
-                
-                # Build and push Docker images to ECR
                 - echo "Building and pushing container images..."
                 - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
-                
-                # Build backend container (from project root)
                 - echo "Building backend container..."
                 - cd /tmp/aws-idp-pipeline
                 - docker build --platform linux/amd64 -f packages/backend/Dockerfile -t aws-idp-backend-${STAGE}:latest .
                 - docker tag aws-idp-backend-${STAGE}:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/aws-idp-backend-${STAGE}:latest
                 - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/aws-idp-backend-${STAGE}:latest
-                
-                # Build frontend container with environment variables (from project root)
                 - echo "Building frontend container..."
                 - |
                   docker build --platform linux/amd64 \
@@ -363,10 +312,7 @@ Resources:
                     .
                 - docker tag aws-idp-frontend-${STAGE}:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/aws-idp-frontend-${STAGE}:latest
                 - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/aws-idp-frontend-${STAGE}:latest
-                
-                # Return to infra directory
                 - cd packages/infra
-                
                 - echo "Deploying ECS stack..."
                 - |
                   if [ "$USE_CUSTOM_DOMAIN" = "true" ]; then
@@ -394,15 +340,11 @@ Resources:
                         --context useCustomDomain="false"
                     fi
                   fi
-                
-                # Force ECS service update to use new images
                 - |
                   echo "Forcing ECS service update to use new Docker images..."
                   aws ecs update-service --cluster aws-idp-cluster-${STAGE} --service aws-idp-frontend-${STAGE} --force-new-deployment || echo "Frontend service update failed or not found"
                   aws ecs update-service --cluster aws-idp-cluster-${STAGE} --service aws-idp-backend-${STAGE} --force-new-deployment || echo "Backend service update failed or not found"
                   echo "ECS service updates initiated"
-                
-                # Get outputs
                 - |
                   echo "Getting stack outputs..."
                   ALB_URL=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-ecs --query 'Stacks[0].Outputs[?OutputKey==`LoadBalancerDnsName`].OutputValue' --output text)
@@ -412,7 +354,6 @@ Resources:
                     FRONTEND_URL="https://${ALB_URL}"
                   fi
                   echo "FrontendURL = $FRONTEND_URL"
-                  
                   if [ "$ENABLE_COGNITO" = "true" ]; then
                     TEMP_PASSWORD=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-cognito --query 'Stacks[0].Outputs[?OutputKey==`TemporaryPassword`].OutputValue' --output text)
                     ADMIN_USERNAME=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-cognito --query 'Stacks[0].Outputs[?OutputKey==`AdminUsername`].OutputValue' --output text)
