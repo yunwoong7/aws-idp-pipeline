@@ -7,7 +7,7 @@ Parameters:
     Description: Admin user email for Cognito authentication
     AllowedPattern: '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     ConstraintDescription: Must be a valid email address
-  
+
   Stage:
     Type: String
     Default: dev
@@ -46,7 +46,6 @@ Parameters:
     Type: String
     Default: 'https://github.com/yunwoong7/aws-idp-pipeline.git'
     Description: Repository URL
-  
 
 Resources:
   CodeBuildServiceRole:
