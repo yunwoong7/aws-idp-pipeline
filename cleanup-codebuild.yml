@@ -153,14 +153,7 @@ Resources:
                   "aws cloudformation delete-stack --stack-name aws-idp-ai-codebuild-deploy-${STAGE} 2>/dev/null || true",
                   "echo 'Step 5 Checking if all stacks are deleted before removing CDK Bootstrap'",
                   "REMAINING_STACKS=$(aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE DELETE_FAILED ROLLBACK_COMPLETE --query \"StackSummaries[?contains(StackName, 'aws-idp-ai') && !contains(StackName, 'cleanup-codebuild')].StackName\" --output text)",
-                  "if [ -z \"$REMAINING_STACKS\" ]; then",
-                  "  echo 'All aws-idp-ai stacks successfully deleted. Removing CDK Bootstrap stack...'",
-                  "  aws cloudformation delete-stack --stack-name CDKToolkit 2>/dev/null || true",
-                  "else",
-                  "  echo 'Warning: Some stacks still exist. Keeping CDK Bootstrap stack:'",
-                  "  echo \"$REMAINING_STACKS\"",
-                  "  echo 'Please manually delete these stacks and then remove CDKToolkit stack'",
-                  "fi"
+                  "if [ -z \"$REMAINING_STACKS\" ]; then echo 'All aws-idp-ai stacks successfully deleted. Removing CDK Bootstrap stack...'; aws cloudformation delete-stack --stack-name CDKToolkit 2>/dev/null || true; else echo 'Warning: Some stacks still exist. Keeping CDK Bootstrap stack:'; echo \"$REMAINING_STACKS\"; echo 'Please manually delete these stacks and then remove CDKToolkit stack'; fi"
                 ]
               },
               "post_build": {
