@@ -62,12 +62,12 @@ done
 echo ""
 echo "Step 1: Pre-emptively emptying ALL S3 buckets and ECR repositories..."
 
-# Empty all S3 buckets first
-echo "Emptying S3 buckets..."
+# Empty and delete all S3 buckets
+echo "Emptying and deleting S3 buckets..."
 ALL_BUCKETS=$(aws s3api list-buckets --query 'Buckets[?contains(Name, `aws-idp`)].Name' --output text 2>/dev/null)
 
 for bucket in $ALL_BUCKETS; do
-    echo -n "Force emptying bucket: $bucket... "
+    echo -n "Force deleting bucket: $bucket... "
     # Delete all objects including versions (suppress output)
     aws s3 rm s3://${bucket} --recursive >/dev/null 2>&1
     # Delete all object versions (for versioned buckets) - suppress output
@@ -76,7 +76,13 @@ for bucket in $ALL_BUCKETS; do
     # Delete all delete markers - suppress output
     aws s3api delete-objects --bucket ${bucket} \
         --delete "$(aws s3api list-object-versions --bucket ${bucket} --query='{Objects: DeleteMarkers[].{Key:Key,VersionId:VersionId}}' 2>/dev/null)" >/dev/null 2>&1 || true
-    echo "✅ Done"
+    # Delete the bucket itself
+    aws s3 rb s3://${bucket} --force >/dev/null 2>&1
+    if [ $? -eq 0 ]; then
+        echo "✅ Done"
+    else
+        echo "⚠️ Failed to delete bucket"
+    fi
 done
 
 # Force delete all ECR repositories with images
@@ -92,47 +98,137 @@ for repo in $ECR_REPOS; do
     fi
 done
 
-echo ""
-echo "Step 2: Deleting all CDK stacks..."
-# Navigate to infra directory and run CDK destroy
-CURRENT_DIR=$(pwd)
-cd packages/infra 2>/dev/null || cd ../packages/infra 2>/dev/null || cd ../../packages/infra 2>/dev/null || {
-    echo "Could not find packages/infra directory"
-    exit 1
-}
-
-# Install necessary dependencies if needed
-if ! command -v tsx >/dev/null 2>&1; then
-    echo "Installing required dependencies..."
-    npm install tsx --save-dev 2>/dev/null || pnpm add -D tsx 2>/dev/null || true
-fi
-
-# Create .toml file if it doesn't exist
-if [ ! -f ".toml" ]; then
-    echo "Creating .toml configuration..."
-    cat > .toml << 'EOF'
-[app]
-ns = "aws-idp-ai"
-stage = "dev"
-EOF
-fi
-
-# Destroy all CDK stacks
-echo "Running CDK destroy --all..."
-npx cdk destroy --all --force
-
-cd "$CURRENT_DIR"
+# Delete AWS Certificate Manager certificates
+echo "Deleting ACM certificates..."
+ACM_CERTS=$(aws acm list-certificates --query 'CertificateSummaryList[?contains(DomainName, `aws-idp-ai`) || DomainName==`aws-idp-ai.internal`].CertificateArn' --output text 2>/dev/null)
+for cert_arn in $ACM_CERTS; do
+    echo -n "Deleting ACM certificate: $cert_arn... "
+    aws acm delete-certificate --certificate-arn "$cert_arn" 2>/dev/null
+    if [ $? -eq 0 ]; then
+        echo "✅ Done"
+    else
+        echo "⚠️ Failed (may be in use)"
+    fi
+done
 
 echo ""
-echo "Step 3: Cleaning up CDK bootstrap..."
-cd packages/infra 2>/dev/null || cd ../packages/infra 2>/dev/null || cd ../../packages/infra 2>/dev/null || {
-    echo "Could not find packages/infra directory for bootstrap cleanup"
-}
+echo "Step 2: Deleting all CloudFormation stacks..."
 
-echo "Running cdk bootstrap --cleanup..."
-npx cdk bootstrap --cleanup
+# List of all stacks in dependency order (reverse for deletion)
+STACKS=(
+    "aws-idp-ai-ecs"
+    "aws-idp-ai-ecs-${STAGE}"
+    "aws-idp-ai-api-gateway"
+    "aws-idp-ai-websocket-api"
+    "aws-idp-ai-indices-management"
+    "aws-idp-ai-document-management"
+    "aws-idp-ai-workflow"
+    "aws-idp-ai-workflow-${STAGE}"
+    "aws-idp-ai-cognito"
+    "aws-idp-ai-cognito-${STAGE}"
+    "aws-idp-ai-dynamodb-streams"
+    "aws-idp-ai-opensearch"
+    "aws-idp-ai-s3"
+    "aws-idp-ai-dynamodb"
+    "aws-idp-ai-lambda-layer"
+    "aws-idp-ai-ecr"
+    "aws-idp-ai-vpc"
+)
 
-cd "$CURRENT_DIR"
+# Delete each stack
+for stack in "${STACKS[@]}"; do
+    # Check if stack exists
+    aws cloudformation describe-stacks --stack-name $stack >/dev/null 2>&1
+    if [ $? -eq 0 ]; then
+        echo "Deleting stack: $stack"
+        aws cloudformation delete-stack --stack-name $stack 2>/dev/null
+        if [ $? -eq 0 ]; then
+            echo "  ✅ Deletion initiated for $stack"
+        else
+            echo "  ⚠️ Failed to initiate deletion for $stack"
+        fi
+    else
+        echo "Stack $stack does not exist, skipping..."
+    fi
+done
+
+echo ""
+echo "Waiting for stack deletions to complete..."
+echo "This may take 15-20 minutes (OpenSearch deletion can be slow)..."
+
+# Wait for all stacks to be deleted (with extended timeout)
+TIMEOUT=1800  # 30 minutes (OpenSearch can take 15+ minutes)
+ELAPSED=0
+LAST_STATUS_CHECK=0
+
+while [ $ELAPSED -lt $TIMEOUT ]; do
+    REMAINING_STACKS=""
+    for stack in "${STACKS[@]}"; do
+        aws cloudformation describe-stacks --stack-name $stack >/dev/null 2>&1
+        if [ $? -eq 0 ]; then
+            STATUS=$(aws cloudformation describe-stacks --stack-name $stack --query 'Stacks[0].StackStatus' --output text 2>/dev/null)
+            REMAINING_STACKS="$REMAINING_STACKS $stack"
+            
+            # Special handling for OpenSearch
+            if [[ "$stack" == *"opensearch"* ]] && [ "$STATUS" == "DELETE_IN_PROGRESS" ]; then
+                if [ $((ELAPSED - LAST_STATUS_CHECK)) -ge 60 ]; then
+                    echo ""
+                    echo "  ⏳ OpenSearch stack is still deleting (this can take 15+ minutes)..."
+                    LAST_STATUS_CHECK=$ELAPSED
+                fi
+            elif [ "$STATUS" != "DELETE_IN_PROGRESS" ] && [ "$STATUS" != "DELETE_COMPLETE" ]; then
+                echo ""
+                echo "  ⚠️ Stack $stack is in status: $STATUS"
+            fi
+        fi
+    done
+    
+    if [ -z "$REMAINING_STACKS" ]; then
+        echo ""
+        echo "✅ All stacks deleted successfully"
+        break
+    fi
+    
+    # Show progress with elapsed time every minute
+    if [ $((ELAPSED % 60)) -eq 0 ] && [ $ELAPSED -gt 0 ]; then
+        echo -n " [${ELAPSED}s elapsed]"
+    else
+        echo -n "."
+    fi
+    
+    sleep 10
+    ELAPSED=$((ELAPSED + 10))
+done
+
+if [ $ELAPSED -ge $TIMEOUT ]; then
+    echo ""
+    echo "⚠️ Timeout after 30 minutes. Remaining stacks: $REMAINING_STACKS"
+    echo "   You may need to check these stacks manually in the AWS Console."
+fi
+
+echo ""
+echo "Step 3: Cleaning up CDK bootstrap resources..."
+
+# Get account and region info
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null)
+REGION=$(aws configure get region 2>/dev/null || echo "us-west-2")
+
+# Delete CDK bootstrap stack
+echo "Deleting CDKToolkit stack..."
+aws cloudformation delete-stack --stack-name CDKToolkit 2>/dev/null
+if [ $? -eq 0 ]; then
+    echo "✅ CDKToolkit stack deletion initiated"
+fi
+
+# Manually clean up CDK bootstrap resources
+echo "Cleaning up CDK S3 bucket..."
+CDK_BUCKET="cdk-hnb659fds-assets-${ACCOUNT_ID}-${REGION}"
+aws s3 rm s3://$CDK_BUCKET --recursive 2>/dev/null
+aws s3 rb s3://$CDK_BUCKET 2>/dev/null
+
+echo "Cleaning up CDK ECR repository..."
+CDK_ECR="cdk-hnb659fds-container-assets-${ACCOUNT_ID}-${REGION}"
+aws ecr delete-repository --repository-name $CDK_ECR --force 2>/dev/null
 
 echo ""
 echo "Step 4: Deleting CodeBuild deployment stack..."
