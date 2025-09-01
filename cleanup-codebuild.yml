@@ -116,71 +116,56 @@ Resources:
                 - echo "Starting cleanup..."
                 - cd /tmp/aws-idp-pipeline
                 - chmod +x cleanup.sh
-                
-                # Step 1: Delete S3, ECR, ACM resources directly
-                - echo "Step 1: Deleting S3 buckets, ECR repositories, ACM certificates..."
+                - echo "Step 1 - Deleting S3 buckets, ECR repositories, ACM certificates..."
+                - aws s3api list-buckets --query 'Buckets[?contains(Name, `aws-idp`)].Name' --output text > /tmp/buckets.txt
                 - |
-                  # Delete S3 buckets
-                  aws s3api list-buckets --query 'Buckets[?contains(Name, `aws-idp`)].Name' --output text | while read bucket; do
+                  while read bucket; do
                     if [ -n "$bucket" ]; then
                       echo "Deleting S3 bucket: $bucket"
                       aws s3 rm s3://$bucket --recursive 2>/dev/null || true
                       aws s3 rb s3://$bucket --force 2>/dev/null || true
                     fi
-                  done
-                  
-                  # Delete ECR repositories
-                  aws ecr describe-repositories --query 'repositories[?contains(repositoryName, `aws-idp`)].repositoryName' --output text | while read repo; do
+                  done < /tmp/buckets.txt
+                - aws ecr describe-repositories --query 'repositories[?contains(repositoryName, `aws-idp`)].repositoryName' --output text > /tmp/repos.txt
+                - |
+                  while read repo; do
                     if [ -n "$repo" ]; then
                       echo "Deleting ECR repository: $repo"
                       aws ecr delete-repository --repository-name $repo --force 2>/dev/null || true
                     fi
-                  done
-                  
-                  # Delete ACM certificates
-                  aws acm list-certificates --query 'CertificateSummaryList[?contains(DomainName, `aws-idp-ai`) || DomainName==`aws-idp-ai.internal`].CertificateArn' --output text | while read cert_arn; do
+                  done < /tmp/repos.txt
+                - aws acm list-certificates --query 'CertificateSummaryList[?contains(DomainName, `aws-idp-ai`) || DomainName==`aws-idp-ai.internal`].CertificateArn' --output text > /tmp/certs.txt
+                - |
+                  while read cert_arn; do
                     if [ -n "$cert_arn" ]; then
                       echo "Deleting ACM certificate: $cert_arn"
                       aws acm delete-certificate --certificate-arn "$cert_arn" 2>/dev/null || true
                     fi
-                  done
-                
-                # Step 2: Use CDK to destroy all stacks
-                - echo "Step 2: Destroying CDK stacks..."
+                  done < /tmp/certs.txt
+                - echo "Step 2 - Destroying CDK stacks..."
                 - cd packages/infra
                 - pnpm install
-                - |
-                  cat > .toml << 'EOF'
-                  [app]
-                  ns = "aws-idp-ai"
-                  stage = "dev"
-                  EOF
+                - echo '[app]' > .toml
+                - echo 'ns = "aws-idp-ai"' >> .toml
+                - echo 'stage = "dev"' >> .toml
                 - npx cdk destroy --all --force || echo "CDK destroy completed with some issues (normal)"
-                
-                # Step 3: Clean remaining resources
-                - echo "Step 3: Cleaning remaining resources..."
+                - echo "Step 3 - Cleaning remaining resources..."
                 - cd /tmp/aws-idp-pipeline
+                - aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE DELETE_FAILED ROLLBACK_COMPLETE UPDATE_ROLLBACK_COMPLETE --query 'StackSummaries[?contains(StackName, `aws-idp-ai`)].StackName' --output text > /tmp/stacks.txt
                 - |
-                  # Delete any remaining CloudFormation stacks
-                  aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE DELETE_FAILED ROLLBACK_COMPLETE UPDATE_ROLLBACK_COMPLETE --query 'StackSummaries[?contains(StackName, `aws-idp-ai`)].StackName' --output text | while read stack; do
+                  while read stack; do
                     if [ -n "$stack" ]; then
                       echo "Deleting remaining stack: $stack"
                       aws cloudformation delete-stack --stack-name $stack 2>/dev/null || true
                     fi
-                  done
-                  
-                  # Clean up CDK bootstrap
-                  ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-                  REGION=$(aws configure get region)
-                  
-                  # Delete CDK bootstrap resources
-                  aws s3 rm s3://cdk-hnb659fds-assets-${ACCOUNT_ID}-${REGION} --recursive 2>/dev/null || true
-                  aws s3 rb s3://cdk-hnb659fds-assets-${ACCOUNT_ID}-${REGION} 2>/dev/null || true
-                  aws ecr delete-repository --repository-name cdk-hnb659fds-container-assets-${ACCOUNT_ID}-${REGION} --force 2>/dev/null || true
-                  aws cloudformation delete-stack --stack-name CDKToolkit 2>/dev/null || true
-                  
-                  # Delete CodeBuild deployment stack
-                  aws cloudformation delete-stack --stack-name aws-idp-ai-codebuild-deploy-${STAGE} 2>/dev/null || true
+                  done < /tmp/stacks.txt
+                - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+                - REGION=$(aws configure get region)
+                - aws s3 rm s3://cdk-hnb659fds-assets-${ACCOUNT_ID}-${REGION} --recursive 2>/dev/null || true
+                - aws s3 rb s3://cdk-hnb659fds-assets-${ACCOUNT_ID}-${REGION} 2>/dev/null || true
+                - aws ecr delete-repository --repository-name cdk-hnb659fds-container-assets-${ACCOUNT_ID}-${REGION} --force 2>/dev/null || true
+                - aws cloudformation delete-stack --stack-name CDKToolkit 2>/dev/null || true
+                - aws cloudformation delete-stack --stack-name aws-idp-ai-codebuild-deploy-${STAGE} 2>/dev/null || true
             post_build:
               commands:
                 - echo "Cleanup completed!"
