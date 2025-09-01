@@ -1,6 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: CodeBuild project for cleaning up AWS IDP AI Pipeline resources
-
 Parameters:
   Stage:
     Type: String
@@ -9,17 +8,14 @@ Parameters:
       - dev
       - prod
     Description: Deployment stage to clean up
-  
   RepoUrl:
     Type: String
     Default: 'https://github.com/yunwoong7/aws-idp-pipeline.git'
     Description: Repository URL
-  
   Version:
     Type: String
     Default: 'main'
     Description: Branch or tag to use
-
 Resources:
   CleanupCodeBuildServiceRole:
     Type: AWS::IAM::Role
@@ -73,7 +69,6 @@ Resources:
                 Resource: 
                   - !Sub 'arn:aws:iam::${AWS::AccountId}:role/cdk-*'
                   - !Sub 'arn:aws:iam::${AWS::AccountId}:role/temp-cleanup-*'
-
   CleanupCodeBuildProject:
     Type: AWS::CodeBuild::Project
     Properties:
@@ -146,12 +141,10 @@ Resources:
                 - echo "Cleanup completed!"
                 - echo "All AWS IDP AI resources have been removed."
       TimeoutInMinutes: 60
-
 Outputs:
   CleanupProjectName:
     Value: !Ref CleanupCodeBuildProject
     Description: Cleanup CodeBuild project name
-    
   CleanupCommand:
     Value: !Sub 'aws codebuild start-build --project-name ${CleanupCodeBuildProject}'
     Description: Command to start cleanup process
