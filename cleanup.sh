@@ -129,7 +129,23 @@ delete_stack() {
 
 # Delete stacks in reverse order of dependencies
 echo ""
-echo "Step 1: Deleting service stacks..."
+echo "Step 1: Pre-emptively emptying ALL S3 buckets before ECS deletion..."
+ALL_BUCKETS=$(aws s3api list-buckets --query 'Buckets[?contains(Name, `aws-idp-ai`)].Name' --output text 2>/dev/null)
+for bucket in $ALL_BUCKETS; do
+    echo "Force emptying bucket: $bucket"
+    # Delete all objects including versions
+    aws s3 rm s3://${bucket} --recursive 2>/dev/null
+    # Delete all object versions (for versioned buckets)
+    aws s3api delete-objects --bucket ${bucket} \
+        --delete "$(aws s3api list-object-versions --bucket ${bucket} --query='{Objects: Versions[].{Key:Key,VersionId:VersionId}}' 2>/dev/null)" 2>/dev/null || true
+    # Delete all delete markers
+    aws s3api delete-objects --bucket ${bucket} \
+        --delete "$(aws s3api list-object-versions --bucket ${bucket} --query='{Objects: DeleteMarkers[].{Key:Key,VersionId:VersionId}}' 2>/dev/null)" 2>/dev/null || true
+    echo "✅ Bucket force emptied: $bucket"
+done
+
+echo ""
+echo "Step 2: Deleting service stacks..."
 delete_stack "aws-idp-ai-ecs-${STAGE}"
 delete_stack "aws-idp-ai-ecs"  # Try without stage suffix
 delete_stack "aws-idp-ai-api-gateway"
@@ -141,12 +157,12 @@ delete_stack "aws-idp-ai-workflow-${STAGE}"
 delete_stack "aws-idp-ai-workflow"
 
 echo ""
-echo "Step 2: Deleting authentication stack..."
+echo "Step 3: Deleting authentication stack..."
 delete_stack "aws-idp-ai-cognito-${STAGE}"
 delete_stack "aws-idp-ai-cognito"
 
 echo ""
-echo "Step 3: Deleting data stacks..."
+echo "Step 4: Deleting data stacks..."
 
 # Empty S3 buckets before deletion
 echo "Emptying S3 buckets..."
@@ -194,12 +210,12 @@ delete_stack "aws-idp-ai-dynamodb-streams"
 delete_stack "aws-idp-ai-lambda-layer"
 
 echo ""
-echo "Step 4: Deleting infrastructure stacks..."
+echo "Step 5: Deleting infrastructure stacks..."
 delete_stack "aws-idp-ai-ecr"
 delete_stack "aws-idp-ai-vpc"
 
 echo ""
-echo "Step 5: Deleting ECR repositories..."
+echo "Step 6: Deleting ECR repositories..."
 aws ecr delete-repository --repository-name aws-idp-ai-backend --force 2>/dev/null
 if [ $? -eq 0 ]; then
     echo "✅ ECR repository deleted: aws-idp-ai-backend"
@@ -211,7 +227,7 @@ if [ $? -eq 0 ]; then
 fi
 
 echo ""
-echo "Step 6: Deleting additional ECR repositories..."
+echo "Step 7: Deleting additional ECR repositories..."
 # Delete any additional ECR repositories that might have been created
 ECR_REPOS=$(aws ecr describe-repositories --query 'repositories[?contains(repositoryName, `aws-idp-ai`)].repositoryName' --output text)
 for repo in $ECR_REPOS; do
@@ -223,7 +239,7 @@ for repo in $ECR_REPOS; do
 done
 
 echo ""
-echo "Step 7: Deleting DynamoDB tables..."
+echo "Step 8: Deleting DynamoDB tables..."
 echo "Deleting any remaining DynamoDB tables..."
 TABLES=$(aws dynamodb list-tables --query 'TableNames[]' --output text | tr '\t' '\n' | grep 'aws-idp-ai')
 for table in $TABLES; do
@@ -235,7 +251,7 @@ for table in $TABLES; do
 done
 
 echo ""
-echo "Step 8: Deleting CloudWatch Log Groups..."
+echo "Step 9: Deleting CloudWatch Log Groups..."
 echo "Deleting log groups..."
 LOG_GROUPS=$(aws logs describe-log-groups --query 'logGroups[?contains(logGroupName, `aws-idp-ai`) || contains(logGroupName, `/aws/codebuild/aws-idp-ai`)].logGroupName' --output text)
 for log_group in $LOG_GROUPS; do
@@ -247,7 +263,7 @@ for log_group in $LOG_GROUPS; do
 done
 
 echo ""
-echo "Step 9: Cleaning up CDK bootstrap resources..."
+echo "Step 10: Cleaning up CDK bootstrap resources..."
 echo "Deleting CDK bootstrap resources..."
 
 # Get account and region info
@@ -300,7 +316,7 @@ done
 delete_stack "CDKToolkit"
 
 echo ""
-echo "Step 10: Deleting CodeBuild deployment stack..."
+echo "Step 11: Deleting CodeBuild deployment stack..."
 delete_stack "aws-idp-ai-codebuild-deploy-${STAGE}"
 
 echo ""
