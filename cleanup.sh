@@ -112,38 +112,82 @@ for cert_arn in $ACM_CERTS; do
 done
 
 echo ""
-echo "Step 2: Deleting all CDK stacks..."
+echo "Step 2: Deleting all stacks directly via CloudFormation..."
 
-# Navigate to infra directory and run CDK destroy
-CURRENT_DIR=$(pwd)
-cd packages/infra 2>/dev/null || cd ../packages/infra 2>/dev/null || cd ../../packages/infra 2>/dev/null || {
-    echo "Could not find packages/infra directory"
-    exit 1
-}
+# Get all aws-idp-ai stacks
+ALL_STACKS=$(aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE DELETE_FAILED ROLLBACK_COMPLETE UPDATE_ROLLBACK_COMPLETE --query 'StackSummaries[?contains(StackName, `aws-idp-ai`)].StackName' --output text 2>/dev/null)
 
-# Install tsx if not available
-if ! command -v tsx >/dev/null 2>&1; then
-    if command -v npm >/dev/null 2>&1; then
-        echo "Installing tsx..."
-        npm install tsx --save-dev || pnpm add -D tsx || true
-    fi
+if [ -z "$ALL_STACKS" ]; then
+    echo "No aws-idp-ai stacks found"
+else
+    echo "Found stacks: $ALL_STACKS"
+    
+    # Delete each stack
+    for stack in $ALL_STACKS; do
+        echo "Deleting stack: $stack"
+        
+        # Try direct deletion first
+        DELETE_RESULT=$(aws cloudformation delete-stack --stack-name $stack 2>&1)
+        DELETE_EXIT_CODE=$?
+        
+        if [ $DELETE_EXIT_CODE -eq 0 ]; then
+            echo "  ✅ Deletion initiated for $stack"
+        else
+            # Check if it's a CDK role issue
+            if echo "$DELETE_RESULT" | grep -q "cdk-.*-cfn-exec-role.*is invalid"; then
+                echo "  CDK role issue detected, creating temporary role..."
+                
+                # Create temporary role
+                TEMP_ROLE_NAME="temp-cleanup-role-$(date +%s)"
+                ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+                
+                aws iam create-role --role-name $TEMP_ROLE_NAME --assume-role-policy-document '{
+                    "Version": "2012-10-17",
+                    "Statement": [{
+                        "Effect": "Allow",
+                        "Principal": {"Service": "cloudformation.amazonaws.com"},
+                        "Action": "sts:AssumeRole"
+                    }]
+                }' >/dev/null 2>&1
+                
+                if [ $? -eq 0 ]; then
+                    # Attach policies
+                    aws iam attach-role-policy --role-name $TEMP_ROLE_NAME --policy-arn arn:aws:iam::aws:policy/PowerUserAccess >/dev/null 2>&1
+                    aws iam attach-role-policy --role-name $TEMP_ROLE_NAME --policy-arn arn:aws:iam::aws:policy/IAMFullAccess >/dev/null 2>&1
+                    
+                    sleep 5  # Wait for role to be available
+                    
+                    # Try deletion with temp role
+                    aws cloudformation delete-stack --stack-name $stack --role-arn "arn:aws:iam::${ACCOUNT_ID}:role/${TEMP_ROLE_NAME}" >/dev/null 2>&1
+                    if [ $? -eq 0 ]; then
+                        echo "  ✅ Deletion initiated with temporary role for $stack"
+                    else
+                        echo "  ⚠️ Failed to delete $stack even with temporary role"
+                    fi
+                    
+                    # Clean up temp role (background)
+                    (sleep 180; aws iam detach-role-policy --role-name $TEMP_ROLE_NAME --policy-arn arn:aws:iam::aws:policy/PowerUserAccess >/dev/null 2>&1; aws iam detach-role-policy --role-name $TEMP_ROLE_NAME --policy-arn arn:aws:iam::aws:policy/IAMFullAccess >/dev/null 2>&1; aws iam delete-role --role-name $TEMP_ROLE_NAME >/dev/null 2>&1) &
+                else
+                    echo "  ⚠️ Failed to create temporary role for $stack"
+                fi
+            else
+                # Try force deletion
+                echo "  Trying force deletion..."
+                aws cloudformation delete-stack --stack-name $stack --deletion-mode FORCE_DELETE_STACK 2>/dev/null
+                if [ $? -eq 0 ]; then
+                    echo "  ✅ Force deletion initiated for $stack"
+                else
+                    echo "  ⚠️ Failed to delete $stack - will skip"
+                fi
+            fi
+        fi
+        sleep 2
+    done
+    
+    echo ""
+    echo "Stack deletions initiated. This may take 15-30 minutes..."
+    echo "You can monitor progress in AWS Console > CloudFormation"
 fi
-
-# Create .toml file if it doesn't exist
-if [ ! -f ".toml" ]; then
-    echo "Creating .toml configuration..."
-    cat > .toml << 'EOF'
-[app]
-ns = "aws-idp-ai"
-stage = "dev"
-EOF
-fi
-
-# Destroy all CDK stacks
-echo "Running CDK destroy --all..."
-npx cdk destroy --all --force
-
-cd "$CURRENT_DIR"
 
 echo ""
 echo "Step 3: Cleaning up CDK bootstrap resources..."
