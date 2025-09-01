@@ -343,8 +343,8 @@ Resources:
                 # Get API URLs for frontend build
                 - |
                   echo "Getting API Gateway and WebSocket URLs..."
-                  API_GATEWAY_URL=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-api-gateway --query 'Stacks[0].Outputs[?OutputKey==`ApiUrl`].OutputValue' --output text)
-                  WEBSOCKET_URL=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-websocket-api --query 'Stacks[0].Outputs[?OutputKey==`WebSocketApiUrl`].OutputValue' --output text)
+                  API_GATEWAY_URL=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-api-gateway --query 'Stacks[0].Outputs[?OutputKey==`ApiGatewayEndpoint`].OutputValue' --output text)
+                  WEBSOCKET_URL=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-websocket-api --query 'Stacks[0].Outputs[?OutputKey==`WebSocketApiEndpointOutput`].OutputValue' --output text)
                   echo "API Gateway URL: $API_GATEWAY_URL"
                   echo "WebSocket URL: $WEBSOCKET_URL"
                 
