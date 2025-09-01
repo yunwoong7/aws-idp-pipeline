@@ -331,6 +331,9 @@ Resources:
                 - echo "Deploying Document Management stack..."
                 - npx cdk deploy aws-idp-ai-document-management --require-approval never
                 
+                - echo "Deploying Indices Management stack..."
+                - npx cdk deploy aws-idp-ai-indices-management --require-approval never
+                
                 - echo "Deploying API Gateway stack..."
                 - npx cdk deploy aws-idp-ai-api-gateway --require-approval never
                 
