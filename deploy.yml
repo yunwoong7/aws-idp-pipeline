@@ -405,7 +405,7 @@ Resources:
                 # Get outputs
                 - |
                   echo "Getting stack outputs..."
-                  ALB_URL=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-ecs --query 'Stacks[0].Outputs[?OutputKey==`ApplicationLoadBalancerDNS`].OutputValue' --output text)
+                  ALB_URL=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-ecs --query 'Stacks[0].Outputs[?OutputKey==`LoadBalancerDnsName`].OutputValue' --output text)
                   if [ "$USE_CUSTOM_DOMAIN" = "true" ]; then
                     FRONTEND_URL="https://${DOMAIN_NAME}.${HOSTED_ZONE_NAME}"
                   else
