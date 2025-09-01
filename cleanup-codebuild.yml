@@ -66,9 +66,17 @@ Resources:
                 Action:
                   - iam:UpdateAssumeRolePolicy
                   - iam:UpdateRole
+                  - sts:AssumeRole
                 Resource:
                   - !Sub 'arn:aws:iam::${AWS::AccountId}:role/cdk-*'
                   - !Sub 'arn:aws:iam::${AWS::AccountId}:role/temp-cleanup-*'
+              - Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                Resource: '*'
+                Condition:
+                  StringLike:
+                    'aws:RequestedRegion': !Ref AWS::Region
   CleanupCodeBuildProject:
     Type: AWS::CodeBuild::Project
     Properties:
@@ -131,7 +139,7 @@ Resources:
                   "echo 'Step 3 Cleaning remaining resources'",
                   "cd /tmp/aws-idp-pipeline",
                   "aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE DELETE_FAILED ROLLBACK_COMPLETE UPDATE_ROLLBACK_COMPLETE --query \"StackSummaries[?contains(StackName, 'aws-idp-ai')].StackName\" --output text > /tmp/stacks.txt",
-                  "while read stack; do if [ -n \\\"$stack\\\" ]; then echo \\\"Deleting remaining stack $stack\\\"; aws cloudformation delete-stack --stack-name \\\"$stack\\\" 2>/dev/null || true; fi; done < /tmp/stacks.txt",
+                  "while read -r stack; do if [ -n \\\"$stack\\\" ]; then echo \\\"Deleting remaining stack: $stack\\\"; aws cloudformation delete-stack --stack-name \\\"$stack\\\" 2>/dev/null || true; fi; done < /tmp/stacks.txt",
                   "ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)",
                   "REGION=${AWS_DEFAULT_REGION}",
                   "aws s3 rm s3://cdk-hnb659fds-assets-${ACCOUNT_ID}-${REGION} --recursive 2>/dev/null || true",
