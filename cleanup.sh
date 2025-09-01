@@ -80,51 +80,69 @@ force_delete_ecs_services() {
     done
 }
 
-# Function to delete a stack with retries and ECS force cleanup
+# Function to delete a stack using CDK destroy
 delete_stack() {
     local stack_name=$1
-    local max_attempts=3
-    local attempt=1
     
     echo "Deleting stack: $stack_name"
+    
+    # Check if stack exists first
+    aws cloudformation describe-stacks --stack-name $stack_name &>/dev/null
+    if [ $? -ne 0 ]; then
+        echo "✅ $stack_name does not exist or already deleted"
+        return 0
+    fi
     
     # If this is an ECS stack, force cleanup first
     if [[ "$stack_name" == *"ecs"* ]]; then
         echo "  Pre-cleaning ECS resources..."
         force_delete_ecs_services "aws-idp-ai-cluster" 2>/dev/null || true
         force_delete_ecs_services "aws-idp-ai-ecs-cluster" 2>/dev/null || true
+        force_delete_ecs_services "aws-idp-cluster-dev" 2>/dev/null || true
     fi
     
-    while [ $attempt -le $max_attempts ]; do
-        aws cloudformation delete-stack --stack-name $stack_name 2>/dev/null
-        
+    # Try CDK destroy first (if in infra directory and CDK is available)
+    if [ -d "packages/infra" ] && command -v npx >/dev/null 2>&1; then
+        echo "  Using CDK destroy for $stack_name..."
+        cd packages/infra 2>/dev/null || cd ../packages/infra 2>/dev/null || true
+        npx cdk destroy $stack_name --force --require-approval never 2>/dev/null
         if [ $? -eq 0 ]; then
-            echo "Delete initiated for $stack_name"
-            
-            # Wait for deletion
-            echo "Waiting for deletion to complete..."
-            aws cloudformation wait stack-delete-complete --stack-name $stack_name 2>/dev/null
-            
-            if [ $? -eq 0 ]; then
-                echo "✅ $stack_name deleted successfully"
-                return 0
-            fi
-        fi
-        
-        # Check if stack exists
-        aws cloudformation describe-stacks --stack-name $stack_name &>/dev/null
-        if [ $? -ne 0 ]; then
-            echo "✅ $stack_name does not exist or already deleted"
+            echo "✅ $stack_name deleted successfully via CDK"
+            cd - >/dev/null 2>&1
             return 0
         fi
-        
-        echo "Attempt $attempt failed. Retrying..."
-        attempt=$((attempt + 1))
-        sleep 10
-    done
+        cd - >/dev/null 2>&1
+    fi
     
-    echo "⚠️  Failed to delete $stack_name after $max_attempts attempts"
-    return 1
+    # Fallback to CloudFormation delete
+    echo "  Using CloudFormation delete for $stack_name..."
+    aws cloudformation delete-stack --stack-name $stack_name 2>/dev/null
+    
+    if [ $? -eq 0 ]; then
+        echo "  Waiting for deletion to complete (timeout: 5 minutes)..."
+        aws cloudformation wait stack-delete-complete --stack-name $stack_name 2>/dev/null &
+        wait_pid=$!
+        
+        # Add timeout for wait command (5 minutes)
+        sleep_count=0
+        while kill -0 $wait_pid 2>/dev/null && [ $sleep_count -lt 30 ]; do
+            sleep 10
+            sleep_count=$((sleep_count + 1))
+        done
+        
+        # Check if stack still exists
+        aws cloudformation describe-stacks --stack-name $stack_name &>/dev/null
+        if [ $? -ne 0 ]; then
+            echo "✅ $stack_name deleted successfully"
+            return 0
+        else
+            echo "⚠️  $stack_name deletion timed out or failed"
+            return 1
+        fi
+    else
+        echo "⚠️  Failed to initiate deletion for $stack_name"
+        return 1
+    fi
 }
 
 # Delete stacks in reverse order of dependencies
@@ -145,7 +163,41 @@ for bucket in $ALL_BUCKETS; do
 done
 
 echo ""
-echo "Step 2: Deleting service stacks..."
+echo "Step 2: Attempting to delete all stacks using CDK..."
+# Try to delete all stacks at once using CDK (it handles dependencies)
+if [ -d "packages/infra" ] && command -v npx >/dev/null 2>&1; then
+    echo "Using CDK to destroy all stacks..."
+    CURRENT_DIR=$(pwd)
+    cd packages/infra 2>/dev/null || cd ../packages/infra 2>/dev/null || cd ../../packages/infra 2>/dev/null || true
+    
+    # Create .toml file if it doesn't exist
+    if [ ! -f ".toml" ]; then
+        echo "Creating .toml configuration..."
+        cat > .toml << 'EOF'
+[app]
+ns = "aws-idp-ai"
+stage = "dev"
+EOF
+    fi
+    
+    # Try to destroy all stacks at once
+    echo "Running CDK destroy --all..."
+    npx cdk destroy --all --force --require-approval never
+    CDK_RESULT=$?
+    
+    cd "$CURRENT_DIR"
+    
+    if [ $CDK_RESULT -eq 0 ]; then
+        echo "✅ All stacks deleted successfully via CDK"
+    else
+        echo "⚠️  CDK destroy encountered issues, continuing with individual stack deletion..."
+    fi
+else
+    echo "CDK not available, proceeding with individual stack deletion..."
+fi
+
+echo ""
+echo "Step 3: Deleting remaining stacks individually..."
 delete_stack "aws-idp-ai-ecs-${STAGE}"
 delete_stack "aws-idp-ai-ecs"  # Try without stage suffix
 delete_stack "aws-idp-ai-api-gateway"
@@ -157,12 +209,12 @@ delete_stack "aws-idp-ai-workflow-${STAGE}"
 delete_stack "aws-idp-ai-workflow"
 
 echo ""
-echo "Step 3: Deleting authentication stack..."
+echo "Step 4: Deleting authentication stack..."
 delete_stack "aws-idp-ai-cognito-${STAGE}"
 delete_stack "aws-idp-ai-cognito"
 
 echo ""
-echo "Step 4: Deleting data stacks..."
+echo "Step 5: Deleting data stacks..."
 
 # Empty S3 buckets before deletion
 echo "Emptying S3 buckets..."
@@ -210,12 +262,12 @@ delete_stack "aws-idp-ai-dynamodb-streams"
 delete_stack "aws-idp-ai-lambda-layer"
 
 echo ""
-echo "Step 5: Deleting infrastructure stacks..."
+echo "Step 6: Deleting infrastructure stacks..."
 delete_stack "aws-idp-ai-ecr"
 delete_stack "aws-idp-ai-vpc"
 
 echo ""
-echo "Step 6: Deleting ECR repositories..."
+echo "Step 7: Deleting ECR repositories..."
 aws ecr delete-repository --repository-name aws-idp-ai-backend --force 2>/dev/null
 if [ $? -eq 0 ]; then
     echo "✅ ECR repository deleted: aws-idp-ai-backend"
@@ -227,7 +279,7 @@ if [ $? -eq 0 ]; then
 fi
 
 echo ""
-echo "Step 7: Deleting additional ECR repositories..."
+echo "Step 8: Deleting additional ECR repositories..."
 # Delete any additional ECR repositories that might have been created
 ECR_REPOS=$(aws ecr describe-repositories --query 'repositories[?contains(repositoryName, `aws-idp-ai`)].repositoryName' --output text)
 for repo in $ECR_REPOS; do
@@ -239,7 +291,7 @@ for repo in $ECR_REPOS; do
 done
 
 echo ""
-echo "Step 8: Deleting DynamoDB tables..."
+echo "Step 9: Deleting DynamoDB tables..."
 echo "Deleting any remaining DynamoDB tables..."
 TABLES=$(aws dynamodb list-tables --query 'TableNames[]' --output text | tr '\t' '\n' | grep 'aws-idp-ai')
 for table in $TABLES; do
@@ -251,7 +303,7 @@ for table in $TABLES; do
 done
 
 echo ""
-echo "Step 9: Deleting CloudWatch Log Groups..."
+echo "Step 10: Deleting CloudWatch Log Groups..."
 echo "Deleting log groups..."
 LOG_GROUPS=$(aws logs describe-log-groups --query 'logGroups[?contains(logGroupName, `aws-idp-ai`) || contains(logGroupName, `/aws/codebuild/aws-idp-ai`)].logGroupName' --output text)
 for log_group in $LOG_GROUPS; do
@@ -263,7 +315,7 @@ for log_group in $LOG_GROUPS; do
 done
 
 echo ""
-echo "Step 10: Cleaning up CDK bootstrap resources..."
+echo "Step 11: Cleaning up CDK bootstrap resources..."
 echo "Deleting CDK bootstrap resources..."
 
 # Get account and region info
@@ -316,7 +368,7 @@ done
 delete_stack "CDKToolkit"
 
 echo ""
-echo "Step 11: Deleting CodeBuild deployment stack..."
+echo "Step 12: Deleting CodeBuild deployment stack..."
 delete_stack "aws-idp-ai-codebuild-deploy-${STAGE}"
 
 echo ""
