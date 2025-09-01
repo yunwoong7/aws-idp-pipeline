@@ -112,99 +112,38 @@ for cert_arn in $ACM_CERTS; do
 done
 
 echo ""
-echo "Step 2: Deleting all CloudFormation stacks..."
+echo "Step 2: Deleting all CDK stacks..."
 
-# List of all stacks in dependency order (reverse for deletion)
-STACKS=(
-    "aws-idp-ai-ecs"
-    "aws-idp-ai-ecs-${STAGE}"
-    "aws-idp-ai-api-gateway"
-    "aws-idp-ai-websocket-api"
-    "aws-idp-ai-indices-management"
-    "aws-idp-ai-document-management"
-    "aws-idp-ai-workflow"
-    "aws-idp-ai-workflow-${STAGE}"
-    "aws-idp-ai-cognito"
-    "aws-idp-ai-cognito-${STAGE}"
-    "aws-idp-ai-dynamodb-streams"
-    "aws-idp-ai-opensearch"
-    "aws-idp-ai-s3"
-    "aws-idp-ai-dynamodb"
-    "aws-idp-ai-lambda-layer"
-    "aws-idp-ai-ecr"
-    "aws-idp-ai-vpc"
-)
+# Navigate to infra directory and run CDK destroy
+CURRENT_DIR=$(pwd)
+cd packages/infra 2>/dev/null || cd ../packages/infra 2>/dev/null || cd ../../packages/infra 2>/dev/null || {
+    echo "Could not find packages/infra directory"
+    exit 1
+}
 
-# Delete each stack
-for stack in "${STACKS[@]}"; do
-    # Check if stack exists
-    aws cloudformation describe-stacks --stack-name $stack >/dev/null 2>&1
-    if [ $? -eq 0 ]; then
-        echo "Deleting stack: $stack"
-        aws cloudformation delete-stack --stack-name $stack 2>/dev/null
-        if [ $? -eq 0 ]; then
-            echo "  ✅ Deletion initiated for $stack"
-        else
-            echo "  ⚠️ Failed to initiate deletion for $stack"
-        fi
-    else
-        echo "Stack $stack does not exist, skipping..."
+# Install tsx if not available
+if ! command -v tsx >/dev/null 2>&1; then
+    if command -v npm >/dev/null 2>&1; then
+        echo "Installing tsx..."
+        npm install tsx --save-dev || pnpm add -D tsx || true
     fi
-done
-
-echo ""
-echo "Waiting for stack deletions to complete..."
-echo "This may take 15-20 minutes (OpenSearch deletion can be slow)..."
-
-# Wait for all stacks to be deleted (with extended timeout)
-TIMEOUT=1800  # 30 minutes (OpenSearch can take 15+ minutes)
-ELAPSED=0
-LAST_STATUS_CHECK=0
-
-while [ $ELAPSED -lt $TIMEOUT ]; do
-    REMAINING_STACKS=""
-    for stack in "${STACKS[@]}"; do
-        aws cloudformation describe-stacks --stack-name $stack >/dev/null 2>&1
-        if [ $? -eq 0 ]; then
-            STATUS=$(aws cloudformation describe-stacks --stack-name $stack --query 'Stacks[0].StackStatus' --output text 2>/dev/null)
-            REMAINING_STACKS="$REMAINING_STACKS $stack"
-            
-            # Special handling for OpenSearch
-            if [[ "$stack" == *"opensearch"* ]] && [ "$STATUS" == "DELETE_IN_PROGRESS" ]; then
-                if [ $((ELAPSED - LAST_STATUS_CHECK)) -ge 60 ]; then
-                    echo ""
-                    echo "  ⏳ OpenSearch stack is still deleting (this can take 15+ minutes)..."
-                    LAST_STATUS_CHECK=$ELAPSED
-                fi
-            elif [ "$STATUS" != "DELETE_IN_PROGRESS" ] && [ "$STATUS" != "DELETE_COMPLETE" ]; then
-                echo ""
-                echo "  ⚠️ Stack $stack is in status: $STATUS"
-            fi
-        fi
-    done
-    
-    if [ -z "$REMAINING_STACKS" ]; then
-        echo ""
-        echo "✅ All stacks deleted successfully"
-        break
-    fi
-    
-    # Show progress with elapsed time every minute
-    if [ $((ELAPSED % 60)) -eq 0 ] && [ $ELAPSED -gt 0 ]; then
-        echo -n " [${ELAPSED}s elapsed]"
-    else
-        echo -n "."
-    fi
-    
-    sleep 10
-    ELAPSED=$((ELAPSED + 10))
-done
-
-if [ $ELAPSED -ge $TIMEOUT ]; then
-    echo ""
-    echo "⚠️ Timeout after 30 minutes. Remaining stacks: $REMAINING_STACKS"
-    echo "   You may need to check these stacks manually in the AWS Console."
 fi
+
+# Create .toml file if it doesn't exist
+if [ ! -f ".toml" ]; then
+    echo "Creating .toml configuration..."
+    cat > .toml << 'EOF'
+[app]
+ns = "aws-idp-ai"
+stage = "dev"
+EOF
+fi
+
+# Destroy all CDK stacks
+echo "Running CDK destroy --all..."
+npx cdk destroy --all --force
+
+cd "$CURRENT_DIR"
 
 echo ""
 echo "Step 3: Cleaning up CDK bootstrap resources..."
