@@ -116,7 +116,7 @@ Resources:
                 - |
                   while read bucket; do
                     if [ -n "$bucket" ]; then
-                      echo "Deleting S3 bucket: $bucket"
+                      echo "Deleting S3 bucket - $bucket"
                       aws s3 rm s3://$bucket --recursive 2>/dev/null || true
                       aws s3 rb s3://$bucket --force 2>/dev/null || true
                     fi
@@ -125,7 +125,7 @@ Resources:
                 - |
                   while read repo; do
                     if [ -n "$repo" ]; then
-                      echo "Deleting ECR repository: $repo"
+                      echo "Deleting ECR repository - $repo"
                       aws ecr delete-repository --repository-name $repo --force 2>/dev/null || true
                     fi
                   done < /tmp/repos.txt
@@ -133,7 +133,7 @@ Resources:
                 - |
                   while read cert_arn; do
                     if [ -n "$cert_arn" ]; then
-                      echo "Deleting ACM certificate: $cert_arn"
+                      echo "Deleting ACM certificate - $cert_arn"
                       aws acm delete-certificate --certificate-arn "$cert_arn" 2>/dev/null || true
                     fi
                   done < /tmp/certs.txt
@@ -150,7 +150,7 @@ Resources:
                 - |
                   while read stack; do
                     if [ -n "$stack" ]; then
-                      echo "Deleting remaining stack: $stack"
+                      echo "Deleting remaining stack - $stack"
                       aws cloudformation delete-stack --stack-name $stack 2>/dev/null || true
                     fi
                   done < /tmp/stacks.txt
