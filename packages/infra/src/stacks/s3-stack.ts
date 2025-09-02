@@ -114,8 +114,7 @@ export class S3Stack extends cdk.Stack {
             s3.HttpMethods.PUT,
             s3.HttpMethods.POST,
             s3.HttpMethods.DELETE,
-            s3.HttpMethods.HEAD,
-            s3.HttpMethods.OPTIONS, // Explicitly add OPTIONS for preflight requests
+            s3.HttpMethods.HEAD
           ],
           allowedOrigins: ['*'], // Allow all origins for Prototyping
           allowedHeaders: [
