@@ -96,6 +96,7 @@ Resources:
                   - iam:GetPolicy
                   - iam:GetPolicyVersion
                   - iam:ListPolicyVersions
+                  - iam:CreateServiceLinkedRole
                 Resource: '*'
               - Effect: Allow
                 Action:
@@ -257,11 +258,45 @@ Resources:
                 - npx cdk deploy aws-idp-ai-s3 --require-approval never
                 
                 # Create OpenSearch Service-Linked Role before deploying OpenSearch
-                - echo "Creating OpenSearch Service-Linked Role..."
-                - aws iam create-service-linked-role --aws-service-name opensearch.amazonaws.com || echo "Service-Linked Role already exists"
+                - echo "Checking OpenSearch Service-Linked Role..."
+                - |
+                  # Check if the service-linked role already exists
+                  if aws iam get-role --role-name AWSServiceRoleForAmazonOpenSearchService >/dev/null 2>&1; then
+                    echo "OpenSearch Service-Linked Role already exists"
+                  else
+                    echo "Creating OpenSearch Service-Linked Role..."
+                    if aws iam create-service-linked-role --aws-service-name opensearch.amazonaws.com >/dev/null 2>&1; then
+                      echo "OpenSearch Service-Linked Role created successfully"
+                      # Wait a moment for role propagation
+                      sleep 10
+                    else
+                      echo "Warning: Failed to create OpenSearch Service-Linked Role, but deployment will continue"
+                    fi
+                  fi
                 
                 - echo "Deploying OpenSearch stack..."
-                - npx cdk deploy aws-idp-ai-opensearch --require-approval never
+                - |
+                  # Try OpenSearch deployment with retry logic
+                  OPENSEARCH_RETRY_COUNT=0
+                  OPENSEARCH_MAX_RETRIES=2
+                  
+                  while [ $OPENSEARCH_RETRY_COUNT -le $OPENSEARCH_MAX_RETRIES ]; do
+                    echo "OpenSearch deployment attempt $((OPENSEARCH_RETRY_COUNT + 1))/$((OPENSEARCH_MAX_RETRIES + 1))"
+                    
+                    if npx cdk deploy aws-idp-ai-opensearch --require-approval never; then
+                      echo "OpenSearch stack deployed successfully"
+                      break
+                    else
+                      OPENSEARCH_RETRY_COUNT=$((OPENSEARCH_RETRY_COUNT + 1))
+                      if [ $OPENSEARCH_RETRY_COUNT -le $OPENSEARCH_MAX_RETRIES ]; then
+                        echo "OpenSearch deployment failed, retrying in 30 seconds..."
+                        sleep 30
+                      else
+                        echo "OpenSearch deployment failed after $((OPENSEARCH_MAX_RETRIES + 1)) attempts"
+                        exit 1
+                      fi
+                    fi
+                  done
                 
                 # Install Nori plugin after OpenSearch deployment
                 - echo "Installing Nori plugin to OpenSearch..."
