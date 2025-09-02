@@ -329,7 +329,7 @@ function WorkspacePageContent() {
             <div className="h-screen overflow-hidden bg-black text-white">
                     <SidebarProvider className="bg-black h-full" defaultOpen>
                         <AppSidebar />
-                    <SidebarInset className="bg-black relative h-full overflow-hidden">
+                    <SidebarInset className="!m-0 !ml-0 !rounded-none !shadow-none bg-black relative h-full overflow-hidden">
                         <ChatBackground />
                         {/* Top header with sidebar toggle, back button, and tabs */}
                         <div className="absolute top-0 left-0 right-0 z-[50] flex items-center justify-between px-3 py-3 bg-black/50 backdrop-blur-sm border-b border-white/10">

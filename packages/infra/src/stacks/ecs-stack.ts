@@ -212,6 +212,7 @@ export class EcsStack extends cdk.Stack {
         environment: {
           NODE_ENV: 'production',
           PORT: '3000',
+          NEXT_PUBLIC_AUTH_DISABLED: 'false',  // 배포 환경에서는 실제 Cognito 인증 사용
         },
       },
       certificate: finalCertificate,
@@ -224,7 +225,7 @@ export class EcsStack extends cdk.Stack {
 
     // ALB DNS 이름을 기반으로 백엔드 URL 생성 및 API Gateway URL과 함께 프론트엔드 환경변수에 추가
     const albDnsName = this.frontendService.loadBalancer.loadBalancerDnsName;
-    const backendUrl = `http://${albDnsName}/api`;
+    const backendUrl = finalCertificate ? `https://${albDnsName}/api` : `http://${albDnsName}/api`;
     
     // 프론트엔드 태스크 정의의 컨테이너에 동적 URL 환경변수 추가
     const frontendContainer = this.frontendService.taskDefinition.defaultContainer;
@@ -257,6 +258,7 @@ export class EcsStack extends cdk.Stack {
         STAGE: stage,
         AWS_REGION: cdk.Aws.REGION,
         AWS_DEFAULT_REGION: cdk.Aws.REGION,
+        AUTH_DISABLED: 'false',  // 배포 환경에서는 실제 Cognito 인증 사용
       },
       portMappings: [
         {

@@ -1,68 +1,65 @@
 <h2 align="center">CloudShell & CodeBuild Quick Deployment Guide</h2>
 
-The easiest way to deploy AWS IDP is to run a script in **AWS CloudShell** and automatically deploy it through **CodeBuild**.
+This document explains how to deploy AWS IDP easily using AWS CloudShell and CodeBuild without any local environment setup.
 
 ---
 
 ## Prerequisites
-- Target AWS account for deployment
-  - Permissions: S3, DynamoDB, Lambda, Step Functions, OpenSearch, Bedrock, CodeBuild, IAM, (optional) CloudFront/Cognito
-- **Recommended region: `us-west-2`**
-  - Reason: This region supports both **BDA (Bedrock Data Automation)** and **Video Analysis Model (us.twelvelabs.pegasus)**.  
-  - However, if you do not use specific features (BDA, video analysis, etc.) later, you can choose any preferred region.
 
----
+### Bedrock Model Access Setup
+
+In the us-west-2 region, go to the **Bedrock Model access** page → click **Manage model access** → check all models you intend to use → click **Save changes**.
 
 ## Deployment Steps
 
-### 1) Launch CloudShell
-- Launch **CloudShell** from the AWS Console.
+### 1. Launch CloudShell
 
-  <div align="center">   
-    <img src="assets/cloudshell-click.png" alt="cloudshell click" width="900"/>
-  </div>
+Click the CloudShell icon in the top-right of the AWS Management Console to launch CloudShell. CloudShell is a browser-based shell environment provided by AWS, allowing you to manage AWS resources without local setup.
 
----
+### 2. Fetch the source code
 
-### 2) Clone source code and run script
+<div align="center">   
+  <img src="assets/quick-deploy-1.png" alt="quick-deploy-1" width="900"/>
+</div>
+
+
 ```bash
-~ $ git clone https://github.com/yunwoong7/aws-idp-pipeline.git
-~ $ cd aws-idp-pipeline/
-aws-idp-pipeline $ chmod +x ./bin.sh
-aws-idp-pipeline $ ./bin.sh
+git clone https://github.com/your-repo/aws-idp-pipeline.git
+cd aws-idp-pipeline
+chmod +x deploy.sh
+./deploy.sh
 ```
 
----
+### 3. Provide inputs during execution
 
-### 3) Provide input during execution
-You will be prompted for the following inputs during execution
+<div align="center">   
+  <img src="assets/quick-deploy-2.png" alt="quick-deploy-2" width="900"/>
+</div>
 
-```
-Enter admin user email address: admin@example.com
-# The part before '@' in the entered email will be used as the initial admin username.
-Do you want to use a custom domain? (y/N): N
-Do you want to proceed with deployment? (y/N): y
-```
+- Enter admin user email address: This email address will be used for the administrator login.
+- Do you want to use a custom domain? (y/N): Enter `N` for now.
+- Do you want to proceed with deployment? (y/N): Enter `y` to proceed with deployment.
 
-- **Admin user email**: Enter your desired email (e.g., `admin@example.com`) 
-  → The initial admin username will be created as `"admin"` in this example.  
-- **Custom domain**: Choose `N` for test environments  
-- **Proceed with deployment**: Choose `y`  
-- **You must change the password after the first login.**
+Deployment will then continue in CodeBuild.
 
----
+### 4. Monitor the deployment
 
-### 4) Monitor deployment
-- After running the script, the **AWS CodeBuild** project will start automatically.
-- You can check the progress in the console under **CodeBuild → Build projects → `aws-idp-ai-deploy-dev`**.  
-- _(Screenshot example placeholder)_
+You can monitor progress in the CodeBuild console. Check build logs to ensure there are no errors.
 
----
+## After deployment
 
-### 5) After deployment completes
-- Deployment results and initial login information will be shown in the CodeBuild output logs.
-- For login:
-  - Username: The admin user you entered earlier (e.g., `admin`)  
-  - Password: The initial password provided during the process (You must change it after the first login)
+When deployment completes, you can find the following values in the CodeBuild log output:
 
----
+<div align="center">   
+  <img src="assets/quick-deploy-3.png" alt="quick-deploy-3" width="900"/>
+</div>
+
+- FrontendURL (Application access URL)
+- AdminUsername (Administrator username)
+- TemporaryPassword = TempPass123! (Temporary password)
+
+Users can access the application via the Frontend URL and log in using the AdminUsername and TemporaryPassword. You must change the temporary password after the first login.
+
+<div align="center">   
+  <img src="assets/quick-deploy-4.png" alt="quick-deploy-4" width="900"/>
+</div>

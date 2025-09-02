@@ -117,6 +117,7 @@ export class DocumentManagementStack extends cdk.Stack {
         EMBEDDINGS_MODEL_ID: bedrockConfig.embeddingsModelId || 'amazon.titan-embed-text-v2:0',
         EMBEDDINGS_DIMENSIONS: bedrockConfig.embeddingsDimensions?.toString() || '1024',
         STAGE: props.stage || 'dev',
+        AUTH_DISABLED: 'false',  // 배포 환경에서는 실제 Cognito 인증 사용
       },
       deadLetterQueueEnabled: false,
       vpc: props.vpc,
@@ -349,6 +350,16 @@ export class DocumentManagementStack extends cdk.Stack {
       {
         path: '/api/segments/{segment_id}/image',
         methods: [apigw.HttpMethod.GET],
+      },
+      // GET /api/auth/user - Get current user information
+      {
+        path: '/api/auth/user',
+        methods: [apigw.HttpMethod.GET],
+      },
+      // POST /api/auth/logout - Logout endpoint
+      {
+        path: '/api/auth/logout',
+        methods: [apigw.HttpMethod.POST],
       },
     ];
 

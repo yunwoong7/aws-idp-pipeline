@@ -68,6 +68,10 @@ from utils.response import (
     create_internal_error_response,
     create_validation_error_response
 )
+from handlers.auth_handlers import (
+    handle_get_current_user,
+    handle_logout
+)
 
 import logging
 
@@ -109,8 +113,15 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         # Routing logic
         response = None
         
-        # Generate pre-signed URL (project independent) - handle first
-        if http_method == 'POST' and '/api/get-presigned-url' in path:
+        # Authentication APIs - handle first
+        if '/api/auth/' in path:
+            if http_method == 'GET' and path.endswith('/api/auth/user'):
+                response = handle_get_current_user(event, context)
+            elif http_method == 'POST' and path.endswith('/api/auth/logout'):
+                response = handle_logout(event, context)
+        
+        # Generate pre-signed URL (project independent) - handle second
+        elif http_method == 'POST' and '/api/get-presigned-url' in path:
             response = handle_generate_presigned_url_standalone(event)
         
         # OpenSearch APIs

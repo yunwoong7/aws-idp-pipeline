@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { WebSocketProvider } from "@/contexts/websocket-context";
 import { BrandingProvider } from "@/contexts/branding-context";
+import { AuthProvider } from "@/contexts/auth-context";
 import { Toaster } from "@/components/ui/toaster";
 
 const geistSans = Geist({
@@ -32,10 +33,12 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
       >
         <BrandingProvider>
-          <WebSocketProvider showToastOnError={true} showToastOnReconnect={true}>
-            {children}
-            <Toaster />
-          </WebSocketProvider>
+          <AuthProvider>
+            <WebSocketProvider showToastOnError={true} showToastOnReconnect={true}>
+              {children}
+              <Toaster />
+            </WebSocketProvider>
+          </AuthProvider>
         </BrandingProvider>
       </body>
     </html>

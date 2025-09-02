@@ -3,8 +3,10 @@
 import { useState } from "react";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
-import { Home, Bot, Settings, Layers, ImageIcon } from "lucide-react";
+import { Home, Bot, Settings, Layers, ImageIcon, LogOut, User } from "lucide-react";
 import { useBranding } from "@/contexts/branding-context";
+import { useAuth } from "@/contexts/auth-context";
+import { useAlert } from "@/components/ui/alert";
 import {
   Sidebar,
   SidebarHeader,
@@ -17,7 +19,9 @@ import {
   SidebarMenuButton,
   SidebarSeparator,
   SidebarRail,
+  SidebarFooter,
 } from "@/components/ui/sidebar";
+import { Button } from "@/components/ui/button";
 
 interface BrandingLogoProps {
   logoUrl: string | null;
@@ -59,8 +63,15 @@ export function AppSidebar() {
   const router = useRouter();
   const pathname = usePathname();
   const { settings, loading } = useBranding();
+  const { user, isLoading: authLoading, isLocalDev } = useAuth();
+  const { showInfo, AlertComponent } = useAlert();
   
   console.log('📋 AppSidebar branding data:', { settings, loading });
+  console.log('👤 AppSidebar auth data:', { user, authLoading, isLocalDev });
+
+  const handleLogout = () => {
+    showInfo("Feature Not Implemented", "Logout functionality is not yet implemented. Please contact your administrator for assistance.");
+  };
 
   const navigationItems = [
     {
@@ -125,6 +136,56 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarHeader>
       <SidebarContent />
+      
+      <SidebarFooter className="p-4 border-t border-white/10">
+        {authLoading ? (
+          <div className="flex items-center space-x-3">
+            <div className="h-8 w-8 bg-gray-700 rounded-full animate-pulse"></div>
+            <div className="flex-1">
+              <div className="h-3 bg-gray-700 rounded animate-pulse mb-1"></div>
+              <div className="h-2 bg-gray-700 rounded animate-pulse w-3/4"></div>
+            </div>
+          </div>
+        ) : user ? (
+          <div className="space-y-3">
+            {/* User Info */}
+            <div className="flex items-center space-x-3">
+              <div className="h-8 w-8 bg-blue-600 rounded-full flex items-center justify-center">
+                <User className="h-4 w-4 text-white" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-white truncate">
+                  {user.name || user.email.split('@')[0]}
+                </p>
+                <p className="text-xs text-gray-400 truncate">
+                  {user.email}
+                </p>
+                {isLocalDev && (
+                  <p className="text-xs text-yellow-400">
+                    Local Dev Mode
+                  </p>
+                )}
+              </div>
+            </div>
+            
+            {/* Logout Button */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleLogout}
+              className="w-full justify-start text-gray-300 hover:text-white hover:bg-white/10"
+            >
+              <LogOut className="h-4 w-4 mr-2" />
+              Logout
+            </Button>
+          </div>
+        ) : (
+          <div className="text-center text-gray-400">
+            <p className="text-sm">로그인 정보를 불러올 수 없습니다</p>
+          </div>
+        )}
+      </SidebarFooter>
+      {AlertComponent}
     </Sidebar>
   );
 }

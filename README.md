@@ -103,6 +103,13 @@ Getting started with AWS IDP involves setting up your environment, deploying the
 
 You can set up your development environment in one of two ways. The Devcontainer method is recommended for a consistent and automated experience.
 
+#### Quick Deployment & Destroy (CloudShell + CodeBuild) — Recommended First
+
+- Quick Deployment: [Guide](docs/quick_deploy.md) / [Kor](docs/quick_deploy_kr.md)
+- Quick Destroy: [Guide](docs/quick_destory.md) / [Kor](docs/quick_destroy_kr.md)
+
+Use these scripts to deploy or remove the stack quickly without local setup. They run from AWS CloudShell and execute via CodeBuild.
+
 | Method                      | Description                                                                                             | Guide                                             |
 | --------------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
 | **Manual Local Setup**      | Manually install dependencies on your local machine. For advanced users or specific needs.              | [**Manual Setup Guide**](docs/manual_setup.md) / [**Kor**](docs/manual_setup_kr.md)         |
