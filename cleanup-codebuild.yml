@@ -64,6 +64,12 @@ Resources:
                 Resource: '*'
               - Effect: Allow
                 Action:
+                  - cognito-idp:ListUserPools
+                  - cognito-idp:DeleteUserPool
+                  - cognito-idp:DescribeUserPool
+                Resource: '*'
+              - Effect: Allow
+                Action:
                   - iam:UpdateAssumeRolePolicy
                   - iam:UpdateRole
                   - sts:AssumeRole
@@ -123,6 +129,9 @@ Resources:
                   "cd /tmp/aws-idp-pipeline",
                   "echo 'Step 1 Cleaning up resources before CDK destroy'",
                   "ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)",
+                  "echo 'Pre-cleaning Cognito resources'",
+                  "aws cognito-idp list-user-pools --max-results 60 --query \"UserPools[?contains(Name, 'aws-idp-ai')].Id\" --output text > /tmp/user-pools.txt 2>/dev/null || echo 'No user pools found'",
+                  "while read pool_id; do if [ -n \\\"$pool_id\\\" ]; then echo \\\"Deleting Cognito User Pool: $pool_id\\\"; aws cognito-idp delete-user-pool --user-pool-id \\\"$pool_id\\\" 2>/dev/null || true; fi; done < /tmp/user-pools.txt",
                   "echo 'Emptying all S3 buckets including ALB logs'",
                   "aws s3api list-buckets --query \"Buckets[?contains(Name, 'aws-idp')].Name\" --output text > /tmp/buckets.txt",
                   "while read bucket; do if [ -n \\\"$bucket\\\" ]; then echo \\\"Emptying S3 bucket $bucket\\\"; aws s3 rm s3://$bucket --recursive 2>/dev/null || true; fi; done < /tmp/buckets.txt",
@@ -136,7 +145,7 @@ Resources:
                   "while read loggroup; do if [ -n \\\"$loggroup\\\" ]; then echo \\\"Deleting log group $loggroup\\\"; aws logs delete-log-group --log-group-name \\\"$loggroup\\\" 2>/dev/null || true; fi; done < /tmp/loggroups.txt",
                   "echo 'Deleting DynamoDB Tables'",
                   "aws dynamodb list-tables --query \"TableNames[?contains(@, 'aws-idp-ai')]\" --output text > /tmp/dynamodb-tables.txt",
-                  "while read table; do if [ -n \\\"$table\\\" ]; then echo \\\"Deleting DynamoDB table $table\\\"; aws dynamodb delete-table --table-name \\\"$table\\\" 2>/dev/null || true; fi; done < /tmp/dynamodb-tables.txt",
+                  "if [ -s /tmp/dynamodb-tables.txt ]; then while IFS= read -r table; do if [ -n \\\"$table\\\" ] && [ \\\"$table\\\" != \\\"None\\\" ]; then echo \\\"Deleting DynamoDB table: $table\\\"; aws dynamodb delete-table --table-name \\\"$table\\\" 2>/dev/null && echo \\\"Table $table deletion initiated\\\" || echo \\\"Failed to delete table $table\\\"; fi; done < /tmp/dynamodb-tables.txt; else echo 'No DynamoDB tables found'; fi",
                   "echo 'Step 2 Destroying CDK stacks'",
                   "cd packages/infra",
                   "pnpm install",
@@ -152,8 +161,12 @@ Resources:
                   "while read cert_arn; do if [ -n \\\"$cert_arn\\\" ]; then echo \\\"Deleting ACM certificate $cert_arn\\\"; aws acm delete-certificate --certificate-arn \\\"$cert_arn\\\" 2>/dev/null || true; fi; done < /tmp/certs.txt",
                   "echo 'Step 4 Cleaning remaining resources'",
                   "cd /tmp/aws-idp-pipeline",
+                  "echo 'Force deleting Cognito stack explicitly'",
+                  "aws cloudformation delete-stack --stack-name aws-idp-ai-cognito-${STAGE} 2>/dev/null || true",
+                  "echo 'Waiting for Cognito stack deletion to process...'",
+                  "sleep 30",
                   "aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE DELETE_FAILED ROLLBACK_COMPLETE UPDATE_ROLLBACK_COMPLETE --query \"StackSummaries[?contains(StackName, 'aws-idp-ai') && !contains(StackName, 'cleanup-codebuild')].StackName\" --output text > /tmp/stacks.txt",
-                  "while read -r stack; do if [ -n \\\"$stack\\\" ]; then echo \\\"Deleting remaining stack: $stack\\\"; aws cloudformation delete-stack --stack-name \\\"$stack\\\" 2>/dev/null || true; fi; done < /tmp/stacks.txt",
+                  "while IFS= read -r stack; do if [ -n \\\"$stack\\\" ] && [ \\\"$stack\\\" != \\\"None\\\" ]; then echo \\\"Deleting remaining stack: $stack\\\"; aws cloudformation delete-stack --stack-name \\\"$stack\\\" 2>/dev/null || true; fi; done < /tmp/stacks.txt",
                   "ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)",
                   "REGION=${AWS_DEFAULT_REGION}",
                   "aws s3 rm s3://cdk-hnb659fds-assets-${ACCOUNT_ID}-${REGION} --recursive 2>/dev/null || true",
@@ -169,6 +182,8 @@ Resources:
                 "commands": [
                   "echo 'Cleanup completed'",
                   "echo 'All AWS IDP AI resources have been removed'",
+                  "echo 'Deleting deploy CodeBuild stack if exists'",
+                  "aws cloudformation delete-stack --stack-name aws-idp-ai-codebuild-deploy-${STAGE} 2>/dev/null || echo 'Deploy CodeBuild stack not found or already deleted'",
                   "echo 'Finally deleting this cleanup CodeBuild stack itself'",
                   "sleep 5",
                   "aws cloudformation delete-stack --stack-name aws-idp-ai-cleanup-codebuild-${STAGE} 2>/dev/null || true"
