@@ -88,12 +88,12 @@ async def get_document_analysis_api(document_id: str, filter_final: bool = True,
         index_id: Index ID for access control
     """
     try:
-        opensearch_url = f"{API_BASE_URL}/api/opensearch/documents/{document_id}/"
+        opensearch_url = f"{API_BASE_URL}/api/opensearch/documents/{document_id}"
         
         # Add query parameters
         params = {}
-        if filter_final:
-            params['filter_final'] = 'true'
+        # Always send filter_final explicitly to avoid backend defaults
+        params['filter_final'] = 'true' if filter_final else 'false'
         if index_id:
             params['index_id'] = index_id
         
