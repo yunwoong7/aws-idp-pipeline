@@ -14,7 +14,7 @@ In the us-west-2 region, go to the **Bedrock Model access** page → click **Man
 
 ### 1. Launch CloudShell
 
-Click the CloudShell icon in the top-right of the AWS Management Console to launch CloudShell. CloudShell is a browser-based shell environment provided by AWS, allowing you to manage AWS resources without local setup.
+Click the [CloudShell](https://us-west-2.console.aws.amazon.com/cloudshell/) icon in the top-right of the AWS Management Console to launch CloudShell. CloudShell is a browser-based shell environment provided by AWS, allowing you to manage AWS resources without local setup.
 
 ### 2. Fetch the source code
 
@@ -24,7 +24,7 @@ Click the CloudShell icon in the top-right of the AWS Management Console to laun
 
 
 ```bash
-git clone https://github.com/your-repo/aws-idp-pipeline.git
+git clone https://github.com/yunwoong7/aws-idp-pipeline.git
 cd aws-idp-pipeline
 chmod +x deploy.sh
 ./deploy.sh
@@ -36,15 +36,17 @@ chmod +x deploy.sh
   <img src="assets/quick-deploy-2.png" alt="quick-deploy-2" width="900"/>
 </div>
 
-- Enter admin user email address: This email address will be used for the administrator login.
+- Enter admin user email address: This is not an IAM account but the administrator email for the deployed web application. An initial temporary password will be issued for this account (as shown in the logs later).
 - Do you want to use a custom domain? (y/N): Enter `N` for now.
 - Do you want to proceed with deployment? (y/N): Enter `y` to proceed with deployment.
+
+Note: General users can access the web application through Cognito self sign-up.
 
 Deployment will then continue in CodeBuild.
 
 ### 4. Monitor the deployment
 
-You can monitor progress in the CodeBuild console. Check build logs to ensure there are no errors.
+You can monitor progress in the [CodeBuild](https://us-west-2.console.aws.amazon.com/codesuite/codebuild/start?region=us-west-2) console. Check build logs to ensure there are no errors.
 
 ## After deployment
 

@@ -115,34 +115,14 @@ export class S3Stack extends cdk.Stack {
             s3.HttpMethods.POST,
             s3.HttpMethods.DELETE,
             s3.HttpMethods.HEAD,
+            s3.HttpMethods.OPTIONS, // Explicitly add OPTIONS for preflight requests
           ],
           allowedOrigins: ['*'], // Allow all origins for Prototyping
           allowedHeaders: [
-            // Original headers
-            'Content-Type',
-            'Content-Length',
-            'Authorization',
-            'X-Amz-Date',
-            'X-Api-Key',
-            'X-Amz-Security-Token',
-            'X-Amz-User-Agent',
-            'x-amz-content-sha256',
-            'x-amz-storage-class',
-            // Browser default headers
-            'Origin',
-            'Referer',
-            'User-Agent',
-            'Accept',
-            'Accept-Language',
-            'Accept-Encoding',
-            'Cache-Control',
-            'Host',
-            // Additional headers for compatibility
-            'Access-Control-Request-Method',
-            'Access-Control-Request-Headers',
+            '*', // Allow all headers for maximum compatibility
           ],
-          exposedHeaders: ['ETag', 'x-amz-meta-custom-header'],
-          maxAge: 3000,
+          exposedHeaders: ['ETag', 'x-amz-meta-custom-header', 'Content-Length', 'Content-Type'],
+          maxAge: 86400, // Increase cache time to 24 hours
         },
       ],
 

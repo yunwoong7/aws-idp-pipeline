@@ -43,6 +43,8 @@ analysisImageMaxToken = 8192
 analysisVideoModelId = "us.twelvelabs.pegasus-1-2-v1:0"
 analysisSummarizerModelId = "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
 analysisSummarizerMaxToken = 64000
+pageSummaryModelId = "us.anthropic.claude-3-5-haiku-20241022-v1:0"
+pageSummaryMaxToken = 8192
 embeddingsModelId = "amazon.titan-embed-text-v2:0"
 embeddingsDimensions = 1024
 rerankModelId = "cohere.rerank-v3-5:0"
@@ -71,7 +73,7 @@ runtime = "python3.13"
 [stepfunctions]
 # Step Functions 워크플로우 설정
 documentProcessingTimeout = 6000  # 문서 처리 워크플로우 제한 시간 (분) 10시간
-maxConcurrency = 10
+maxConcurrency = 30
 
 [sqs]
 # SQS 설정

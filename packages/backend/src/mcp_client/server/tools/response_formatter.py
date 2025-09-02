@@ -34,7 +34,7 @@ class ResponseFormatter:
             # Basic response structure
             formatted_response = {
                 'success': api_response.get('success', True),
-                'data': api_response,  # Preserve original API response
+                'data': api_response.get('data', api_response),  # Unwrap nested data if present
                 'error': api_response.get('error', None)
             }
             
@@ -50,6 +50,33 @@ class ResponseFormatter:
                 if llm_guide:
                     formatted_response['llm_guide'] = llm_guide
             
+            # Lightweight enhancement for summary-only document analysis
+            # Expose 'summary' at top-level for easy consumption by tools/UI
+            if tool_name == 'get_document_analysis':
+                try:
+                    data = api_response.get('data', api_response)
+                    summary_text = ''
+                    if isinstance(data, dict):
+                        # Prefer direct 'summary' key
+                        summary_text = data.get('summary', '')
+                        # Fallback: nested document object
+                        if not summary_text and isinstance(data.get('document'), dict):
+                            summary_text = data['document'].get('summary', '')
+                    if summary_text:
+                        formatted_response['summary'] = summary_text
+                        # Avoid showing summary twice by removing from inner data
+                        if isinstance(formatted_response.get('data'), dict) and 'summary' in formatted_response['data']:
+                            try:
+                                # Create a shallow copy and drop summary to keep other fields
+                                inner = dict(formatted_response['data'])
+                                inner.pop('summary', None)
+                                formatted_response['data'] = inner
+                            except Exception:
+                                pass
+                except Exception:
+                    # Do not block formatting on summary extraction failures
+                    pass
+
             return formatted_response
             
         except Exception as e:

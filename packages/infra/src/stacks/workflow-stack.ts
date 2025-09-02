@@ -25,6 +25,10 @@ export interface WorkflowStackProps extends cdk.StackProps {
     analysisAgentMaxToken?: number;
     analysisImageModelId?: string;
     analysisImageMaxToken?: number;
+    analysisSummarizerModelId?: string;
+    analysisSummarizerMaxToken?: number;
+    pageSummaryModelId?: string;
+    pageSummaryMaxToken?: number;
   };
   readonly analysis?: {
     previousAnalysisMaxCharacters?: number;
@@ -1193,6 +1197,8 @@ export class WorkflowStack extends cdk.Stack {
       analysisImageMaxToken?: number;
       analysisSummarizerModelId?: string;
       analysisSummarizerMaxToken?: number;
+      pageSummaryModelId?: string;
+      pageSummaryMaxToken?: number;
     },
     commonLayer?: lambda.ILayerVersion,
   ): lambda.Function {
@@ -1207,6 +1213,8 @@ export class WorkflowStack extends cdk.Stack {
         INDICES_TABLE_NAME: indicesTable.tableName,
         BEDROCK_SUMMARY_MODEL_ID: bedrock?.analysisSummarizerModelId || 'us.anthropic.claude-3-7-sonnet-20250219-v1:0',
         BEDROCK_SUMMARY_MAX_TOKENS: bedrock?.analysisSummarizerMaxToken?.toString() || '8192',
+        BEDROCK_PAGE_SUMMARY_MODEL_ID: bedrock?.pageSummaryModelId || 'us.anthropic.claude-3-5-haiku-20241022-v1:0',
+        BEDROCK_PAGE_SUMMARY_MAX_TOKENS: bedrock?.pageSummaryMaxToken?.toString() || '8192',
         ...(opensearchEndpoint && {
           OPENSEARCH_ENDPOINT: opensearchEndpoint,
           OPENSEARCH_INDEX_NAME: 'aws-idp-ai-analysis',

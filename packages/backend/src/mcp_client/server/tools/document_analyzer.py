@@ -1,7 +1,7 @@
 """
 Document analysis tools for MCP server - Refactored with API-First approach
 """
-import requests
+import requests  # type: ignore
 import asyncio
 from typing import Dict, Any, Optional
 import base64
@@ -80,40 +80,67 @@ async def get_document_info_api(index_id: str, document_id: str) -> Optional[Dic
 
 async def get_document_analysis_api(document_id: str, filter_final: bool = True, index_id: str = None) -> Optional[Dict[str, Any]]:
     """
-    Call document analysis API - pure API call and return original response
+    Call document detail API and extract only summary for lightweight response.
     
     Args:   
         document_id: Document ID
-        filter_final: If True, only return final_ai_response (default: True for optimization)
+        filter_final: Kept for backward compatibility (unused)
         index_id: Index ID for access control
     """
     try:
-        opensearch_url = f"{API_BASE_URL}/api/opensearch/documents/{document_id}"
-        
-        # Add query parameters
+        # Use document detail API which contains document-level summary
+        document_detail_url = f"{API_BASE_URL}/api/documents/{document_id}"
+
         params = {}
-        # Always send filter_final explicitly to avoid backend defaults
-        params['filter_final'] = 'true' if filter_final else 'false'
         if index_id:
             params['index_id'] = index_id
-        
-        response = requests.get(opensearch_url, params=params, timeout=30)
-        
+
+        response = requests.get(document_detail_url, params=params, timeout=30)
+
+        if response.status_code == 404:
+            return {
+                'success': False,
+                'error': f'Document ID {document_id} not found.',
+                'data': None
+            }
+
         if response.status_code != 200:
             return {
                 'success': False,
-                'error': f'Document analysis API call failed: {response.status_code}',
+                'error': f'Document detail API call failed: {response.status_code}',
                 'data': None
             }
-        
-        # Return original API response as much as possible
-        return response.json()
-        
+
+        api_response = response.json()
+
+        # Normalize to document dict
+        document = None
+        if isinstance(api_response, dict):
+            if 'document_id' in api_response:
+                document = api_response
+            else:
+                data = api_response.get('data', api_response)
+                if isinstance(data, dict):
+                    document = data.get('document') or (data if 'document_id' in data else None)
+
+        summary_text = ''
+        if isinstance(document, dict):
+            summary_text = document.get('summary') or ''
+
+        return {
+            'success': True,
+            'data': {
+                'document_id': document_id,
+                'index_id': index_id,
+                'summary': summary_text,
+            }
+        }
+
     except Exception as e:
-        print(f"Error in document analysis API call: {e}")
+        print(f"Error in document summary API call: {e}")
         return {
             'success': False,
-            'error': f'Error in document analysis API call: {str(e)}',
+            'error': f'Error in document summary API call: {str(e)}',
             'data': None
         }
 

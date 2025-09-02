@@ -49,6 +49,8 @@ export interface IConfig {
     analysisVideoModelId?: string;
     analysisSummarizerModelId?: string;
     analysisSummarizerMaxToken?: number;
+    pageSummaryModelId?: string;
+    pageSummaryMaxToken?: number;
     rerankModelId?: string;
     embeddingsModelId?: string;
     embeddingsDimensions?: number;
@@ -138,6 +140,8 @@ const schema = Joi.object({
     analysisVideoModelId: Joi.string().optional(),
     analysisSummarizerModelId: Joi.string().optional(),
     analysisSummarizerMaxToken: Joi.number().optional(),
+    pageSummaryModelId: Joi.string().optional(),
+    pageSummaryMaxToken: Joi.number().optional(),
     rerankModelId: Joi.string().optional(),
     embeddingsModelId: Joi.string().optional(),
     embeddingsDimensions: Joi.number().optional(),
@@ -249,6 +253,8 @@ export const getBedrockConfig = () => ({
   analysisAgentMaxToken: Config.bedrock?.analysisAgentMaxToken || 8192,
   analysisImageMaxToken: Config.bedrock?.analysisImageMaxToken || 8192,
   analysisVideoModelId: Config.bedrock?.analysisVideoModelId || 'us.twelvelabs.pegasus-1-2-v1:0',
+  pageSummaryModelId: Config.bedrock?.pageSummaryModelId || 'us.anthropic.claude-3-5-haiku-20241022-v1:0',
+  pageSummaryMaxToken: Config.bedrock?.pageSummaryMaxToken || 8192,
   rerankModelId: Config.bedrock?.rerankModelId || 'cohere.rerank-v3-5:0',
   embeddingsModelId: Config.bedrock?.embeddingsModelId || 'amazon.titan-embed-text-v2:0',
   embeddingsDimensions: Config.bedrock?.embeddingsDimensions || 1024,

@@ -18,15 +18,13 @@ AWS Management Console 우측 상단의 CloudShell 아이콘을 클릭하여 Clo
 
 ### 2. 소스 코드 가져오기
 
-CloudShell 터미널에 다음 명령어를 입력하여 배포 스크립트 및 소스 코드를 클론합니다.
+[CloudShell](https://us-west-2.console.aws.amazon.com/cloudshell/) 터미널에 다음 명령어를 입력하여 배포 스크립트 및 소스 코드를 클론합니다.
 
 <div align="center">   
   <img src="assets/quick-deploy-1.png" alt="quick-deploy-1" width="900"/>
 </div>
-
-
 ```bash
-git clone https://github.com/your-repo/aws-idp-pipeline.git
+git clone https://github.com/yunwoong7/aws-idp-pipeline.git
 cd aws-idp-pipeline
 chmod +x deploy.sh
 ./deploy.sh
@@ -40,17 +38,25 @@ chmod +x deploy.sh
   <img src="assets/quick-deploy-2.png" alt="quick-deploy-2" width="900"/>
 </div>
 
-- `Enter admin user email address:`  이 이메일 주소는 로그인 시 사용할 관리자 이메일입니다.
-  
-- `Do you want to use a custom domain? (y/N):`  여기서는 `N`을 입력합니다.
-  
-- `Do you want to proceed with deployment? (y/N):`  여기서는 `y`를 입력하여 배포를 진행합니다.
+
+- `Enter admin user email address:`  
+  이 이메일 주소는 배포된 웹 애플리케이션의 관리자 계정으로 사용됩니다.  
+  **IAM 계정이 아니라, 웹 애플리케이션의 관리자 이메일입니다.**  
+  입력한 이메일 주소로 초기 임시 비밀번호가 발급되며(아래 배포 완료 후 단계에서 확인 가능), 최초 로그인 시 비밀번호를 변경해야 합니다.
+
+- `Do you want to use a custom domain? (y/N):`  
+  여기서는 `N`을 입력합니다.
+
+- `Do you want to proceed with deployment? (y/N):`  
+  여기서는 `y`를 입력하여 배포를 진행합니다.
+
+> 💡 **참고:** 일반 사용자는 웹 애플리케이션 접속 후 Cognito의 self sign-up(자체 회원가입) 기능을 통해 계정을 생성할 수 있습니다.
 
 이후 배포는 CodeBuild에서 진행됩니다.
 
 ### 4. 배포 모니터링
 
-CodeBuild 콘솔에 접속하여 배포 진행 상황을 모니터링할 수 있습니다. 빌드 로그를 확인하며 에러가 발생하지 않는지 확인하세요.
+[CodeBuild](https://us-west-2.console.aws.amazon.com/codesuite/codebuild/start?region=us-west-2) 콘솔에 접속하여 배포 진행 상황을 모니터링할 수 있습니다. 빌드 로그를 확인하며 에러가 발생하지 않는지 확인하세요.
 
 ## 배포 완료 후
 

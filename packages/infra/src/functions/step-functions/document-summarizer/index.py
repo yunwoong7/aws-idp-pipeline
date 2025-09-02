@@ -121,7 +121,7 @@ def generate_document_summary(document_id: str, index_id: str) -> Dict[str, Any]
             logger.warning(f"⚠️ No segments found for document: {document_id}")
             return None
         
-        # Collect summary from all segments
+        # Collect per-segment short summaries (3~4 lines) using Haiku, then combine
         segment_contents = []
         
         for segment in segments:
@@ -131,17 +131,39 @@ def generate_document_summary(document_id: str, index_id: str) -> Dict[str, Any]
             
             if not segment_id:
                 continue
-            
-            # Read summary directly from DynamoDB segments table
-            summary_text = segment.get('summary')
 
-            if summary_text and isinstance(summary_text, str) and summary_text.strip():
+            # Prefer existing content fields as source; we'll re-summarize to 3~4 lines using Haiku
+            source_text = (
+                segment.get('content_combined')
+                or segment.get('summary')
+                or segment.get('content')
+                or ''
+            )
+
+            short_summary = ''
+            if isinstance(source_text, str) and source_text.strip():
+                try:
+                    short_summary = generate_page_summary_with_llm(
+                        source_text.strip(),
+                        media_type,
+                        file_name,
+                        segment_index,
+                    )
+                except Exception as e:
+                    logger.warning(f"⚠️ Haiku page summary failed for segment {segment_index}: {str(e)}")
+
+            # Fallback if summarization failed
+            if not short_summary:
+                fallback_text = (segment.get('summary') or segment.get('content_combined') or '')
+                short_summary = (fallback_text[:800] + '...') if isinstance(fallback_text, str) else ''
+
+            if short_summary:
                 segment_contents.append({
                     'segment_index': segment_index,
                     'segment_type': segment_type,
-                    'content': summary_text.strip()
+                    'content': short_summary.strip()
                 })
-                logger.debug(f"📄 Segment {segment_index} summary collected: {len(summary_text)} chars")
+                logger.debug(f"📄 Segment {segment_index} short summary collected: {len(short_summary)} chars")
         
         if not segment_contents:
             logger.warning(f"⚠️ No segment summaries found for document: {document_id}")
@@ -152,7 +174,7 @@ def generate_document_summary(document_id: str, index_id: str) -> Dict[str, Any]
         
         logger.info(f"📊 Total segments with summaries: {len(segment_contents)}")
         
-        # Generate LLM prompt based on media type
+        # Generate combined content from short summaries
         combined_content = create_combined_content_for_llm(segment_contents, media_type, file_name)
         
         # Generate summary using LLM
@@ -305,6 +327,57 @@ def generate_summary_with_llm(content: str, media_type: str, file_name: str) -> 
         raise
     except Exception as e:
         logger.error(f"❌ LLM summary generation error: {str(e)}")
+        return ""
+
+def generate_page_summary_with_llm(content: str, media_type: str, file_name: str, segment_index: int) -> str:
+    """Generate 3~4 line page/chapter summary using Haiku"""
+    try:
+        import boto3
+
+        model_id = os.environ.get('BEDROCK_PAGE_SUMMARY_MODEL_ID', 'us.anthropic.claude-3-5-haiku-20241022-v1:0')
+        max_tokens_env = int(os.environ.get('BEDROCK_PAGE_SUMMARY_MAX_TOKENS', '8192'))
+        # Cap to a reasonable output length for 3~4 lines
+        max_tokens = min(max_tokens_env, 512)
+
+        bedrock_runtime = boto3.client('bedrock-runtime')
+
+        if media_type == 'VIDEO':
+            system_prompt = (
+                "당신은 동영상 챕터 요약 전문가입니다. 입력된 챕터 내용을 3~4줄의 한국어 요약으로 간결하게 정리하세요. "
+                "불필요한 서론/결론 없이 핵심만 담고, 문장은 짧고 명확하게 작성하세요."
+            )
+            user_prompt = f"동영상 '{file_name}'의 챕터 {segment_index + 1} 내용입니다. 3~4줄 요약:\n\n{content}"
+        else:
+            system_prompt = (
+                "당신은 문서 페이지 요약 전문가입니다. 입력된 페이지 내용을 3~4줄의 한국어 요약으로 간결하게 정리하세요. "
+                "불필요한 서론/결론 없이 핵심만 담고, 문장은 짧고 명확하게 작성하세요."
+            )
+            user_prompt = f"문서 '{file_name}'의 페이지 {segment_index + 1} 내용입니다. 3~4줄 요약:\n\n{content}"
+
+        request_body = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": max_tokens,
+            "system": system_prompt,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": user_prompt,
+                }
+            ]
+        }
+
+        logger.debug(f"🤖 Calling Haiku for page {segment_index + 1}: {model_id}")
+        response = bedrock_runtime.invoke_model(
+            modelId=model_id,
+            body=json.dumps(request_body)
+        )
+
+        response_body = json.loads(response['body'].read())
+        page_summary = response_body['content'][0]['text']
+        return page_summary
+
+    except Exception as e:
+        logger.error(f"❌ Page-level LLM summary error: {str(e)}")
         return ""
 
 def update_document_summary(document_id: str, summary: str) -> bool:
