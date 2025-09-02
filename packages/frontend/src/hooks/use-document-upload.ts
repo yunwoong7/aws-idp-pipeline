@@ -13,10 +13,6 @@ const MAX_REGULAR_FILE_SIZE_MB = 4;
 const MAX_LARGE_FILE_SIZE_MB = 500;
 
 export interface UseDocumentUploadReturn {
-    // Upload zone state
-    showUploadZone: boolean;
-    setShowUploadZone: (show: boolean) => void;
-    
     // Upload files
     uploadFiles: UploadFile[];
     setUploadFiles: React.Dispatch<React.SetStateAction<UploadFile[]>>;
@@ -70,8 +66,7 @@ export const useDocumentUpload = (options: {
     const { toast } = useToast();
     const { documents = [], onUploadComplete, indexId } = options;
     
-    // Upload zone state
-    const [showUploadZone, setShowUploadZone] = useState(false);
+    // Upload files state
     const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([]);
     const [isUploading, setIsUploading] = useState(false);
     
@@ -454,10 +449,6 @@ export const useDocumentUpload = (options: {
     }, []);
 
     return {
-        // Upload zone state
-        showUploadZone,
-        setShowUploadZone,
-        
         // Upload files
         uploadFiles,
         setUploadFiles,

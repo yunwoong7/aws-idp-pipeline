@@ -28,6 +28,7 @@ git clone https://github.com/yunwoong7/aws-idp-pipeline.git
 cd aws-idp-pipeline
 chmod +x deploy.sh
 ./deploy.sh
+
 ```
 
 ### 3. 실행 중 입력값 제공

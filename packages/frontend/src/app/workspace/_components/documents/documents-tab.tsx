@@ -38,6 +38,9 @@ export function DocumentsTab({ indexId, onSelectDocument, onAttachToChat, onAnal
     deleteDocument 
   } = useDocuments(indexId);
 
+  // Upload zone state - moved to component level for proper state management
+  const [showUploadZone, setShowUploadZone] = useState(false);
+
   // Upload notification management
   const { notifications, removeNotification } = useUploadNotifications({
     maxNotifications: 3,
@@ -46,8 +49,6 @@ export function DocumentsTab({ indexId, onSelectDocument, onAttachToChat, onAnal
   });
 
   const {
-    showUploadZone,
-    setShowUploadZone,
     uploadFiles,
     isUploading,
     getRootProps,
