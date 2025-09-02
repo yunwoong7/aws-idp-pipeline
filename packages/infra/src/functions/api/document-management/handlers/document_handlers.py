@@ -223,11 +223,11 @@ def handle_upload_document(event: Dict[str, Any]) -> Dict[str, Any]:
             import boto3
             s3_client = boto3.client('s3')
             
-            # Generate pre-signed URL for PUT
+            # Generate pre-signed URL for PUT without ContentType to avoid CORS preflight
             params = {
                 'Bucket': bucket_name,
-                'Key': s3_key,
-                'ContentType': file_type
+                'Key': s3_key
+                # Remove ContentType from params to avoid CORS preflight issues
             }
             
             presigned_url = s3_client.generate_presigned_url(
@@ -972,11 +972,11 @@ def handle_generate_upload_presigned_url(event: Dict[str, Any]) -> Dict[str, Any
             import boto3
             s3_client = boto3.client('s3')
             
-            # Generate pre-signed URL for PUT
+            # Generate pre-signed URL for PUT without ContentType to avoid CORS preflight
             params = {
                 'Bucket': bucket_name,
-                'Key': s3_key,
-                'ContentType': file_type
+                'Key': s3_key
+                # Remove ContentType from params to avoid CORS preflight issues
             }
             
             presigned_url = s3_client.generate_presigned_url(

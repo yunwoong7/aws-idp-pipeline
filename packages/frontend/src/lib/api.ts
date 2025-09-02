@@ -526,12 +526,10 @@ export const documentApi = {
         reject(new Error('S3 upload failed'));
       };
 
-      // For S3 presigned URLs, don't set Content-Type header to avoid CORS preflight
+      // For S3 presigned URLs, use simple PUT request without Content-Type to avoid CORS
       xhr.open('PUT', uploadUrl);
-      // Only set Content-Type if not already in URL (to avoid CORS preflight)
-      if (!uploadUrl.includes('content-type=')) {
-        xhr.setRequestHeader('Content-Type', contentType);
-      }
+      // Don't set Content-Type header for S3 presigned URLs to avoid CORS preflight
+      // S3 will infer the content type from the file
       xhr.send(file);
     });
   }
