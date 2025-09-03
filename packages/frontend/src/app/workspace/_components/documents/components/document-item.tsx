@@ -93,6 +93,7 @@ export function DocumentItem({
             uploading: { label: 'Uploading', className: 'bg-blue-500/20 text-blue-300 border-blue-500/30' },
             uploaded: { label: 'Uploaded', className: 'bg-blue-500/20 text-blue-300 border-blue-500/30' },
             bda_analyzing: { label: 'Analyzing (BDA)', className: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30' },
+            bda_completed: { label: 'BDA completed', className: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30' },
             document_indexing_completed: { label: 'Indexing completed', className: 'bg-sky-500/20 text-sky-300 border-sky-500/30' },
             bda_skipped: { label: 'BDA skipped', className: 'bg-cyan-500/10 text-cyan-300/80 border-cyan-500/20' },
             pdf_text_extracting: { label: 'Text extracting', className: 'bg-teal-500/20 text-teal-300 border-teal-500/30' },
@@ -100,6 +101,7 @@ export function DocumentItem({
             react_analyzing: { label: 'Analyzing (AI)', className: 'bg-purple-500/20 text-purple-300 border-purple-500/30' },
             react_finalizing: { label: 'Finalizing', className: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' },
             react_finalized: { label: 'Finalized', className: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' },
+            react_completed: { label: 'React completed', className: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30' },
             summarizing: { label: 'Summarizing', className: 'bg-amber-500/20 text-amber-300 border-amber-500/30' },
             completed: { label: 'Completed', className: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' },
         };
@@ -158,9 +160,11 @@ export function DocumentItem({
         ];
         const normalize = (s: string) => {
             if (s === 'bda_skipped') return 'pdf_text_extracting';
+            if (s === 'bda_completed') return 'document_indexing_completed';
             if (s === 'summary_failed') return 'summarizing';
             if (s === 'react_failed') return 'react_analyzing';
             if (s === 'react_finalize_failed') return 'react_finalizing';
+            if (s === 'react_completed') return 'react_finalized';
             if (s === 'error') return 'react_analyzing';
             if (s.includes('indexing')) return 'document_indexing_completed';
             return s;
