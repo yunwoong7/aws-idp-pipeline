@@ -32,7 +32,7 @@ export const useDocuments = (indexId: string): UseDocumentsReturn => {
                 throw new Error('indexId is required');
             }
             
-            const responseData = await documentApi.getDocuments(false, true, indexId); // simple=false, segments=true
+            const responseData = await documentApi.getDocuments(true, false, indexId); // simple=true, segments=false
             console.log('Document list fetch success:', responseData);
             
             // API 응답 구조에 맞게 데이터 추출

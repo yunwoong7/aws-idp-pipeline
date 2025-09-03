@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Search, BookOpen, FileText } from "lucide-react";
 import { DocumentItem } from "./document-item";
 import { Document } from "@/types/document.types";
@@ -32,6 +32,29 @@ export function DocumentList({
     searchResults = [],
     onAnalyzeDocument,
 }: DocumentListProps) {
+    const DEFAULT_BATCH_SIZE = 20;
+    const [visibleCount, setVisibleCount] = useState<number>(DEFAULT_BATCH_SIZE);
+    const sentinelRef = useRef<HTMLDivElement | null>(null);
+    const observerRef = useRef<IntersectionObserver | null>(null);
+
+    useEffect(() => {
+        setVisibleCount(DEFAULT_BATCH_SIZE);
+    }, [documents, searchQuery]);
+
+    useEffect(() => {
+        if (!sentinelRef.current) return;
+        observerRef.current?.disconnect();
+        observerRef.current = new IntersectionObserver((entries) => {
+            const entry = entries[0];
+            if (entry.isIntersecting) {
+                setVisibleCount((prev) => Math.min(prev + DEFAULT_BATCH_SIZE, documents.length));
+            }
+        }, { root: null, rootMargin: "200px", threshold: 0 });
+        observerRef.current.observe(sentinelRef.current);
+        return () => observerRef.current?.disconnect();
+    }, [documents.length]);
+
+    const visibleDocuments = documents.slice(0, visibleCount);
 
     if (error) {
         return (
@@ -112,9 +135,9 @@ export function DocumentList({
                 </div>
             )}
 
-            {/* 문서 리스트 - 한 줄에 하나씩 */}
+            {/* 문서 리스트 - 한 줄에 하나씩 (incremental rendering) */}
             <div className="space-y-3">
-                {documents.map((document) => (
+                {visibleDocuments.map((document) => (
                     <DocumentItem
                         key={document.document_id}
                         document={document}
@@ -126,6 +149,18 @@ export function DocumentList({
                         onAnalyze={onAnalyzeDocument}
                     />
                 ))}
+                {visibleCount < documents.length && (
+                    <div className="flex flex-col items-center justify-center py-4">
+                        <div ref={sentinelRef} className="h-1 w-full" />
+                        <button
+                            type="button"
+                            onClick={() => setVisibleCount((c) => Math.min(c + DEFAULT_BATCH_SIZE, documents.length))}
+                            className="mt-2 px-4 py-2 text-sm rounded-md border border-white/10 text-white/80 hover:text-white hover:border-white/20 bg-white/[0.03] hover:bg-white/[0.06]"
+                        >
+                            Load more ({visibleCount}/{documents.length})
+                        </button>
+                    </div>
+                )}
             </div>
         </div>
     );

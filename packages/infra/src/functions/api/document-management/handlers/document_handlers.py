@@ -445,16 +445,6 @@ def handle_get_document_detail(event: Dict[str, Any]) -> Dict[str, Any]:
             'segments': []
         }
         
-        # Construct segment information
-        # for segment in segments:
-        #     segment_info = {
-        #         'segment_id': segment.get('segment_id'),
-        #         'segment_index': segment.get('segment_index'),
-        #         'status': segment.get('status', 'pending'),
-        #         'summary': segment.get('summary', '')
-        #     }
-        #     response_document['segments'].append(segment_info)
-        
         return create_success_response(response_document)
         
     except Exception as e:

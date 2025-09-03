@@ -13,7 +13,7 @@ import { SecureImage } from "@/components/ui/secure-image";
 import { motion, AnimatePresence } from "framer-motion";
 import { documentApi } from "@/lib/api";
 
-// SecureVideo 컴포넌트
+// SecureVideo component
 interface SecureVideoProps {
   s3Uri: string | null | undefined;
   indexId?: string;
@@ -91,7 +91,7 @@ const SecureVideo = ({ s3Uri, indexId, className = '', style, seekToSeconds }: S
       <div className={`flex items-center justify-center ${className}`} style={style}>
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="h-8 w-8 animate-spin text-purple-400" />
-          <p className="text-white/60 text-sm">비디오 로딩 중...</p>
+          <p className="text-white/60 text-sm">Loading video...</p>
         </div>
       </div>
     );
@@ -102,7 +102,7 @@ const SecureVideo = ({ s3Uri, indexId, className = '', style, seekToSeconds }: S
       <div className={`flex items-center justify-center ${className}`} style={style}>
         <div className="flex flex-col items-center gap-3">
           <Play className="h-12 w-12 text-white/40" />
-          <p className="text-white/60 text-sm">비디오를 불러올 수 없습니다</p>
+          <p className="text-white/60 text-sm">Failed to load video</p>
           {error && <p className="text-red-400 text-xs">{error}</p>}
         </div>
       </div>
@@ -120,7 +120,7 @@ const SecureVideo = ({ s3Uri, indexId, className = '', style, seekToSeconds }: S
       <source src={presignedUrl} type="video/mp4" />
       <source src={presignedUrl} type="video/webm" />
       <source src={presignedUrl} type="video/ogg" />
-      비디오를 재생할 수 없습니다.
+      Failed to play video.
     </video>
   );
 };
@@ -147,12 +147,12 @@ const SummarySection: React.FC<SummarySectionProps> = ({ summary }) => {
           >
             {isExpanded ? (
               <>
-                <span>접기</span>
+                <span>Collapse</span>
                 <ChevronUp className="h-3 w-3 transition-transform" />
               </>
             ) : (
               <>
-                <span>펼치기</span>
+                <span>Expand</span>
                 <ChevronDown className="h-3 w-3 transition-transform" />
               </>
             )}
@@ -829,7 +829,7 @@ export function DocumentDetailDialog({
                     onResetImage?.();
                   }}
                   className="h-8 w-8 p-0 border-white/10 text-white/80 hover:text-white hover:bg-white/10"
-                  title="초기화"
+                  title="Reset"
                 >
                   <RefreshCw className="h-4 w-4" />
                 </Button>
@@ -891,12 +891,12 @@ export function DocumentDetailDialog({
                 {imageLoading ? (
                   <div className="flex flex-col items-center gap-3">
                     <Loader2 className="h-8 w-8 animate-spin text-purple-400" />
-                    <p className="text-white/60 text-sm">미리보기 로딩 중...</p>
+                    <p className="text-white/60 text-sm">Loading preview...</p>
                   </div>
                 ) : (
                   <div className="flex flex-col items-center gap-3">
                     <FileText className="h-12 w-12 text-white/40" />
-                    <p className="text-white/60 text-sm">미리보기를 사용할 수 없습니다</p>
+                    <p className="text-white/60 text-sm">Preview is not available for this file</p>
                   </div>
                 )}
               </div>

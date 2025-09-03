@@ -26,7 +26,7 @@ interface DocumentItemProps {
     indexId: string;
 }
 
-export function DocumentItem({
+function DocumentItemComponent({
     document,
     onView,
     onDelete,
@@ -190,7 +190,7 @@ export function DocumentItem({
                     <Card className="group transition-all duration-300 hover:shadow-[0_8px_16px_rgb(0_0_0/0.4)] border-white/[0.1] hover:border-white/[0.2] bg-black w-full">
             <CardContent className="p-4">
                 {/* Glowing Effect */}
-                {showGlowEffect && (
+                {false && (
                     <GlowingEffect
                         variant="default"
                         proximity={80}
@@ -326,4 +326,6 @@ export function DocumentItem({
             {AlertComponent}
         </Card>
     );
-} 
+}
+
+export const DocumentItem = React.memo(DocumentItemComponent);

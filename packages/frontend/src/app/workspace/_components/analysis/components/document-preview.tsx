@@ -754,7 +754,7 @@ export function DocumentPreview({
                           )}
                         </div>
                         <Badge variant="outline" className="text-cyan-300 border-cyan-400/30 bg-cyan-500/10 font-semibold text-sm px-2 py-0.5">
-                          {analysisLoading ? '로딩...' : `${allCounts.bda + allCounts.pdf + allCounts.ai}개`}
+                          {analysisLoading ? 'Loading...' : `${allCounts.bda + allCounts.pdf + allCounts.ai} results`}
                         </Badge>
                       </div>
                       
@@ -904,19 +904,19 @@ export function DocumentPreview({
                   {imageLoading ? (
                     <div className="flex flex-col items-center gap-3">
                       <Loader2 className="h-8 w-8 animate-spin text-purple-400" />
-                      <p className="text-white/60 text-sm">미리보기 로딩 중...</p>
+                      <p className="text-white/60 text-sm">Loading preview...</p>
                     </div>
                   ) : (
                     <div className="flex flex-col items-center gap-3">
                       {selectedDocument && (selectedDocument.file_type.includes('video') || ['mp4', 'avi', 'mov', 'wmv', 'mkv', 'webm'].some(ext => selectedDocument.file_name.toLowerCase().endsWith(ext))) ? (
                         <>
                           <Play className="h-12 w-12 text-white/40" />
-                          <p className="text-white/60 text-sm">비디오 미리보기를 사용할 수 없습니다</p>
+                          <p className="text-white/60 text-sm">Analysis is not available for video files</p>
                         </>
                       ) : (
                         <>
                           <FileText className="h-12 w-12 text-white/40" />
-                          <p className="text-white/60 text-sm">미리보기를 사용할 수 없습니다</p>
+                          <p className="text-white/60 text-sm">Analysis is not available for this file</p>
                         </>
                       )}
                     </div>

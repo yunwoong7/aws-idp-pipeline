@@ -107,9 +107,11 @@ class ExecutorNode:
                 references.extend(result["references"])
                 state['references'] = references
             
-            # Save to OpenSearch if successful
+            # Save to OpenSearch if successful (skip only for ImageRotate)
             if self.opensearch and result.get("success"):
-                self._save_to_opensearch(state, action, result)
+                tool_name = (action.get('tool_name') or '')
+                if tool_name.lower() != 'imagerotate':
+                    self._save_to_opensearch(state, action, result)
             
             logger.info(f"✅ Tool execution {'succeeded' if result.get('success') else 'failed'}")
             logger.info(f"⏱️ Execution time: {execution_time:.2f}s")

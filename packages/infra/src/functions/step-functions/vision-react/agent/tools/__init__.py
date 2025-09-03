@@ -7,6 +7,7 @@ from typing import Dict, Any, List, Optional, Type
 from .base import BaseTool
 from .image_analyzer import ImageAnalyzerTool
 from .video_analyzer import VideoAnalyzerTool
+from .image_rotator import ImageRotateTool
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,7 @@ registry = ToolRegistry()
 # Register available tools
 registry.register_tool("ImageAnalyzer", ImageAnalyzerTool())
 registry.register_tool("VideoAnalyzer", VideoAnalyzerTool())
+registry.register_tool("ImageRotate", ImageRotateTool())
 
 # Legacy functions for backward compatibility
 def get_tool_by_name(tool_name: str) -> Optional[BaseTool]:
