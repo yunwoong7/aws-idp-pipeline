@@ -765,6 +765,7 @@ export interface BrandingSettings {
   companyName: string;
   logoUrl: string;
   description: string;
+  version?: string;
 }
 
 export const brandingApi = {
@@ -776,8 +777,13 @@ export const brandingApi = {
       throw new Error('브랜딩 설정을 가져오는데 실패했습니다');
     }
     const result = await response.json();
-    // 백엔드가 {success: true, data: {...}} 형태로 응답하므로 data 부분만 반환
-    return result.data || result;
+    const data: BrandingSettings = result.data || result;
+    // 상대 경로 로고 URL을 백엔드 절대 경로로 보정
+    // 사용자 로고(API 경로)인 경우에만 백엔드 절대 경로로 보정
+    if (data.logoUrl && data.logoUrl.startsWith('/api/')) {
+      data.logoUrl = `${backendUrl}${data.logoUrl}`;
+    }
+    return data;
   },
 
   // 브랜딩 설정 업데이트 (FormData 지원)

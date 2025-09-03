@@ -5,8 +5,9 @@
     "description": "Transform Documents into\nActionable Insights"
   },
   "user": {
-    "companyName": "",
-    "logoUrl": "",
-    "description": ""
-  }
+    "companyName": "AWS IDPㅇㅇㅇ",
+    "logoUrl": "/user_logo.png",
+    "description": "Transform Documents into\r\nActionable Insights"
+  },
+  "version": "0.1.0"
 }

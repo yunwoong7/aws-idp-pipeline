@@ -21,7 +21,8 @@ export function BrandingProvider({ children }: BrandingProviderProps) {
   const [settings, setSettings] = useState<BrandingSettings>({
     companyName: 'AWS IDP',
     logoUrl: '/default_logo.png',
-    description: 'Transform Documents into\nActionable Insights'
+    description: 'Transform Documents into\nActionable Insights',
+    version: undefined,
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +44,7 @@ export function BrandingProvider({ children }: BrandingProviderProps) {
         companyName: result.companyName || 'AWS IDP',
         logoUrl: effectiveLogoUrl,
         description: result.description || 'Transform Documents into\nActionable Insights',
+        version: result.version,
       });
       setInitialized(true);
     } catch (err) {
@@ -53,7 +55,8 @@ export function BrandingProvider({ children }: BrandingProviderProps) {
       setSettings({
         companyName: 'AWS IDP',
         logoUrl: `/default_logo.png?v=${cacheBuster}`,
-        description: 'Transform Documents into\nActionable Insights'
+        description: 'Transform Documents into\nActionable Insights',
+        version: undefined,
       });
       setInitialized(true);
     } finally {

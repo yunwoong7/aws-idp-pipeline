@@ -47,6 +47,7 @@ function BrandingLogo({ logoUrl, companyName }: BrandingLogoProps) {
       alt={companyName}
       width={48}
       height={48}
+      unoptimized
       className="h-12 w-12 object-contain"
       onError={() => {
         console.log('🚫 Image load error:', logoUrl);
@@ -109,6 +110,9 @@ export function AppSidebar() {
               <h2 className="text-base font-semibold text-white whitespace-pre-line break-words line-clamp-2 leading-tight">
                 {loading ? 'Loading...' : (settings.companyName || 'AWS IDP')}
               </h2>
+              {!loading && settings.version && (
+                <p className="text-[10px] text-gray-400 mt-0.5">v{settings.version}</p>
+              )}
             </div>
           </div>
         </div>

@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback } from "react";
 import ReactDOM from "react-dom";
-import { FileText, Play, Loader2, X, ZoomIn, ZoomOut, RotateCw, RotateCcw, ChevronDown, ChevronUp, Calendar, Database, Download, Eye, ChevronLeft, ChevronRight, AlertCircle } from "lucide-react";
+import { FileText, Play, Loader2, X, ZoomIn, ZoomOut, RotateCw, RotateCcw, ChevronDown, ChevronUp, Calendar, Database, Download, Eye, ChevronLeft, ChevronRight, AlertCircle, CheckCircle, Clock } from "lucide-react";
 import { AnalysisPopup } from "@/components/common/analysis-popup";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -682,16 +682,79 @@ export function DocumentDetailDialog({
                   }}
                   className="bg-white/10 border border-white/10 rounded px-3 py-1 text-white text-sm focus:outline-none focus:border-white/40"
                 >
-                  {Array.from({ length: totalSegments }, (_, i) => (
-                    <option key={i} value={i} className="bg-gray-800">
-                      Segment {i + 1}
-                    </option>
-                  ))}
+                  {(() => {
+                    const segs: any[] = (document as any)?.segment_images || [];
+                    const statusByIndex: Record<number, string> = {};
+                    segs.forEach((s) => {
+                      if (typeof s?.segment_index === 'number') {
+                        statusByIndex[s.segment_index] = String(s.status || '').toLowerCase();
+                      }
+                    });
+                    const indices = Array.from({ length: totalSegments }, (_, i) => i);
+                    const isCompleted = (st: string) => st === 'completed';
+                    const isFailed = (st: string) => st.includes('failed') || st === 'error';
+                    const completed = indices.filter(i => isCompleted(statusByIndex[i] || ''));
+                    const inprogress = indices.filter(i => !isCompleted(statusByIndex[i] || '') && !isFailed(statusByIndex[i] || ''));
+
+                    return (
+                      <>
+                        {inprogress.length > 0 && (
+                          <optgroup label={`In progress (${inprogress.length})`}>
+                            {inprogress.map(i => (
+                              <option key={`ip-${i}`} value={i} className="bg-gray-800">
+                                Segment {i + 1}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {completed.length > 0 && (
+                          <optgroup label={`Completed (${completed.length})`}>
+                            {completed.map(i => (
+                              <option key={`ok-${i}`} value={i} className="bg-gray-800">
+                                Segment {i + 1}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {inprogress.length === 0 && completed.length === 0 && (
+                          indices.map(i => (
+                            <option key={`all-${i}`} value={i} className="bg-gray-800">
+                              Segment {i + 1}
+                            </option>
+                          ))
+                        )}
+                      </>
+                    );
+                  })()}
                 </select>
                 
                 <span className="text-white/60 text-sm whitespace-nowrap">
                   {(selectedSegment || 0) + 1}/{totalSegments}
                 </span>
+                {/* 현재 선택 세그먼트 상태 배지 */}
+                {(() => {
+                  const currentSegment = (document as any)?.segment_images?.find((s: any) => s.segment_index === (selectedSegment || 0));
+                  const segStatus: string = String(currentSegment?.status || '').toLowerCase();
+                  if (!segStatus) return null;
+                  const badgeClass = segStatus === 'completed'
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                    : segStatus.includes('analyz')
+                      ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                      : segStatus.includes('failed') || segStatus === 'error'
+                        ? 'bg-red-500/20 text-red-300 border-red-500/30'
+                        : 'bg-white/10 text-white/70 border-white/20';
+                  const label = segStatus === 'completed' ? 'Completed' : segStatus.replace(/_/g, ' ');
+                  return (
+                    <Badge className={`text-xs border ${badgeClass} flex items-center gap-1`}>
+                      {segStatus === 'completed' ? (
+                        <CheckCircle className="h-3 w-3" />
+                      ) : segStatus.includes('analyz') ? (
+                        <Clock className="h-3 w-3" />
+                      ) : null}
+                      {label}
+                    </Badge>
+                  );
+                })()}
                 
                 <Button
                   variant="outline"

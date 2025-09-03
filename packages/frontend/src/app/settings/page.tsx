@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { useBranding } from "@/contexts/branding-context";
 import MCPToolManager from "./_components/mcp-tool-manager";
 import { BrandingSettings } from "./_components/branding-settings";
 import { useRouter } from "next/navigation";
@@ -49,6 +50,7 @@ const settingsMenu: SettingsMenuItem[] = [
 export default function SettingsPage() {
     const router = useRouter();
     const [selectedMenu, setSelectedMenu] = useState("branding");
+    const { settings, loading } = useBranding();
 
     const renderContent = () => {
         switch (selectedMenu) {
@@ -109,6 +111,9 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.`}
                                     <div className="p-6">
                                         <div className="flex items-center gap-2 mb-6">
                                             <h1 className="text-xl font-bold text-white">Settings</h1>
+                                            {!loading && settings.version && (
+                                                <span className="text-[10px] text-gray-300 bg-white/5 border border-white/10 rounded px-2 py-0.5">v{settings.version}</span>
+                                            )}
                                         </div>
                                         <nav className="space-y-2">
                                             {settingsMenu.map((item) => {

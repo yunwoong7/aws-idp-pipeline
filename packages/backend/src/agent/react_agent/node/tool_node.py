@@ -66,6 +66,12 @@ class CustomToolNode:
                     if isinstance(content, dict):
                         # Check if it has nested data structure (like hybrid_search result)
                         data = content.get("data", content)
+                        # Harden against tools returning {"data": null}
+                        if data is None:
+                            data = {}
+                        # Ensure dict before using membership checks
+                        if not isinstance(data, dict):
+                            data = {}
                         # Extract attachments if provided by tool (LLM-ready)
                         if "attachments" in data and isinstance(data["attachments"], list):
                             for att in data["attachments"]:

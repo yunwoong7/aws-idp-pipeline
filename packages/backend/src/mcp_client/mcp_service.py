@@ -42,6 +42,23 @@ class MCPService:
             logger.info("MCPService: loading config file")
             mcp_config = await load_mcp_config(self.config_path)
             mcp_tools = mcp_config.get("mcpServers", {})
+            
+            # 환경변수를 MCP 서버들에 전달하도록 설정 추가
+            import os
+            for server_name, server_config in mcp_tools.items():
+                if "env" not in server_config:
+                    server_config["env"] = {}
+                # 현재 프로세스의 중요한 환경변수들을 MCP 서버에 전달
+                server_config["env"].update({
+                    "API_BASE_URL": os.getenv("API_BASE_URL", "http://localhost:8000"),
+                    "STAGE": os.getenv("STAGE", "dev"),
+                    "AWS_REGION": os.getenv("AWS_REGION", "us-west-2"),
+                    "AWS_DEFAULT_REGION": os.getenv("AWS_DEFAULT_REGION", "us-west-2"),
+                    "AWS_EXECUTION_ENV": os.getenv("AWS_EXECUTION_ENV", ""),
+                    "PYTHONPATH": "/app"
+                })
+                logger.info(f"MCPService: setting API_BASE_URL={server_config['env']['API_BASE_URL']} for {server_name}")
+            
             self.server_count = len(mcp_tools)
 
             # logging server names

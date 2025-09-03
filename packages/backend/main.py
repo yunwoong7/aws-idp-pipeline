@@ -18,6 +18,11 @@ from src.routers.analysis_agent import router as analysis_agent_router
 from src.routers.search_agent import router as search_agent_router
 from src.routers.verification import router as verification_router
 from src.routers.auth import router as auth_router
+from src.mcp_client.server.config import get_app_config
+
+conf = get_app_config()
+print(conf)
+
 
 # logging setup
 logging.basicConfig(level=logging.INFO)
@@ -118,6 +123,19 @@ app.include_router(auth_router)  # authentication API router
 @app.get("/")
 async def root():
     return {"message": "AWS IDP AI Analysis API Server"}
+
+# Debug endpoint to check MCP logs (accessible via /api path to bypass auth)
+@app.get("/api/debug/mcp-logs")
+async def get_mcp_debug_logs():
+    """Get MCP debug logs from /tmp/mcp_debug.log"""
+    try:
+        with open('/tmp/mcp_debug.log', 'r') as f:
+            logs = f.read()
+        return {"logs": logs, "status": "success"}
+    except FileNotFoundError:
+        return {"logs": "No debug log file found", "status": "not_found"}
+    except Exception as e:
+        return {"logs": f"Error reading log: {str(e)}", "status": "error"}
 
 # Echo endpoint
 class EchoOutput(BaseModel):

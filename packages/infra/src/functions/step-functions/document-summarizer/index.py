@@ -53,6 +53,23 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         
         logger.info(f"📋 Target: index_id={index_id}, document_id={document_id}")
         
+        # Mark document as summarizing in-progress (status only)
+        try:
+            current_time = get_current_timestamp()
+            db_service.update_item(
+                table_name='documents',
+                key={'document_id': document_id},
+                update_expression='SET #status = :status, updated_at = :updated_at',
+                expression_attribute_names={'#status': 'status'},
+                expression_attribute_values={
+                    ':status': 'summarizing',
+                    ':updated_at': current_time
+                }
+            )
+            logger.info(f"📌 Document status set to summarizing: {document_id}")
+        except Exception as se:
+            logger.warning(f"⚠️ Failed to set summarizing status: {str(se)}")
+
         # Generate document summary
         summary_result = generate_document_summary(document_id, index_id)
         

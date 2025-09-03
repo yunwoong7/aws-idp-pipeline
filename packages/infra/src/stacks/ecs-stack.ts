@@ -259,6 +259,7 @@ export class EcsStack extends cdk.Stack {
         AWS_REGION: cdk.Aws.REGION,
         AWS_DEFAULT_REGION: cdk.Aws.REGION,
         AUTH_DISABLED: 'false',  // 배포 환경에서는 실제 Cognito 인증 사용
+        API_BASE_URL: apiGatewayUrl,
       },
       portMappings: [
         {

@@ -507,27 +507,27 @@ def handle_get_opensearch_document_segment(event: Dict[str, Any]) -> Dict[str, A
         
         index_id = path_params.get('index_id')
         document_id = path_params.get('document_id')
-        segment_index = path_params.get('segment_index')
+        segment_id = path_params.get('segment_id')
         
         if not index_id:
             return create_validation_error_response("index_id is required")
         if not document_id:
             return create_validation_error_response("document_id is required")
-        if segment_index is None:
-            return create_validation_error_response("segment_index is required")
+        if segment_id is None:
+            return create_validation_error_response("segment_id is required")
         
         # Convert segment_index to integer
         try:
-            segment_index = int(segment_index)
-            if segment_index < 0:
-                return create_validation_error_response("segment_index must be non-negative")
+            segment_id = int(segment_id)
+            if segment_id < 0:
+                return create_validation_error_response("segment_id must be non-negative")
         except ValueError:
-            return create_validation_error_response("segment_index must be a valid integer")
+            return create_validation_error_response("segment_id must be a valid string")
         
         # Check filtering options
         filter_final_only = query_params.get('filter_final', 'false').lower() == 'true'
         
-        logger.info(f"🔍 Starting specific OpenSearch segment retrieval: index_id={index_id}, document_id={document_id}, segment_index={segment_index}, filter_final={filter_final_only}")
+        logger.info(f"🔍 Starting specific OpenSearch segment retrieval: index_id={index_id}, document_id={document_id}, segment_id={segment_id}, filter_final={filter_final_only}")
         
         opensearch = _get_opensearch_service()
         s3 = _get_s3_service()
@@ -540,7 +540,7 @@ def handle_get_opensearch_document_segment(event: Dict[str, Any]) -> Dict[str, A
                     "must": [
                         {"term": {"index_id": index_id}},
                         {"term": {"document_id": document_id}},
-                        {"term": {"segment_index": segment_index}}
+                        {"term": {"segment_id": segment_id}}
                     ]
                 }
             }
@@ -568,7 +568,7 @@ def handle_get_opensearch_document_segment(event: Dict[str, Any]) -> Dict[str, A
         file_uri = source.get('file_uri', '')
         
         # Return pure S3 URIs (remove Pre-signed URL generation)
-        logger.info(f"Returning specific page S3 URIs: image_uri={image_uri}, file_uri={file_uri}")
+        logger.info(f"Returning specific segment S3 URIs: image_uri={image_uri}, file_uri={file_uri}")
         
         # Process content by tool type (based on filtering option)
         tools = source.get('tools', {})
@@ -651,7 +651,7 @@ def handle_get_opensearch_document_segment(event: Dict[str, Any]) -> Dict[str, A
         result_data = {
             "index_id": index_id,
             "document_id": document_id,
-            "segment_index": segment_index,
+            "segment_id": segment_id,
             "segment": segment_data,
             "timestamp": get_current_timestamp()
         }

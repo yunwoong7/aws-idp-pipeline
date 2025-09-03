@@ -113,7 +113,7 @@ class LambdaVisionReactHandler:
                 document_id=document_id,
                 segment_id=segment_id,
                 segment_index=segment_index,
-                status='vision_analyzing',
+                status='react_analyzing',
                 message='Vision ReAct analysis started'
             )
             

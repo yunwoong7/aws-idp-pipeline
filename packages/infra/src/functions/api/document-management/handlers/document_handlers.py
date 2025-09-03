@@ -10,6 +10,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Dict, Any
 import urllib.parse
+from botocore.config import Config
 
 # Lambda Layer imports
 from common import (
@@ -221,7 +222,8 @@ def handle_upload_document(event: Dict[str, Any]) -> Dict[str, Any]:
         # Generate S3 Pre-signed URL (PUT method, valid for 24 hours)
         try:
             import boto3
-            s3_client = boto3.client('s3')
+            # 강제로 Signature V4 사용 (일부 환경에서 V2 서명으로 생성되어 불일치 발생하는 문제 방지)
+            s3_client = boto3.client('s3', config=Config(signature_version='s3v4'))
             
             # Generate pre-signed URL for PUT
             params = {
@@ -970,7 +972,8 @@ def handle_generate_upload_presigned_url(event: Dict[str, Any]) -> Dict[str, Any
         try:
             # Direct boto3 S3 client usage
             import boto3
-            s3_client = boto3.client('s3')
+            # 강제로 Signature V4 사용 (일부 환경에서 V2 서명으로 생성되어 불일치 발생하는 문제 방지)
+            s3_client = boto3.client('s3', config=Config(signature_version='s3v4'))
             
             # Generate pre-signed URL for PUT
             params = {

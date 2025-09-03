@@ -51,6 +51,24 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         
         logger.info(f"📝 Target: index_id={index_id}, document_id={document_id}, segment_id={segment_id}")
         
+        # Mark document as analysis finalizing in-progress (react_finalizing) only when finalizing whole document
+        try:
+            if document_id and not segment_id:
+                current_time = get_current_timestamp()
+                db_service.update_item(
+                    table_name='documents',
+                    key={'document_id': document_id},
+                    update_expression='SET #status = :status, updated_at = :updated_at',
+                    expression_attribute_names={'#status': 'status'},
+                    expression_attribute_values={
+                        ':status': 'react_finalizing',
+                        ':updated_at': current_time
+                    }
+                )
+                logger.info(f"📌 Document status set to react_finalizing (full): {document_id}")
+        except Exception as se:
+            logger.warning(f"⚠️ Failed to set react_finalizing status: {str(se)}")
+
         # If index_id is missing, look up from Indices table
         if not index_id:
             index = db_service.get_item('indices', {'index_id': index_id})
@@ -70,6 +88,41 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         # Note: Document status will be updated by DocumentSummarizerTask as final step
         
         logger.info(f"✅ React Analysis Finalizer complete - Processed segments: {processed_segments}/{total_segments}")
+
+        # Aggregate segment statuses to decide document status
+        try:
+            from boto3.dynamodb.conditions import Key
+            segments_response = db_service.query_items(
+                table_name='segments',
+                key_condition_expression=Key('document_id').eq(document_id),
+                index_name='DocumentIdIndex'
+            )
+            segments = segments_response.get('Items', []) if segments_response else []
+            total = len(segments)
+            finalized = sum(1 for s in segments if (s.get('status') or '').lower() in ['finalized'])
+            analyzing = sum(1 for s in segments if (s.get('status') or '').lower() in ['react_analyzing'])
+
+            next_status = None
+            if total > 0 and finalized == total:
+                next_status = 'react_finalized'
+            elif finalized > 0:
+                next_status = 'react_finalizing'
+
+            if next_status:
+                current_time = get_current_timestamp()
+                db_service.update_item(
+                    table_name='documents',
+                    key={'document_id': document_id},
+                    update_expression='SET #status = :status, updated_at = :updated_at',
+                    expression_attribute_names={'#status': 'status'},
+                    expression_attribute_values={
+                        ':status': next_status,
+                        ':updated_at': current_time
+                    }
+                )
+                logger.info(f"📌 Aggregated document status set to {next_status}: {document_id} (finalized {finalized}/{total}, analyzing {analyzing})")
+        except Exception as se:
+            logger.warning(f"⚠️ Failed to aggregate/update document status: {str(se)}")
         
         # Step Function 호환 응답 (Lambda 프록시 응답 대신 직접 반환)
         return {
@@ -83,6 +136,23 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         
     except Exception as e:
         logger.error(f"React Analysis Finalizer error: {str(e)}", exc_info=True)
+        # Mark document as finalize failed
+        try:
+            if 'document_id' in locals() and document_id:
+                current_time = get_current_timestamp()
+                db_service.update_item(
+                    table_name='documents',
+                    key={'document_id': document_id},
+                    update_expression='SET #status = :status, updated_at = :updated_at',
+                    expression_attribute_names={'#status': 'status'},
+                    expression_attribute_values={
+                        ':status': 'react_finalize_failed',
+                        ':updated_at': current_time
+                    }
+                )
+                logger.info(f"📌 Document status set to react_finalize_failed: {document_id}")
+        except Exception as se:
+            logger.warning(f"⚠️ Failed to set react_finalize_failed status: {str(se)}")
         return handle_lambda_error(e)
 
 def process_single_segment(index_id: str, document_id: str, segment_id: str) -> int:
