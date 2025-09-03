@@ -40,19 +40,17 @@ export function UploadZone({
   const uploadingFiles = uploadFiles.filter(f => f.status === 'uploading');
   const hasFiles = uploadFiles.length > 0;
 
-  // 사용자가 한 번이라도 파일을 올렸던 적이 있는지 트래킹
-  const hadAnyFileRef = useRef(false);
+  // 업로드 종료 시점에만 자동 닫기 (재오픈 시 즉시 닫히는 문제 방지)
+  const prevUploadingRef = useRef(false);
+  const prevFilesCountRef = useRef(0);
   useEffect(() => {
-    if (uploadFiles.length > 0) {
-      hadAnyFileRef.current = true;
+    const justFinishedUploading = prevUploadingRef.current && !isUploading;
+    const filesClearedNow = prevFilesCountRef.current > 0 && uploadFiles.length === 0;
+    if (justFinishedUploading && filesClearedNow) {
+      onClose?.();
     }
-  }, [uploadFiles.length]);
-
-  // 업로드 완료 후 자동 닫기: 업로드가 진행 중이 아니고, 파일 리스트가 비었고, 이전에 파일이 한 번이라도 있었을 때만 닫기
-  useEffect(() => {
-    if (!isUploading && uploadFiles.length === 0 && hadAnyFileRef.current) {
-      if (onClose) onClose();
-    }
+    prevUploadingRef.current = isUploading;
+    prevFilesCountRef.current = uploadFiles.length;
   }, [isUploading, uploadFiles.length, onClose]);
 
   return (

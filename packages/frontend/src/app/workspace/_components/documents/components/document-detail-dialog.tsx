@@ -519,7 +519,13 @@ export function DocumentDetailDialog({
                   </div>
                   <div>
                     <Label className="text-white/60 text-xs">Total Segments</Label>
-                    <p className="text-white/80 mt-1">{totalSegments}</p>
+                    <p className="text-white/80 mt-1">
+                      {(() => {
+                        const docStatus = String((document as any)?.status || '').toLowerCase();
+                        const beforeIndexingComplete = ['pending_upload','uploading','uploaded','bda_analyzing'].includes(docStatus);
+                        return beforeIndexingComplete ? 'Analyzing...' : totalSegments;
+                      })()}
+                    </p>
                   </div>
                 </div>
                 

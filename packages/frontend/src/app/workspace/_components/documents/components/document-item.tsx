@@ -93,6 +93,7 @@ export function DocumentItem({
             uploading: { label: 'Uploading', className: 'bg-blue-500/20 text-blue-300 border-blue-500/30' },
             uploaded: { label: 'Uploaded', className: 'bg-blue-500/20 text-blue-300 border-blue-500/30' },
             bda_analyzing: { label: 'Analyzing (BDA)', className: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30' },
+            document_indexing_completed: { label: 'Indexing completed', className: 'bg-sky-500/20 text-sky-300 border-sky-500/30' },
             bda_skipped: { label: 'BDA skipped', className: 'bg-cyan-500/10 text-cyan-300/80 border-cyan-500/20' },
             pdf_text_extracting: { label: 'Text extracting', className: 'bg-teal-500/20 text-teal-300 border-teal-500/30' },
             pdf_text_extracted: { label: 'Text extracted', className: 'bg-teal-500/20 text-teal-300 border-teal-500/30' },
@@ -146,6 +147,7 @@ export function DocumentItem({
             'uploading',
             'uploaded',
             'bda_analyzing',
+            'document_indexing_completed',
             'pdf_text_extracting',
             'pdf_text_extracted',
             'react_analyzing',
@@ -160,6 +162,7 @@ export function DocumentItem({
             if (s === 'react_failed') return 'react_analyzing';
             if (s === 'react_finalize_failed') return 'react_finalizing';
             if (s === 'error') return 'react_analyzing';
+            if (s.includes('indexing')) return 'document_indexing_completed';
             return s;
         };
         const idx = order.indexOf(normalize(status));
@@ -172,7 +175,7 @@ export function DocumentItem({
     };
 
     const stageIndex = getStageIndex(document);
-    const totalStages = 10; // 0..10
+    const totalStages = 11; // reflect added intermediate stage
     const progressPercent = Math.min(100, Math.max(0, Math.round((stageIndex / totalStages) * 100)));
     const currentStatus = String((document.status || '')).toLowerCase();
     const isCompleted = currentStatus === 'completed';
