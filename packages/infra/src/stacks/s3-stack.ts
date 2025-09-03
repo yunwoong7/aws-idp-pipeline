@@ -116,12 +116,10 @@ export class S3Stack extends cdk.Stack {
             s3.HttpMethods.DELETE,
             s3.HttpMethods.HEAD
           ],
-          allowedOrigins: ['*'], // Allow all origins for Prototyping
-          allowedHeaders: [
-            '*', // Allow all headers for maximum compatibility
-          ],
-          exposedHeaders: ['ETag', 'x-amz-meta-custom-header', 'Content-Length', 'Content-Type'],
-          maxAge: 86400, // Increase cache time to 24 hours
+          allowedOrigins: ['*'],
+          allowedHeaders: ['*'],
+          exposedHeaders: ['ETag'], // Minimal required header
+          maxAge: 3600,
         },
       ],
 

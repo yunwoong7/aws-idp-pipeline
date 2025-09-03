@@ -495,7 +495,7 @@ export const documentApi = {
     }
   },
 
-  // S3에 직접 파일 업로드
+  // S3에 직접 파일 업로드 - CORS 문제 해결을 위해 헤더 제거
   async uploadFileToS3(uploadUrl: string, file: File, contentType: string, onProgress?: (progress: number) => void): Promise<void> {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
@@ -527,7 +527,8 @@ export const documentApi = {
       };
 
       xhr.open('PUT', uploadUrl);
-      xhr.setRequestHeader('Content-Type', contentType);
+      // DO NOT SET ANY HEADERS - S3 presigned URL already has everything
+      // Setting Content-Type causes CORS preflight which fails with S3
       xhr.send(file);
     });
   }
