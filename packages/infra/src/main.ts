@@ -295,6 +295,8 @@ new EcsStack(app, getFullStackName('ecs'), {
   backendRepository: ecrStack.backendRepository,
   frontendRepository: ecrStack.frontendRepository,
   apiGatewayUrl: apiGatewayStack.apiUrl,
+  s3BucketName: s3Stack.documentsBucket.bucketName,
+  documentsTableName: dynamoDBStack.documentsTable.tableName,
   // Cognito integration - use existing stack if available, otherwise use provided stack
   userPool: cognitoStack?.userPool || (adminUserEmail ? cognito.UserPool.fromUserPoolId(app, 'ExistingUserPool', 'us-west-2_8168J9lr5') : undefined),
   userPoolClient: cognitoStack?.userPoolClient || (adminUserEmail ? cognito.UserPoolClient.fromUserPoolClientId(app, 'ExistingUserPoolClient', 'a5ka4aaqivdqdgj1f5ds9e6m9') : undefined),

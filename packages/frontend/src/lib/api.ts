@@ -416,6 +416,74 @@ export const documentApi = {
     }
   },
 
+  // 백엔드를 통한 직접 파일 업로드 (CORS 문제 해결)
+  async uploadDocumentViaBackend(file: File, indexId: string, description?: string): Promise<any> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('index_id', indexId);
+    if (description) {
+      formData.append('description', description);
+    }
+
+    const backendUrl = await getBackendUrl();
+    const response = await fetch(`${backendUrl}/api/documents/backend-upload`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(`Backend upload 실패: ${response.status} - ${errorData.detail || response.statusText}`);
+    }
+
+    return response.json();
+  },
+
+  // 대용량 파일을 위한 청킹 업로드 (백엔드)
+  async uploadLargeDocumentViaBackend(file: File, indexId: string, onProgress?: (progress: number) => void): Promise<any> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('index_id', indexId);
+
+    const backendUrl = await getBackendUrl();
+    
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable && onProgress) {
+          const progress = Math.round((e.loaded / e.total) * 100);
+          onProgress(progress);
+        }
+      });
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const response = JSON.parse(xhr.responseText);
+            resolve(response);
+          } catch (e) {
+            reject(new Error('Failed to parse response'));
+          }
+        } else {
+          try {
+            const errorResponse = JSON.parse(xhr.responseText);
+            reject(new Error(`Upload failed: ${xhr.status} - ${errorResponse.detail || xhr.statusText}`));
+          } catch (e) {
+            reject(new Error(`Upload failed: ${xhr.status} - ${xhr.statusText}`));
+          }
+        }
+      };
+
+      xhr.onerror = () => {
+        reject(new Error('Network error during upload'));
+      };
+
+      xhr.open('POST', `${backendUrl}/api/documents/backend-upload-chunked`);
+      xhr.send(formData);
+    });
+  },
+
   // 통일된 Presigned URL 생성 (모든 파일 크기) - project-independent
   async generateUnifiedUploadUrl(fileInfo: {
     file_name: string;

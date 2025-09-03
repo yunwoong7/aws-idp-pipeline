@@ -18,6 +18,7 @@ from src.routers.analysis_agent import router as analysis_agent_router
 from src.routers.search_agent import router as search_agent_router
 from src.routers.verification import router as verification_router
 from src.routers.auth import router as auth_router
+from src.routers.document_upload import router as document_upload_router
 from src.mcp_client.server.config import get_app_config
 
 conf = get_app_config()
@@ -118,6 +119,7 @@ app.include_router(verification_router)  # content verification API router
 app.include_router(search_agent_router)  # search agent API router
 app.include_router(branding_router, prefix="/api/branding")  # branding API router
 app.include_router(auth_router)  # authentication API router
+app.include_router(document_upload_router)  # document upload API router
 
 # default root path
 @app.get("/")

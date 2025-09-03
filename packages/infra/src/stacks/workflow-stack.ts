@@ -1223,7 +1223,7 @@ export class WorkflowStack extends cdk.Stack {
       },
       deadLetterQueueEnabled: false,
       commonLayer: commonLayer,
-      timeout: cdk.Duration.minutes(10),
+      timeout: cdk.Duration.minutes(15),
       memorySize: 2048,
       vpc: vpc,
       stage: stage,

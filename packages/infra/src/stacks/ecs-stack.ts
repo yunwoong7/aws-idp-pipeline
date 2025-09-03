@@ -23,6 +23,8 @@ export interface EcsStackProps extends cdk.StackProps {
   backendRepository: ecr.IRepository;
   frontendRepository: ecr.IRepository;
   apiGatewayUrl: string;
+  s3BucketName: string;
+  documentsTableName: string;
   // Cognito configuration
   userPool?: cognito.IUserPool;
   userPoolClient?: cognito.IUserPoolClient;
@@ -51,6 +53,8 @@ export class EcsStack extends cdk.Stack {
       backendRepository, 
       frontendRepository, 
       apiGatewayUrl,
+      s3BucketName,
+      documentsTableName,
       userPool,
       userPoolClient,
       userPoolDomain,
@@ -144,19 +148,20 @@ export class EcsStack extends cdk.Stack {
                 'dynamodb:DeleteItem',
               ],
               resources: [
-                `arn:aws:dynamodb:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:table/aws-idp-*`,
+                `arn:aws:dynamodb:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:table/aws-idp-ai-*`,
               ],
             }),
-            // S3 접근 권한
+            // S3 접근 권한 (백엔드 직접 업로드용)
             new iam.PolicyStatement({
               effect: iam.Effect.ALLOW,
               actions: [
                 's3:GetObject',
                 's3:PutObject',
                 's3:DeleteObject',
+                's3:PutObjectMetadata',
               ],
               resources: [
-                `arn:aws:s3:::aws-idp-documents-*/*`,
+                `arn:aws:s3:::${s3BucketName}/*`,
               ],
             }),
             // OpenSearch 접근 권한
@@ -260,6 +265,9 @@ export class EcsStack extends cdk.Stack {
         AWS_DEFAULT_REGION: cdk.Aws.REGION,
         AUTH_DISABLED: 'false',  // 배포 환경에서는 실제 Cognito 인증 사용
         API_BASE_URL: apiGatewayUrl,
+        // Document upload related environment variables
+        DOCUMENTS_BUCKET_NAME: s3BucketName,
+        DOCUMENTS_TABLE_NAME: documentsTableName,
       },
       portMappings: [
         {

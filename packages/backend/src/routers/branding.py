@@ -12,11 +12,12 @@ router = APIRouter()
 # __file__ = packages/backend/src/routers/branding.py -> parent: routers -> parent: src -> parent: backend
 BASE_DIR = Path(__file__).resolve().parent.parent  # .../packages/backend
 CONFIG_FILE = BASE_DIR / "config" / "branding.json"
+
 # 프론트엔드 public 디렉터리는 컨테이너(ECS) 환경에 없을 수 있으므로
 # 백엔드 전용 디렉터리에 사용자 로고를 저장하고 API로 서빙합니다.
 BACKEND_BRANDING_DIR = BASE_DIR / "data" / "branding"
 USER_LOGO_PATH = BACKEND_BRANDING_DIR / "user_logo.png"
-VERSION_FILE = BASE_DIR / "__version__"
+VERSION_FILE = Path(__file__).resolve().parent.parent.parent / "__version__"
 
 
 def load_branding_config() -> Dict[str, Any]:
@@ -50,7 +51,9 @@ def save_branding_config(config: Dict[str, Any]) -> None:
 def load_version() -> str:
     """버전 파일에서 버전을 읽어옵니다. 기본값은 '0.1.0'."""
     try:
+        print(VERSION_FILE.exists())
         if VERSION_FILE.exists():
+            print(VERSION_FILE.read_text(encoding="utf-8").strip())
             return VERSION_FILE.read_text(encoding="utf-8").strip() or "0.1.0"
     except Exception:
         pass

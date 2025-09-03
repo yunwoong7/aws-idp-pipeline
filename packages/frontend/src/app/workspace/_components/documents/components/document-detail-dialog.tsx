@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback } from "react";
 import ReactDOM from "react-dom";
-import { FileText, Play, Loader2, X, ZoomIn, ZoomOut, RotateCw, RotateCcw, ChevronDown, ChevronUp, Calendar, Database, Download, Eye, ChevronLeft, ChevronRight, AlertCircle, CheckCircle, Clock } from "lucide-react";
+import { FileText, Play, Loader2, X, ZoomIn, ZoomOut, RotateCw, RotateCcw, ChevronDown, ChevronUp, Calendar, Database, Download, Eye, ChevronLeft, ChevronRight, AlertCircle, CheckCircle, Clock, RefreshCw } from "lucide-react";
 import { AnalysisPopup } from "@/components/common/analysis-popup";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -831,7 +831,7 @@ export function DocumentDetailDialog({
                   className="h-8 w-8 p-0 border-white/10 text-white/80 hover:text-white hover:bg-white/10"
                   title="초기화"
                 >
-                  <X className="h-4 w-4" />
+                  <RefreshCw className="h-4 w-4" />
                 </Button>
               </div>
             )}

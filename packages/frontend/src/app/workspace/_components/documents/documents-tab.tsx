@@ -301,7 +301,7 @@ export function DocumentsTab({ indexId, onSelectDocument, onAttachToChat, onAnal
               {indexId && (
                 <div className="flex items-center gap-2 mt-1">
                   <span className="text-sm text-white/60">Index:</span>
-                  <span className="px-2 py-1 bg-cyan-500/20 border border-cyan-400/30 rounded-lg text-cyan-300 text-sm font-medium">
+                  <span className="px-2 py-1 bg-cyan-500/20  border-cyan-400/30 rounded-lg text-cyan-300 text-sm font-medium">
                     {indexId}
                   </span>
                 </div>

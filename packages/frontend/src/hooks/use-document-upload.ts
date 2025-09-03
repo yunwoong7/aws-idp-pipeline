@@ -156,78 +156,75 @@ export const useDocumentUpload = (options: {
         disabled: isUploading
     });
 
-    // 통일된 Presigned URL 업로드 처리 (모든 파일 크기) - project-independent
-    const uploadFileViaPresignedUrl = async (file: UploadFile, toastId?: string) => {
+    // 백엔드를 통한 직접 업로드 (CORS 문제 해결)
+    const uploadFileViaBackend = async (file: UploadFile, toastId?: string) => {
         try {
-            // 1단계: Presigned URL 생성 (통일된 엔드포인트 사용)
+            // 업로드 시작
             setUploadFiles(prev => prev.map(f => 
                 f.id === file.id 
-                    ? { ...f, status: 'uploading' as const, progress: 10 }
+                    ? { ...f, status: 'uploading' as const, progress: 5 }
                     : f
             ));
 
-            // 새로운 통일된 upload 엔드포인트 사용 (index-based)
             if (!indexId) {
                 throw new Error('indexId is required for file upload');
             }
             
-            const uploadInfo = await documentApi.generateUnifiedUploadUrl({
-                file_name: file.name,
-                file_size: file.size,
-                file_type: file.type,
-                description: ''
-            }, indexId);
+            // 파일 크기에 따라 적절한 업로드 방법 선택
+            const isLargeFile = file.size > 50 * 1024 * 1024; // 50MB 이상은 청킹 업로드
+            
+            let uploadResult;
+            if (isLargeFile) {
+                // 대용량 파일: 청킹 업로드 (진행률 지원)
+                uploadResult = await documentApi.uploadLargeDocumentViaBackend(
+                    file.file,
+                    indexId,
+                    (progress) => {
+                        setUploadFiles(prev => prev.map(f => 
+                            f.id === file.id 
+                                ? { ...f, progress: 5 + (progress * 0.9) } // 5-95%
+                                : f
+                        ));
 
-            console.log('📦 Upload info received:', uploadInfo);
+                        if (toastId) {
+                            setUploadToastItems(prev => prev.map(item => 
+                                item.id === toastId 
+                                    ? { ...item, progress: 5 + (progress * 0.9) }
+                                    : item
+                            ));
+                        }
+                    }
+                );
+            } else {
+                // 일반 파일: 단순 업로드
+                uploadResult = await documentApi.uploadDocumentViaBackend(
+                    file.file,
+                    indexId,
+                    ''
+                );
 
-            // Validate uploadInfo has required fields
-            if (!uploadInfo || !uploadInfo.upload_url) {
-                console.error('❌ Invalid upload info:', uploadInfo);
-                throw new Error('Invalid upload info received from server: missing upload_url');
+                // 진행률 시뮬레이션 (실제 진행률 추적이 없는 경우)
+                setUploadFiles(prev => prev.map(f => 
+                    f.id === file.id 
+                        ? { ...f, progress: 90 }
+                        : f
+                ));
+
+                if (toastId) {
+                    setUploadToastItems(prev => prev.map(item => 
+                        item.id === toastId 
+                            ? { ...item, progress: 90 }
+                            : item
+                    ));
+                }
             }
 
             // document_id 저장
             setUploadFiles(prev => prev.map(f => 
                 f.id === file.id 
-                    ? { ...f, documentId: uploadInfo.document_id, progress: 20 }
+                    ? { ...f, documentId: uploadResult.document_id, progress: 100 }
                     : f
             ));
-
-            // 2단계: S3에 직접 업로드
-            console.log('📤 Starting S3 upload to:', uploadInfo.upload_url);
-            console.log('📄 File info - Name:', file.name, 'Size:', file.size, 'Type:', uploadInfo.content_type);
-            
-            await documentApi.uploadFileToS3(
-                uploadInfo.upload_url,
-                file.file,
-                uploadInfo.content_type,
-                (progress) => {
-                    // 20~90% 구간에서 진행률 표시
-                    const adjustedProgress = 20 + (progress * 0.7);
-                    setUploadFiles(prev => prev.map(f => 
-                        f.id === file.id 
-                            ? { ...f, progress: adjustedProgress }
-                            : f
-                    ));
-                }
-            );
-            
-            console.log('✅ S3 upload completed successfully');
-
-            // 3단계: 업로드 완료 알림
-            setUploadFiles(prev => prev.map(f => 
-                f.id === file.id 
-                    ? { ...f, progress: 95 }
-                    : f
-            ));
-
-            // Wait a moment for S3 consistency
-            console.log('⏳ Waiting for S3 consistency...');
-            await new Promise(resolve => setTimeout(resolve, 2000));
-
-            console.log('📞 Calling completion callback for document:', uploadInfo.document_id);
-            const completionResult = await documentApi.completeLargeFileUpload(uploadInfo.document_id);
-            console.log('✅ Completion callback successful:', completionResult);
 
             // 성공 처리
             setUploadFiles(prev => prev.map(f => 
@@ -245,10 +242,9 @@ export const useDocumentUpload = (options: {
                 ));
             }
 
-            return completionResult;
+            return uploadResult;
 
         } catch (error) {
-            console.error('파일 업로드 실패:', error);
             
             let errorMessage = 'File upload failed';
             if (error instanceof Error) {
@@ -291,7 +287,7 @@ export const useDocumentUpload = (options: {
         setIsUploading(true);
 
         try {
-            // 모든 파일에 대해 통일된 Presigned URL 업로드 방식 사용
+            // 모든 파일에 대해 백엔드 직접 업로드 방식 사용 (CORS 문제 해결)
             const uploadPromises = filesToUpload.map(file => {
                 const toastId = `upload-${file.id}`;
                 
@@ -306,8 +302,7 @@ export const useDocumentUpload = (options: {
 
                 setUploadToastItems(prev => [...prev, uploadToastItem]);
                 
-                console.log(`📦 통일된 Presigned URL 업로드 시작: ${file.name} (${Math.round(file.size / 1024 / 1024)}MB)`);
-                return uploadFileViaPresignedUrl(file, toastId);
+                return uploadFileViaBackend(file, toastId);
             });
             
             const results = await Promise.all(uploadPromises);
@@ -339,7 +334,6 @@ export const useDocumentUpload = (options: {
                 onUploadComplete();
             }
         } catch (error) {
-            console.error('Bulk upload error:', error);
             
             toast({
                 title: 'Upload Error',

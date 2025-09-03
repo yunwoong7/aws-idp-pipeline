@@ -275,6 +275,8 @@ export class S3Stack extends cdk.Stack {
         },
       }),
     );
+
+    // Presigned URL policy removed - using backend direct upload instead
     // CloudFormation Outputs (without exportName)
     new cdk.CfnOutput(this, 'DocumentsBucketName', {
       value: this.documentsBucket.bucketName,
