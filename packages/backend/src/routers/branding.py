@@ -29,7 +29,7 @@ def load_branding_config() -> Dict[str, Any]:
         # 기본 설정 반환
         return {
             "default": {
-                "companyName": "AWS IDC",
+                "companyName": "AWS IDP",
                 "logoUrl": "/default_logo.png",
                 "description": "Transform Documents into\nActionable Insights"
             },

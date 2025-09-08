@@ -441,6 +441,11 @@ Resources:
                 - aws logs delete-log-group --log-group-name "/aws/lambda/aws-idp-ai-websocket-disconnect-${STAGE}" 2>/dev/null || echo "Disconnect log group does not exist or already deleted"
                 - npx cdk deploy aws-idp-ai-websocket-api --require-approval never
                 
+                - echo "Deploying DynamoDB Streams stack..."
+                - echo "Cleaning up existing DynamoDB streams Lambda log groups..."
+                - aws logs delete-log-group --log-group-name "/aws/lambda/aws-idp-ai-documents-stream-handler-${STAGE}" 2>/dev/null || echo "Documents stream handler log group does not exist or already deleted"
+                - npx cdk deploy aws-idp-ai-dynamodb-streams --require-approval never
+                
                 # Get API URLs for frontend build
                 - |
                   echo "Getting API Gateway and WebSocket URLs..."
