@@ -1660,6 +1660,17 @@ export class WorkflowStack extends cdk.Stack {
 
     // Grant Step Function execution permission
     this.documentProcessingWorkflow.grantStartExecution(triggerLambda);
+    
+    // Grant Step Function list executions permission (for checking running status)
+    triggerLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: [
+          'states:ListExecutions',
+        ],
+        resources: [this.documentProcessingWorkflow.stateMachineArn],
+      }),
+    );
 
     return triggerLambda;
   }

@@ -15,6 +15,7 @@ export interface DynamoDBStreamsStackProps extends cdk.StackProps {
   readonly webSocketConnectionsTableArn: string;
   readonly webSocketApiId: string;
   readonly vpc: ec2.Vpc;
+  readonly stepFunctionArn?: string;
 }
 
 /**
@@ -124,6 +125,32 @@ export class DynamoDBStreamsStack extends cdk.Stack {
       })
     );
 
+    // Step Functions permissions for sequential processing
+    if (props.stepFunctionArn) {
+      role.addToPolicy(
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: [
+            'states:ListExecutions',
+            'states:StartExecution',
+          ],
+          resources: [props.stepFunctionArn],
+        })
+      );
+    }
+
+    // Documents table access for querying uploaded documents
+    role.addToPolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: [
+          'dynamodb:Query',
+          'dynamodb:Scan',
+        ],
+        resources: [props.documentsTable.tableArn],
+      })
+    );
+
     return role;
   }
 
@@ -146,6 +173,9 @@ export class DynamoDBStreamsStack extends cdk.Stack {
         WEBSOCKET_CONNECTIONS_TABLE: props.webSocketConnectionsTableName,
         WEBSOCKET_API_ID: props.webSocketApiId,
         WEBSOCKET_STAGE: stage,
+        DOCUMENTS_TABLE_NAME: props.documentsTable.tableName,
+        STEP_FUNCTION_ARN: props.stepFunctionArn || '',
+        STAGE: stage,
       },
       logRetention: logs.RetentionDays.ONE_WEEK,
       description: 'Documents table DynamoDB Streams handler for status updates',

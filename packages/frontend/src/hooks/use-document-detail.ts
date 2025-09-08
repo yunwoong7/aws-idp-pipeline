@@ -360,6 +360,10 @@ export const useDocumentDetail = (indexId: string, externalSelectedDocument?: Do
                     page_status: segment.status,
                 }));
 
+                console.log('🔍 [DEBUG] Raw segments from API:', segments.slice(0, 3).map(s => ({
+                    segment_index: s.segment_index,
+                    status: s.status
+                })));
                 console.log('🔍 [DEBUG] Generated pageImages with status:', pageImages.slice(0, 3).map(p => ({
                     page_index: p.page_index,
                     page_status: p.page_status

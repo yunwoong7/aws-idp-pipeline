@@ -176,7 +176,7 @@ const documentManagementStack = new DocumentManagementStack(app, getFullStackNam
 const analysisConfig = getAnalysisConfig();
 const sqsConfig = getSqsConfig();
 const stepFunctionsConfig = getStepFunctionsConfig();
-new WorkflowStack(app, getFullStackName('workflow'), {
+const workflowStack = new WorkflowStack(app, getFullStackName('workflow'), {
   env,
   crossRegionReferences: true,
   description: 'AWS IDP AI Analytics Workflow Stack',
@@ -224,6 +224,7 @@ new DynamoDBStreamsStack(app, getFullStackName('dynamodb-streams'), {
   webSocketConnectionsTableName: dynamoDBStack.webSocketConnectionsTable.tableName,
   webSocketConnectionsTableArn: dynamoDBStack.webSocketConnectionsTable.tableArn,
   webSocketApiId: webSocketApiStack.webSocketApi.apiId,
+  stepFunctionArn: workflowStack.documentProcessingWorkflow?.stateMachineArn,
 });
 
 // =================================================================

@@ -442,7 +442,7 @@ export class DocumentManagementStack extends cdk.Stack {
       'DocumentProcessingQueue',
       {
         queueName: `aws-idp-ai-document-processing-${stage}`,
-        visibilityTimeout: cdk.Duration.minutes(15), // Consider Lambda processing time
+        visibilityTimeout: cdk.Duration.minutes(3), // Retry after 3 minutes if processing
         retentionPeriod: cdk.Duration.days(7),
         encryption: sqs.QueueEncryption.SQS_MANAGED,
         enforceSSL: true,

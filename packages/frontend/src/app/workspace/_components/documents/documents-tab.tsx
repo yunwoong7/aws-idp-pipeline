@@ -16,7 +16,6 @@ import { searchApi } from "@/lib/api";
 import { UploadNotificationContainer } from "@/components/ui/upload-notification";
 import { useUploadNotifications } from "@/hooks/use-upload-notifications";
 import { useWebSocket, WebSocketMessage } from "@/hooks/use-websocket";
-import { useAlert } from "@/components/ui/alert";
 
 interface DocumentsTabProps {
   indexId: string;
@@ -108,10 +107,7 @@ export function DocumentsTab({ indexId, onSelectDocument, onAttachToChat, onAnal
   const [filteredDocuments, setFilteredDocuments] = useState<Document[]>([]);
   const [searchResults, setSearchResults] = useState<any[]>([]);
 
-  // Alert management
-  const { showWarning, AlertComponent, isAlertOpen } = useAlert();
-
-  // Check if there are any documents with processing status
+  // Check if there are any documents with processing status (kept for WebSocket cleanup logic)
   const hasProcessingDocuments = useCallback(() => {
     return documents.some(doc => {
       const status = doc.status?.toLowerCase() || '';
@@ -322,22 +318,10 @@ export function DocumentsTab({ indexId, onSelectDocument, onAttachToChat, onAnal
     }
   }, [documents, searchQuery]);
 
-  // Handle opening upload zone with upload state check
+  // Handle opening upload zone (no longer blocking based on processing status)
   const handleOpenUploadZone = useCallback(() => {
-    const hasUploadsInProgress = hasActiveUploads || hasProcessingDocuments();
-    
-    if (hasUploadsInProgress) {
-      // Only show alert if one isn't already open
-      if (!isAlertOpen) {
-        showWarning(
-          "Upload in Progress", 
-          "Please wait for all current uploads to complete before starting new ones. Multiple simultaneous uploads may cause errors."
-        );
-      }
-      return;
-    }
     setShowUploadZone(true);
-  }, [hasActiveUploads, hasProcessingDocuments, showWarning, isAlertOpen]);
+  }, []);
 
 
   // Perform hybrid search on typing (debounced)
@@ -521,8 +505,6 @@ export function DocumentsTab({ indexId, onSelectDocument, onAttachToChat, onAnal
         maxNotifications={3}
       />
 
-      {/* Alert Dialog */}
-      {AlertComponent}
     </div>
   );
 }

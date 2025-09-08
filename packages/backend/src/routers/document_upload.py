@@ -121,12 +121,10 @@ async def upload_document(
                 'file_size': file_size,
                 'file_uri': file_uri,
                 'status': 'pending_upload',  # Lambda expects this status
-                'processing_status': 'pending',
                 'media_type': media_type,
                 'description': description or '',
                 'summary': '',
                 'total_pages': 0,
-                'processing_completed_at': None,
                 'created_at': current_time,
                 'updated_at': current_time,
                 'statistics': {

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import ReactDOM from "react-dom";
 import { FileText, Play, Loader2, X, ZoomIn, ZoomOut, RotateCw, RotateCcw, ChevronDown, ChevronUp, Calendar, Database, Download, Eye, ChevronLeft, ChevronRight, AlertCircle, CheckCircle, Clock, RefreshCw } from "lucide-react";
 import { AnalysisPopup } from "@/components/common/analysis-popup";
@@ -279,6 +279,31 @@ export function DocumentDetailDialog({
   canAddPage = false,
   segmentStartTimecodes
 }: DocumentDetailDialogProps) {
+  const [segmentStatusMap, setSegmentStatusMap] = useState<Record<number, string>>({});
+  const [segmentStatusLoadedAt, setSegmentStatusLoadedAt] = useState<number | null>(null);
+
+  useEffect(() => {
+    const shouldLoad = open && indexId && document?.document_id;
+    if (!shouldLoad) return;
+    (async () => {
+      try {
+        const resp = await documentApi.getAnalysisData(indexId as string, document!.document_id);
+        const segs = resp?.data?.segments || resp?.segments || [];
+        const map: Record<number, string> = {};
+        segs.forEach((s: any) => {
+          const idx = typeof s?.segment_index === 'number' ? s.segment_index : (typeof s?.page_index === 'number' ? s.page_index : undefined);
+          if (typeof idx === 'number') {
+            const st = String(s?.status || s?.page_status || '').toLowerCase();
+            if (st) map[idx] = st;
+          }
+        });
+        setSegmentStatusMap(map);
+        setSegmentStatusLoadedAt(Date.now());
+      } catch (_e) {
+        // ignore fetch errors; fallback logic will handle
+      }
+    })();
+  }, [open, indexId, document, document?.document_id]);
   
   // Analysis popup state
   const [analysisPopup, setAnalysisPopup] = useState<{ type: 'bda' | 'pdf' | 'ai' | null; isOpen: boolean }>({
@@ -689,24 +714,32 @@ export function DocumentDetailDialog({
                   className="bg-white/10 border border-white/10 rounded px-3 py-1 text-white text-sm focus:outline-none focus:border-white/40"
                 >
                   {(() => {
-                    // Extract status from analysisData directly since it's the most up-to-date
                     const statusByIndex: Record<number, string> = {};
                     
-                    // Get unique segments from analysisData
-                    const segmentStatusMap = new Map<number, string>();
-                    if (Array.isArray(analysisData)) {
+                    // Primary source: page_images with page_status from segments API
+                    const segs: any[] = (document as any)?.page_images || (document as any)?.segment_images || [];
+                    
+                    // Fallback: use analysisData to infer segments structure if page_images is empty
+                    if (segs.length === 0 && Array.isArray(analysisData) && analysisData.length > 0) {
+                      // Create temporary segments from analysisData
+                      const segmentMap = new Map();
                       analysisData.forEach((item: any) => {
                         const segmentIndex = item?.segment_index ?? item?.page_index;
-                        if (typeof segmentIndex === 'number' && !segmentStatusMap.has(segmentIndex)) {
-                          // For analysis data, we need to infer status from the presence of data
-                          // Since the API returns segments with status "completed", we can assume they're completed
-                          segmentStatusMap.set(segmentIndex, 'completed');
+                        if (typeof segmentIndex === 'number' && !segmentMap.has(segmentIndex)) {
+                          segmentMap.set(segmentIndex, {
+                            page_index: segmentIndex,
+                            segment_index: segmentIndex,
+                            page_status: 'completed', // Infer completed if analysis data exists
+                            status: 'completed'
+                          });
                         }
                       });
+                      
+                      // Add to segs array
+                      segmentMap.forEach((segment) => segs.push(segment));
+                      console.log('🔍 [DEBUG] Using analysisData fallback, created segments:', segs);
                     }
                     
-                    // Fallback to page_images/segment_images if analysisData doesn't have status
-                    const segs: any[] = (document as any)?.page_images || (document as any)?.segment_images || [];
                     segs.forEach((s) => {
                       const segmentIndex = s?.page_index ?? s?.segment_index;
                       if (typeof segmentIndex === 'number') {
@@ -714,26 +747,68 @@ export function DocumentDetailDialog({
                         statusByIndex[segmentIndex] = status;
                       }
                     });
-                    
-                    // Override with analysisData status if available
-                    segmentStatusMap.forEach((status, index) => {
-                      statusByIndex[index] = status;
+                    // Override with server segments status if available
+                    Object.entries(segmentStatusMap).forEach(([k, v]) => {
+                      const idx = Number(k);
+                      if (!Number.isNaN(idx)) statusByIndex[idx] = v;
                     });
                     
+                    // Secondary source: infer from analysisData presence (only if no status from segments)
+                    // DISABLED for debugging - we should rely on segments API status
+                    // if (Array.isArray(analysisData)) {
+                    //   analysisData.forEach((item: any) => {
+                    //     const segmentIndex = item?.segment_index ?? item?.page_index;
+                    //     if (typeof segmentIndex === 'number') {
+                    //       // Only override if we don't already have status from segments API
+                    //       if (!statusByIndex[segmentIndex]) {
+                    //         // If analysisData exists for this segment, consider it completed
+                    //         statusByIndex[segmentIndex] = 'completed';
+                    //       }
+                    //     }
+                    //   });
+                    // }
+                    
+                    console.log('🔍 [DEBUG] Raw segments data:', segs);
+                    console.log('🔍 [DEBUG] page_images with status:', segs.slice(0, 3).map(s => ({
+                      segment_index: s?.page_index ?? s?.segment_index,
+                      page_status: s?.page_status || s?.status,
+                      raw_page_status: s?.page_status,
+                      raw_status: s?.status
+                    })));
                     console.log('🔍 [DEBUG] Final statusByIndex:', statusByIndex);
+                    
                     const indices = Array.from({ length: totalSegments }, (_, i) => i);
                     const isCompleted = (st: string) => st === 'completed';
                     const isFailed = (st: string) => st.includes('failed') || st === 'error';
+                    const isAnalyzing = (st: string) => st.includes('analyz') || st.includes('process') || st.includes('extract');
+                    
+                    console.log('🔍 [DEBUG] Status checking logic:', {
+                      statusByIndex,
+                      sampleStatus: statusByIndex[0],
+                      isCompletedCheck: isCompleted(statusByIndex[0] || ''),
+                      isAnalyzingCheck: isAnalyzing(statusByIndex[0] || ''),
+                      isFailedCheck: isFailed(statusByIndex[0] || '')
+                    });
+                    
                     const completed = indices.filter(i => isCompleted(statusByIndex[i] || ''));
-                    const inprogress = indices.filter(i => !isCompleted(statusByIndex[i] || '') && !isFailed(statusByIndex[i] || ''));
+                    const failed = indices.filter(i => isFailed(statusByIndex[i] || ''));
+                    const analyzing = indices.filter(i => isAnalyzing(statusByIndex[i] || ''));
+                    const inprogress = indices.filter(i => {
+                      const status = statusByIndex[i] || '';
+                      return status && !isCompleted(status) && !isFailed(status) && !isAnalyzing(status);
+                    });
+                    const pending = indices.filter(i => !statusByIndex[i]);
 
+                    // Combine analyzing, inprogress, and pending into a single "In progress" group
+                    const allInProgress = [...analyzing, ...inprogress, ...pending];
+                    
                     return (
                       <>
-                        {inprogress.length > 0 && (
-                          <optgroup label={`In progress (${inprogress.length})`}>
-                            {inprogress.map(i => (
+                        {allInProgress.length > 0 && (
+                          <optgroup label={`In progress (${allInProgress.length})`}>
+                            {allInProgress.map(i => (
                               <option key={`ip-${i}`} value={i} className="bg-gray-800">
-                                Segment {i + 1}
+                                Segment {i + 1} - {statusByIndex[i] || 'in progress'}
                               </option>
                             ))}
                           </optgroup>
@@ -747,7 +822,17 @@ export function DocumentDetailDialog({
                             ))}
                           </optgroup>
                         )}
-                        {inprogress.length === 0 && completed.length === 0 && (
+                        {failed.length > 0 && (
+                          <optgroup label={`Failed (${failed.length})`}>
+                            {failed.map(i => (
+                              <option key={`failed-${i}`} value={i} className="bg-gray-800">
+                                Segment {i + 1} - {statusByIndex[i] || 'failed'}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {/* Fallback: show all if no status info available */}
+                        {allInProgress.length === 0 && completed.length === 0 && failed.length === 0 && (
                           indices.map(i => (
                             <option key={`all-${i}`} value={i} className="bg-gray-800">
                               Segment {i + 1}
@@ -764,45 +849,95 @@ export function DocumentDetailDialog({
                 </span>
                 {/* 현재 선택 세그먼트 상태 배지 */}
                 {(() => {
-                  // Get status from analysisData first, then fallback to segment_images
-                  let segStatus = '';
                   const currentSegmentIndex = selectedSegment || 0;
+                  let segStatus = '';
                   
-                  // Check analysisData first
-                  if (Array.isArray(analysisData)) {
+                  // Primary: Get status from page_images (from segments API)
+                  const segs = (document as any)?.page_images || (document as any)?.segment_images || [];
+                  let currentSegment = segs.find((s: any) => 
+                    (s?.page_index ?? s?.segment_index) === currentSegmentIndex
+                  );
+                  
+                  // Fallback: if no segments data but analysisData exists, infer completed status
+                  if (!currentSegment && Array.isArray(analysisData) && analysisData.length > 0) {
                     const analysisItem = analysisData.find((item: any) => 
                       (item?.segment_index ?? item?.page_index) === currentSegmentIndex
                     );
                     if (analysisItem) {
-                      segStatus = 'completed'; // If segment exists in analysisData, it's completed
+                      currentSegment = {
+                        page_index: currentSegmentIndex,
+                        segment_index: currentSegmentIndex,
+                        page_status: 'completed',
+                        status: 'completed'
+                      };
+                      console.log('🔍 [DEBUG] Using analysisData fallback for current segment:', currentSegment);
                     }
                   }
                   
-                  // Fallback to segment_images/page_images
-                  if (!segStatus) {
-                    const segs = (document as any)?.page_images || (document as any)?.segment_images || [];
-                    const currentSegment = segs.find((s: any) => 
-                      (s?.page_index ?? s?.segment_index) === currentSegmentIndex
-                    );
-                    segStatus = String(currentSegment?.page_status || currentSegment?.status || '').toLowerCase();
-                  }
+                  segStatus = String(
+                    segmentStatusMap[currentSegmentIndex] ||
+                    currentSegment?.page_status ||
+                    currentSegment?.status ||
+                    ''
+                  ).toLowerCase();
+                  
+                  console.log('🔍 [DEBUG] Current segment status:', { 
+                    currentSegmentIndex, 
+                    segStatus, 
+                    currentSegment,
+                    rawPageStatus: currentSegment?.page_status,
+                    rawStatus: currentSegment?.status 
+                  });
+                  
                   if (!segStatus) return null;
-                  const badgeClass = segStatus === 'completed'
-                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                    : segStatus.includes('analyz')
-                      ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
-                      : segStatus.includes('failed') || segStatus === 'error'
-                        ? 'bg-red-500/20 text-red-300 border-red-500/30'
-                        : 'bg-white/10 text-white/70 border-white/20';
-                  const label = segStatus === 'completed' ? 'Completed' : segStatus.replace(/_/g, ' ');
+                  
+                  // Status-specific styling
+                  const getStatusInfo = (status: string) => {
+                    if (status === 'completed') {
+                      return {
+                        badgeClass: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+                        icon: <CheckCircle className="h-3 w-3" />,
+                        label: 'Completed'
+                      };
+                    } else if (status.includes('analyz')) {
+                      return {
+                        badgeClass: 'bg-purple-500/20 text-purple-300 border-purple-500/30',
+                        icon: <Clock className="h-3 w-3 animate-pulse" />,
+                        label: 'In progress'
+                      };
+                    } else if (status.includes('failed') || status === 'error') {
+                      return {
+                        badgeClass: 'bg-red-500/20 text-red-300 border-red-500/30',
+                        icon: <AlertCircle className="h-3 w-3" />,
+                        label: 'Failed'
+                      };
+                    } else if (status.includes('process') || status.includes('extract')) {
+                      return {
+                        badgeClass: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
+                        icon: <RefreshCw className="h-3 w-3 animate-spin" />,
+                        label: 'In progress'
+                      };
+                    } else if (status) {
+                      return {
+                        badgeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+                        icon: <Clock className="h-3 w-3" />,
+                        label: 'In progress'
+                      };
+                    } else {
+                      return {
+                        badgeClass: 'bg-white/10 text-white/70 border-white/20',
+                        icon: <Clock className="h-3 w-3" />,
+                        label: 'In progress'
+                      };
+                    }
+                  };
+                  
+                  const statusInfo = getStatusInfo(segStatus);
+                  
                   return (
-                    <Badge className={`text-xs border ${badgeClass} flex items-center gap-1`}>
-                      {segStatus === 'completed' ? (
-                        <CheckCircle className="h-3 w-3" />
-                      ) : segStatus.includes('analyz') ? (
-                        <Clock className="h-3 w-3" />
-                      ) : null}
-                      {label}
+                    <Badge className={`text-xs border ${statusInfo.badgeClass} flex items-center gap-1`}>
+                      {statusInfo.icon}
+                      {statusInfo.label}
                     </Badge>
                   );
                 })()}

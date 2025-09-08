@@ -28,20 +28,20 @@ def handler(event, context):
                 if event_name not in ['INSERT', 'MODIFY', 'REMOVE']:
                     continue
                 
-                # Extract project_id from changed record
-                project_id = None
+                # Extract index_id from changed record
+                index_id = None
                 
                 if event_name == 'REMOVE':
                     # If deleted, extract from OldImage
                     old_image = record['dynamodb'].get('OldImage', {})
-                    project_id = old_image.get('project_id', {}).get('S')
+                    index_id = old_image.get('index_id', {}).get('S')
                 else:
                     # If added/modified, extract from NewImage
                     new_image = record['dynamodb'].get('NewImage', {})
-                    project_id = new_image.get('project_id', {}).get('S')
+                    index_id = new_image.get('index_id', {}).get('S')
                 
-                if not project_id:
-                    logger.warning(f"No project_id found in record: {record['eventName']}")
+                if not index_id:
+                    logger.warning(f"No index_id found in record: {record['eventName']}")
                     continue
                 
                 # Create message
@@ -49,13 +49,13 @@ def handler(event, context):
                 
                 # Send message to all project connections via WebSocket
                 result = send_to_project_connections(
-                    project_id=project_id,
+                    project_id=index_id,
                     message_data=message_data,
                     websocket_api_id=os.environ['WEBSOCKET_API_ID'],
                     stage=os.environ['WEBSOCKET_STAGE']
                 )
                 
-                logger.info(f"Segments update sent to {result['sent_count']} connections for project {project_id} (failed: {result['failed_count']})")
+                logger.info(f"Segments update sent to {result['sent_count']} connections for index {index_id} (failed: {result['failed_count']})")
                 processed_records += 1
                 
             except Exception as e:

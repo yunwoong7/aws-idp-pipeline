@@ -1,3 +1,3 @@
 """
-PDF Text Extractor Utils Package
+Document Indexer Utils Package
 """ 

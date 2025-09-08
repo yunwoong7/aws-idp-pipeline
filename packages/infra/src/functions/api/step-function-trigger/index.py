@@ -22,6 +22,35 @@ stepfunctions_client = boto3.client('stepfunctions')
 STEP_FUNCTION_ARN = os.environ.get('STEP_FUNCTION_ARN')
 STAGE = os.environ.get('STAGE', 'prod')
 
+def check_running_executions():
+    """
+    Check if there are any running Step Function executions
+    Returns True if any executions are currently running
+    """
+    try:
+        if not STEP_FUNCTION_ARN:
+            logger.warning("STEP_FUNCTION_ARN not set, cannot check running executions")
+            return False
+            
+        response = stepfunctions_client.list_executions(
+            stateMachineArn=STEP_FUNCTION_ARN,
+            statusFilter='RUNNING',
+            maxResults=1  # We only need to know if any are running
+        )
+        
+        running_count = len(response['executions'])
+        if running_count > 0:
+            logger.info(f"Found {running_count} running Step Function execution(s)")
+            return True
+        else:
+            logger.info("No running Step Function executions found")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Failed to check Step Function executions: {str(e)}")
+        # In case of error, assume no executions are running to avoid blocking
+        return False
+
 def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
     """
     Main handler that receives SQS messages and starts the Step Function
@@ -40,8 +69,14 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         
         results = []
         
+        # Check if Step Function is already running BEFORE processing any records
+        if check_running_executions():
+            logger.info("Step Function still running, failing entire Lambda to trigger SQS retry")
+            raise Exception("Processing in progress, retry later")
+        
         for record in event['Records']:
             try:
+                
                 # Parse SQS message
                 sqs_body = json.loads(record['body'])
                 logger.info(f"SQS message content: {json.dumps(sqs_body, ensure_ascii=False, indent=2)}")
