@@ -24,8 +24,8 @@ class Config:
         self.user_model_file = self.user_settings_dir / "aws_idp_mcp_client.json"
         
         # API configuration
-        # self.api_base_url = os.getenv("API_BASE_URL", "http://localhost:8000")
-        self.api_base_url = "https://k19cn9zp70.execute-api.us-west-2.amazonaws.com"
+        self.api_base_url = os.getenv("API_BASE_URL", "http://localhost:8000")
+        # self.api_base_url = "https://k19cn9zp70.execute-api.us-west-2.amazonaws.com"
         
         # MCP server configuration
         self.mcp_server_host = os.getenv("MCP_SERVER_HOST", "127.0.0.1")

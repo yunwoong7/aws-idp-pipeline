@@ -115,11 +115,32 @@ export function DocumentsTab({ indexId, onSelectDocument, onAttachToChat, onAnal
   const hasProcessingDocuments = useCallback(() => {
     return documents.some(doc => {
       const status = doc.status?.toLowerCase() || '';
-      return status.includes('upload') || 
-             status.includes('process') || 
-             status.includes('analyz') || 
-             status === 'pending' ||
-             status === 'in_progress';
+      const processingStatus = doc.processing_status?.toLowerCase() || '';
+      
+      // Check for various processing states
+      const isProcessing = status.includes('upload') || 
+                           status.includes('process') || 
+                           status.includes('analyz') || 
+                           status.includes('react_analyz') ||
+                           status === 'pending' ||
+                           status === 'in_progress' ||
+                           processingStatus.includes('upload') ||
+                           processingStatus.includes('process') ||
+                           processingStatus.includes('analyz') ||
+                           processingStatus.includes('react_analyz') ||
+                           processingStatus === 'pending' ||
+                           processingStatus === 'in_progress';
+      
+      // Check if explicitly completed
+      const isCompleted = status === 'completed' || 
+                         status === 'success' || 
+                         status === 'finished' ||
+                         processingStatus === 'completed' ||
+                         processingStatus === 'success' ||
+                         processingStatus === 'finished';
+      
+      // Consider it processing if it's in a processing state and NOT explicitly completed
+      return isProcessing && !isCompleted;
     });
   }, [documents]);
 
