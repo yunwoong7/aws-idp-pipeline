@@ -68,8 +68,8 @@ def _get_s3_service():
         s3_service = S3Service()
     return s3_service
 
-def _get_segment_timecodes_from_dynamodb(segment_id: str) -> Dict[str, Optional[str]]:
-    """Get segment timecodes from DynamoDB segments table. Return empty strings if not found."""
+def _get_segment_info_from_dynamodb(segment_id: str) -> Dict[str, Optional[str]]:
+    """Get segment info including timecodes and status from DynamoDB segments table. Return empty strings if not found."""
     try:
         # Resolve table name via factory (consistent with s3_service usage)
         try:
@@ -80,7 +80,7 @@ def _get_segment_timecodes_from_dynamodb(segment_id: str) -> Dict[str, Optional[
 
         if not table_name:
             logger.warning("Segments table name not configured")
-            return {"start_timecode_smpte": "", "end_timecode_smpte": ""}
+            return {"start_timecode_smpte": "", "end_timecode_smpte": "", "status": ""}
 
         dynamodb = AWSClientFactory.get_dynamodb_resource()
         table = dynamodb.Table(table_name)
@@ -89,10 +89,11 @@ def _get_segment_timecodes_from_dynamodb(segment_id: str) -> Dict[str, Optional[
         return {
             "start_timecode_smpte": item.get('start_timecode_smpte', ""),
             "end_timecode_smpte": item.get('end_timecode_smpte', ""),
+            "status": item.get('status', ""),
         }
     except Exception as e:
-        logger.error(f"Failed to get timecodes from DynamoDB for segment_id={segment_id}: {str(e)}")
-        return {"start_timecode_smpte": "", "end_timecode_smpte": ""}
+        logger.error(f"Failed to get segment info from DynamoDB for segment_id={segment_id}: {str(e)}")
+        return {"start_timecode_smpte": "", "end_timecode_smpte": "", "status": ""}
 
 def _get_index_info_from_dynamodb(index_id: str) -> Optional[Dict[str, Any]]:
     """Get index information from DynamoDB indices table"""
@@ -442,9 +443,9 @@ def handle_get_opensearch_documents(event: Dict[str, Any]) -> Dict[str, Any]:
                     ]
                 }
             
-            # Fetch timecodes from DynamoDB (optional fields)
+            # Fetch segment info (timecodes and status) from DynamoDB
             segment_id_val = source.get('segment_id', '')
-            timecodes = _get_segment_timecodes_from_dynamodb(segment_id_val) if segment_id_val else {"start_timecode_smpte": "", "end_timecode_smpte": ""}
+            segment_info = _get_segment_info_from_dynamodb(segment_id_val) if segment_id_val else {"start_timecode_smpte": "", "end_timecode_smpte": "", "status": ""}
 
             segment_item = {
                 "segment_id": source.get('segment_id', ''),
@@ -453,8 +454,9 @@ def handle_get_opensearch_documents(event: Dict[str, Any]) -> Dict[str, Any]:
                 "document_id": source.get('document_id', ''),
                 "image_uri": image_uri,
                 "file_uri": file_uri,
-                "start_timecode_smpte": timecodes.get('start_timecode_smpte', ""),
-                "end_timecode_smpte": timecodes.get('end_timecode_smpte', ""),
+                "start_timecode_smpte": segment_info.get('start_timecode_smpte', ""),
+                "end_timecode_smpte": segment_info.get('end_timecode_smpte', ""),
+                "status": segment_info.get('status', ""),
                 "vector_content_available": bool(source.get('vector_content')),
                 "tools_detail": tools_detail,
                 "tools_count": {

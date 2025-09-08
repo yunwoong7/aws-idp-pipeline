@@ -103,7 +103,7 @@ async def initialize_search_agent(model_id: str, max_tokens: int) -> SearchAgent
     global search_agent
     
     if not search_agent or search_agent.model_id != model_id:
-        logger.info(f"🤖 Initializing SearchAgent: model={model_id}, max_tokens={max_tokens}")
+        logger.info(f"Initializing SearchAgent: model={model_id}, max_tokens={max_tokens}")
         
         if search_agent:
             await search_agent.shutdown()
@@ -116,7 +116,7 @@ async def initialize_search_agent(model_id: str, max_tokens: int) -> SearchAgent
         )
         
         await search_agent.startup()
-        logger.info("🚀 SearchAgent initialization completed")
+        logger.info("SearchAgent initialization completed")
     
     return search_agent
 
@@ -146,7 +146,7 @@ async def search(
     try:
         # Handle request parsing
         content_type = request.headers.get("content-type", "")
-        logger.info(f"📝 Request Content-Type: {content_type}")
+        logger.info(f"Request Content-Type: {content_type}")
         
         # Handle JSON request
         if "application/json" in content_type:
@@ -159,7 +159,7 @@ async def search(
             segment_id = request_data.get("segment_id")
             thread_id = request_data.get("thread_id")
             files = []
-            logger.info(f"📄 JSON request: message_len={len(message)}, model={model_id}")
+            logger.info(f"JSON request: message_len={len(message)}, model={model_id}")
         
         # Validate message
         if not message or not message.strip():
@@ -168,11 +168,11 @@ async def search(
         # Handle model configuration
         if not model_id:
             model_id = get_user_model()
-            logger.info(f"🔧 Using default model: {model_id}")
+            logger.info(f"Using default model: {model_id}")
         
         model_config = load_model_config(model_id)
         max_tokens = model_config.get("max_output_tokens", 4096)
-        logger.info(f"⚙️ Model config: {model_id}, max_tokens={max_tokens}")
+        logger.info(f"Model config: {model_id}, max_tokens={max_tokens}")
         
         # Initialize SearchAgent
         agent = await initialize_search_agent(model_id, max_tokens)
@@ -181,18 +181,18 @@ async def search(
         if not thread_id:
             if index_id:
                 thread_id = f"thread_{index_id}"
-                logger.info(f"🧵 Using index-based thread: {thread_id}")
+                logger.info(f"Using index-based thread: {thread_id}")
             else:
                 thread_id = f"thread_default_{id(request)}"
-                logger.info(f"🧵 Using default thread: {thread_id}")
+                logger.info(f"Using default thread: {thread_id}")
         
         # Get conversation history
         message_history = get_conversation_history(thread_id)
-        logger.info(f"📚 Loaded {len(message_history)} previous messages")
+        logger.info(f"Loaded {len(message_history)} previous messages")
         
         # Handle streaming response
         if stream:
-            logger.info("🌊 Starting streaming response")
+            logger.info("Starting streaming response")
             
             async def stream_search_response():
                 """Stream search response with plan visualization"""
@@ -283,13 +283,13 @@ async def search(
                     # Update conversation history
                     if updated_history:
                         update_conversation_history(thread_id, updated_history)
-                        logger.info(f"💾 Updated conversation history for thread: {thread_id}")
+                        logger.info(f"Updated conversation history for thread: {thread_id}")
                     
                     # Send final done signal
                     yield f"data: [DONE]\n\n"
                     
                 except Exception as e:
-                    logger.error(f"❌ Streaming error: {e}")
+                    logger.error(f"Streaming error: {e}")
                     yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
             
             return StreamingResponse(
@@ -304,7 +304,7 @@ async def search(
         
         else:
             # Handle non-streaming response
-            logger.info("📄 Processing non-streaming request")
+            logger.info("Processing non-streaming request")
             
             result = await agent.ainvoke(
                 message=message,
@@ -326,7 +326,7 @@ async def search(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Search processing error: {e}")
+        logger.error(f"Search processing error: {e}")
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Search processing failed: {str(e)}")

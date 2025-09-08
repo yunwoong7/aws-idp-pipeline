@@ -17,6 +17,7 @@ export interface UseDocumentUploadReturn {
     uploadFiles: UploadFile[];
     setUploadFiles: React.Dispatch<React.SetStateAction<UploadFile[]>>;
     isUploading: boolean;
+    hasActiveUploads: boolean;
     
     // Dropzone
     getRootProps: ReturnType<typeof useDropzone>['getRootProps'];
@@ -442,11 +443,15 @@ export const useDocumentUpload = (options: {
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }, []);
 
+    // 진행 중인 업로드가 있는지 확인
+    const hasActiveUploads = isUploading || uploadToastItems.length > 0 || processingToastItems.length > 0;
+
     return {
         // Upload files
         uploadFiles,
         setUploadFiles,
         isUploading,
+        hasActiveUploads,
         
         // Dropzone
         getRootProps,

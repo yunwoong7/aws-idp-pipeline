@@ -267,6 +267,9 @@ export const useDocumentDetail = (indexId: string, externalSelectedDocument?: Do
             const convertedAnalysisData: AnalysisDocument[] = [];
             const segments = data?.data?.segments || data?.segments || [];
 
+            console.log('🔍 [DEBUG] Segments data from API:', segments);
+            console.log('🔍 [DEBUG] First segment status:', segments?.[0]?.status);
+
             if (Array.isArray(segments)) {
                 // Extract start_timecode_smpte list for seeking
                 try {
@@ -354,7 +357,13 @@ export const useDocumentDetail = (indexId: string, externalSelectedDocument?: Do
                     image_url: segment.image_uri,
                     file_uri: segment.file_uri,
                     image_file_uri: segment.image_uri,
+                    page_status: segment.status,
                 }));
+
+                console.log('🔍 [DEBUG] Generated pageImages with status:', pageImages.slice(0, 3).map(p => ({
+                    page_index: p.page_index,
+                    page_status: p.page_status
+                })));
 
                 // Update internal document state
                 if (selectedDocument) {
@@ -431,6 +440,38 @@ export const useDocumentDetail = (indexId: string, externalSelectedDocument?: Do
             
             // 분석 데이터 조회
             if (documentId) {
+                // 병렬로 상세 정보 호출하여 segment_images에서 status/이미지 반영
+                (async () => {
+                    try {
+                        const detail = await documentApi.getDocumentDetail(documentId, indexId);
+                        const detailData = detail?.data || detail;
+                        const segmentImages = detailData?.segment_images;
+                        if (Array.isArray(segmentImages) && segmentImages.length > 0) {
+                            // page_images로도 채워서 기존 경로 재사용
+                            const pageImages = segmentImages
+                                .sort((a: any, b: any) => (a.segment_index ?? 0) - (b.segment_index ?? 0))
+                                .map((seg: any) => ({
+                                    page_number: typeof seg.segment_index === 'number' ? seg.segment_index + 1 : 1,
+                                    page_index: seg.segment_index,
+                                    image_uri: seg.image_uri,
+                                    image_url: seg.image_uri,
+                                    file_uri: seg.file_uri,
+                                    image_file_uri: seg.image_uri,
+                                    page_status: seg.status,
+                                }));
+
+                            setSelectedDocument(prev => prev ? { ...prev, page_images: pageImages } : prev);
+                            if (updateExternalDocument && externalSelectedDocument) {
+                                updateExternalDocument({
+                                    selectedDocument: { ...externalSelectedDocument, page_images: pageImages }
+                                });
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('⚠️ Failed to fetch document detail for segments:', e);
+                    }
+                })();
+
                 fetchAnalysisData(documentId, updateExternalDocument);
             }
         }

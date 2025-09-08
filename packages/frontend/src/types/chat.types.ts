@@ -16,8 +16,10 @@ export type StreamData = {
     chunk: MessageChunk[];
     toolCalls: null | unknown;
     metadata: {
-        langgraph_node: string;
-        langgraph_step: number;
+        langgraph_node?: string;  // ReactAgent metadata
+        strands_node?: string;    // StrandsAgent metadata  
+        langgraph_step?: number;  // ReactAgent metadata
+        strands_step?: number;    // StrandsAgent metadata
         type: string;
         is_image?: boolean;
         image_data?: string;
@@ -32,6 +34,7 @@ export interface TextContentItem {
     type: "text";
     content: string;
     timestamp: number;
+    uniqueId?: string;
 }
 
 export interface ToolUseContentItem {
@@ -43,6 +46,7 @@ export interface ToolUseContentItem {
     collapsed?: boolean;
     requiresApproval?: boolean;
     approved?: boolean;
+    uniqueId?: string;
 }
 
 export interface ToolResultContentItem {
@@ -51,6 +55,8 @@ export interface ToolResultContentItem {
     result: string;
     timestamp: number;
     collapsed?: boolean;
+    tool_use_id?: string;
+    uniqueId?: string;
 }
 
 export interface ImageContentItem {
@@ -59,6 +65,7 @@ export interface ImageContentItem {
     imageData: string;
     mimeType: string;
     timestamp: number;
+    uniqueId?: string;
 }
 
 export interface DocumentContentItem {
@@ -70,6 +77,7 @@ export interface DocumentContentItem {
     timestamp: number;
     fileUrl?: string;
     fileId?: string;
+    uniqueId?: string;
 }
 
 export type ContentItem = TextContentItem | ToolUseContentItem | ToolResultContentItem | ImageContentItem | DocumentContentItem;
@@ -193,17 +201,40 @@ export type AttachedContent = (DocumentAttachment | ImageAttachment) & {
     id: string;
 };
 
+// Strands Search Agent specific types
+export interface StrandsSearchPhase {
+    phase: 'routing' | 'execution' | 'response' | 'complete';
+    startTime?: number;
+    endTime?: number;
+    status: 'pending' | 'active' | 'completed';
+}
+
+export interface StrandsSearchTask {
+    title: string;
+    tool_name: string;
+    startTime?: number;
+    endTime?: number;
+    status: 'pending' | 'executing' | 'completed';
+    result?: string;
+}
+
 // Message types
 export interface Message {
     id: string;
     sender: "user" | "ai";
     content: string;
     contentItems: ContentItem[];
+    steps?: any[];
     isStreaming?: boolean;
     references?: Reference[];
     attachedContent?: AttachedContent[];
     attachedFiles?: FileAttachment[];
     timestamp?: number;
+    // Strands Search Agent specific fields
+    strandsPhases?: StrandsSearchPhase[];
+    strandsCurrentPhase?: string;
+    strandsExecutingTasks?: StrandsSearchTask[];
+    strandsResponseTokens?: string;
 }
 
 // Chat coordination types

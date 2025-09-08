@@ -87,7 +87,57 @@ echo ""
 echo "Or check in AWS Console:"
 echo "  CodeBuild > Build projects > $CLEANUP_PROJECT"
 echo ""
-echo "The cleanup will take 15-30 minutes to complete."
+echo "The cleanup will take 30-60 minutes to complete (OpenSearch deletion takes ~30 minutes)."
 echo ""
-echo "After completion, run this command to delete the cleanup stack:"
-echo "  aws cloudformation delete-stack --stack-name $CLEANUP_STACK"
+
+# Ask user preference
+read -p "Do you want to wait for completion? (y/N): " -n 1 -r
+echo ""
+
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo "Monitoring cleanup progress (checking every 5 minutes)..."
+    echo ""
+    
+    # Wait for build to complete with longer intervals
+    WAIT_COUNT=0
+    MAX_WAIT=36  # 36 * 5 minutes = 3 hours max (matching CodeBuild timeout)
+    
+    while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
+        BUILD_STATUS=$(aws codebuild batch-get-builds --ids "$BUILD_ID" --query 'builds[0].buildStatus' --output text 2>/dev/null)
+        
+        if [ "$BUILD_STATUS" = "IN_PROGRESS" ]; then
+            WAIT_COUNT=$((WAIT_COUNT + 1))
+            echo "[$((WAIT_COUNT * 5)) minutes] Still running... (Status: $BUILD_STATUS)"
+            sleep 300  # 5 minutes
+        elif [ "$BUILD_STATUS" = "SUCCEEDED" ]; then
+            echo ""
+            echo "✅ Cleanup successful after ~$((WAIT_COUNT * 5)) minutes!"
+            echo "Now deleting the cleanup stack itself..."
+            aws cloudformation delete-stack --stack-name $CLEANUP_STACK
+            echo "✅ Cleanup stack deletion initiated"
+            break
+        elif [ "$BUILD_STATUS" = "FAILED" ] || [ "$BUILD_STATUS" = "STOPPED" ]; then
+            echo ""
+            echo "❌ Cleanup $BUILD_STATUS. Check the logs in CodeBuild console."
+            echo "To manually delete the cleanup stack, run:"
+            echo "  aws cloudformation delete-stack --stack-name $CLEANUP_STACK"
+            break
+        fi
+    done
+    
+    if [ $WAIT_COUNT -eq $MAX_WAIT ]; then
+        echo "⏱️  Timeout after 3 hours. Check status manually in CodeBuild console."
+    fi
+else
+    echo ""
+    echo "📝 Commands for later:"
+    echo ""
+    echo "Check cleanup status:"
+    echo "  aws codebuild batch-get-builds --ids $BUILD_ID --query 'builds[0].buildStatus' --output text"
+    echo ""
+    echo "After cleanup completes, delete the cleanup stack:"
+    echo "  aws cloudformation delete-stack --stack-name $CLEANUP_STACK"
+    echo ""
+    echo "Or run this one-liner to check and delete if successful:"
+    echo "  [ \$(aws codebuild batch-get-builds --ids $BUILD_ID --query 'builds[0].buildStatus' --output text) = 'SUCCEEDED' ] && aws cloudformation delete-stack --stack-name $CLEANUP_STACK && echo 'Cleanup stack deleted' || echo 'Build not yet successful'"
+fi

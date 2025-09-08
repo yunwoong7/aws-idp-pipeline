@@ -217,7 +217,7 @@ Resources:
                   
                   [analysis]
                   previousAnalysisMaxCharacters = 1000000000
-                  maxIterations = 10
+                  maxIterations = 5
                   
                   [lambda]
                   timeout = 30
@@ -226,7 +226,7 @@ Resources:
                   
                   [stepfunctions]
                   documentProcessingTimeout = 6000
-                  maxConcurrency = 10
+                  maxConcurrency = 30
                   
                   [sqs]
                   sqsBatchSize = 1
@@ -238,8 +238,43 @@ Resources:
                 - pnpm install
                 
                 # Bootstrap CDK if needed
-                - echo "Bootstrapping CDK..."
-                - npx cdk bootstrap aws://$AWS_ACCOUNT_ID/$AWS_DEFAULT_REGION --require-approval never
+                - echo "Checking and handling CDK Bootstrap..."
+                - |
+                  # Check if CDKToolkit stack exists
+                  STACK_STATUS=$(aws cloudformation describe-stacks --stack-name CDKToolkit --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "STACK_NOT_FOUND")
+                  
+                  if [ "$STACK_STATUS" = "STACK_NOT_FOUND" ]; then
+                    echo "CDKToolkit stack not found. Performing fresh bootstrap..."
+                    npx cdk bootstrap aws://$AWS_ACCOUNT_ID/$AWS_DEFAULT_REGION --require-approval never
+                  elif [ "$STACK_STATUS" = "CREATE_COMPLETE" ] || [ "$STACK_STATUS" = "UPDATE_COMPLETE" ]; then
+                    echo "CDKToolkit stack already exists and is healthy (Status: $STACK_STATUS)"
+                    echo "Skipping bootstrap - using existing CDKToolkit stack"
+                  elif [ "$STACK_STATUS" = "ROLLBACK_COMPLETE" ] || [ "$STACK_STATUS" = "DELETE_FAILED" ] || [ "$STACK_STATUS" = "CREATE_FAILED" ]; then
+                    echo "CDKToolkit stack exists but in failed state: $STACK_STATUS"
+                    echo "Attempting to delete and re-create..."
+                    
+                    # Delete the failed stack
+                    aws cloudformation delete-stack --stack-name CDKToolkit
+                    echo "Waiting for stack deletion..."
+                    aws cloudformation wait stack-delete-complete --stack-name CDKToolkit --no-paginate 2>/dev/null || true
+                    
+                    # Check if S3 bucket exists and clean it up if needed
+                    BUCKET_NAME="cdk-hnb659fds-assets-${AWS_ACCOUNT_ID}-${AWS_DEFAULT_REGION}"
+                    if aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
+                      echo "Found existing CDK assets bucket: $BUCKET_NAME"
+                      echo "Emptying and deleting bucket..."
+                      aws s3 rm s3://$BUCKET_NAME --recursive 2>/dev/null || true
+                      aws s3api delete-bucket --bucket $BUCKET_NAME 2>/dev/null || true
+                    fi
+                    
+                    # Re-bootstrap
+                    echo "Re-bootstrapping CDK..."
+                    npx cdk bootstrap aws://$AWS_ACCOUNT_ID/$AWS_DEFAULT_REGION --require-approval never
+                  else
+                    echo "CDKToolkit stack in unexpected state: $STACK_STATUS"
+                    echo "Proceeding with bootstrap attempt..."
+                    npx cdk bootstrap aws://$AWS_ACCOUNT_ID/$AWS_DEFAULT_REGION --require-approval never || echo "Bootstrap failed - will try to continue with existing resources"
+                  fi
                 
                 # Deploy ECR stack first (needed for container images)
                 - echo "Deploying ECR stack..."

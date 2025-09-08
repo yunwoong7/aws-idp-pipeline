@@ -689,13 +689,38 @@ export function DocumentDetailDialog({
                   className="bg-white/10 border border-white/10 rounded px-3 py-1 text-white text-sm focus:outline-none focus:border-white/40"
                 >
                   {(() => {
-                    const segs: any[] = (document as any)?.segment_images || [];
+                    // Extract status from analysisData directly since it's the most up-to-date
                     const statusByIndex: Record<number, string> = {};
+                    
+                    // Get unique segments from analysisData
+                    const segmentStatusMap = new Map<number, string>();
+                    if (Array.isArray(analysisData)) {
+                      analysisData.forEach((item: any) => {
+                        const segmentIndex = item?.segment_index ?? item?.page_index;
+                        if (typeof segmentIndex === 'number' && !segmentStatusMap.has(segmentIndex)) {
+                          // For analysis data, we need to infer status from the presence of data
+                          // Since the API returns segments with status "completed", we can assume they're completed
+                          segmentStatusMap.set(segmentIndex, 'completed');
+                        }
+                      });
+                    }
+                    
+                    // Fallback to page_images/segment_images if analysisData doesn't have status
+                    const segs: any[] = (document as any)?.page_images || (document as any)?.segment_images || [];
                     segs.forEach((s) => {
-                      if (typeof s?.segment_index === 'number') {
-                        statusByIndex[s.segment_index] = String(s.status || '').toLowerCase();
+                      const segmentIndex = s?.page_index ?? s?.segment_index;
+                      if (typeof segmentIndex === 'number') {
+                        const status = String(s.page_status || s.status || '').toLowerCase();
+                        statusByIndex[segmentIndex] = status;
                       }
                     });
+                    
+                    // Override with analysisData status if available
+                    segmentStatusMap.forEach((status, index) => {
+                      statusByIndex[index] = status;
+                    });
+                    
+                    console.log('🔍 [DEBUG] Final statusByIndex:', statusByIndex);
                     const indices = Array.from({ length: totalSegments }, (_, i) => i);
                     const isCompleted = (st: string) => st === 'completed';
                     const isFailed = (st: string) => st.includes('failed') || st === 'error';
@@ -739,8 +764,28 @@ export function DocumentDetailDialog({
                 </span>
                 {/* 현재 선택 세그먼트 상태 배지 */}
                 {(() => {
-                  const currentSegment = (document as any)?.segment_images?.find((s: any) => s.segment_index === (selectedSegment || 0));
-                  const segStatus: string = String(currentSegment?.status || '').toLowerCase();
+                  // Get status from analysisData first, then fallback to segment_images
+                  let segStatus = '';
+                  const currentSegmentIndex = selectedSegment || 0;
+                  
+                  // Check analysisData first
+                  if (Array.isArray(analysisData)) {
+                    const analysisItem = analysisData.find((item: any) => 
+                      (item?.segment_index ?? item?.page_index) === currentSegmentIndex
+                    );
+                    if (analysisItem) {
+                      segStatus = 'completed'; // If segment exists in analysisData, it's completed
+                    }
+                  }
+                  
+                  // Fallback to segment_images/page_images
+                  if (!segStatus) {
+                    const segs = (document as any)?.page_images || (document as any)?.segment_images || [];
+                    const currentSegment = segs.find((s: any) => 
+                      (s?.page_index ?? s?.segment_index) === currentSegmentIndex
+                    );
+                    segStatus = String(currentSegment?.page_status || currentSegment?.status || '').toLowerCase();
+                  }
                   if (!segStatus) return null;
                   const badgeClass = segStatus === 'completed'
                     ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'

@@ -228,6 +228,21 @@ export const documentApi = {
     return response.json();
   },
 
+  // 문서 상세 조회 (segment_images 포함)
+  async getDocumentDetail(documentId: string, indexId?: string): Promise<any> {
+    const baseUrl = await getApiBaseUrl();
+    const url = new URL(`${baseUrl}/api/documents/${documentId}`);
+    if (indexId) {
+      url.searchParams.append('index_id', indexId);
+    }
+    const response = await fetch(url.toString());
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      throw new Error(`문서 상세 조회 실패: ${response.status} ${text}`);
+    }
+    return response.json();
+  },
+
   // 문서 삭제 (project-independent)
   async deleteDocument(documentId: string, indexId?: string): Promise<void> {
     const baseUrl = await getApiBaseUrl();
@@ -703,7 +718,7 @@ export const systemApi = {
   // 시스템 재초기화 - 로컬 Python 백엔드로 직접 호출
   async reinitialize(request: ReinitRequest = {}): Promise<ReinitResponse> {
     const backendUrl = await getBackendUrl();
-    const response = await fetch(`${backendUrl}/api/reinit`, {
+    const response = await fetch(`${backendUrl}/api/strands/reinit`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -740,7 +755,7 @@ export const systemApi = {
 }; 
 
 export const analysisAgentApi = {
-  // 채팅 스트림 (FormData 또는 JSON) - 로컬 Python 백엔드로 직접 호출
+  // 채팅 스트림 (FormData 또는 JSON) - Strands Analysis Agent 호출
   async sendMessage(request: ChatRequest): Promise<Response> {
     const backendUrl = await getBackendUrl();
     const hasFiles = request.files && request.files.length > 0;
@@ -766,14 +781,14 @@ export const analysisAgentApi = {
         formData.append('files', file);
       });
       
-      // 이전 프록시와 동일한 엔드포인트 사용
-      return fetch(`${backendUrl}/api/chat`, {
+      // Strands agent 엔드포인트 사용
+      return fetch(`${backendUrl}/api/strands/chat`, {
         method: 'POST',
         body: formData,
       });
     } else {
       // JSON으로 전송
-      return fetch(`${backendUrl}/api/chat`, {
+      return fetch(`${backendUrl}/api/strands/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -787,6 +802,28 @@ export const analysisAgentApi = {
         }),
       });
     }
+  },
+
+  // Strands agent 재초기화
+  async reinitialize(model_id?: string): Promise<any> {
+    const backendUrl = await getBackendUrl();
+    
+    const response = await fetch(`${backendUrl}/api/strands/reinit`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model_id: model_id,
+        reload_prompt: true
+      }),
+    });
+    
+    if (!response.ok) {
+      throw new Error('Strands agent 재초기화에 실패했습니다');
+    }
+    
+    return response.json();
   },
 };
 
@@ -1141,13 +1178,13 @@ export const verificationApi = {
   },
 };
 
-// Strands Search Agent API
+// Strands Search Agent API - Enhanced for AgentsAsToolsSearchAgent
 export const strandsSearchApi = {
-  // Strands Search 스트리밍
+  // Strands Search 스트리밍 (AgentsAsToolsSearchAgent)
   async searchStream(request: StrandsSearchRequest): Promise<Response> {
     const backendUrl = await getBackendUrl();
     
-    // FormData로 전송
+    // FormData로 전송 - AgentsAsToolsSearchAgent 전용 엔드포인트
     const formData = new FormData();
     formData.append('message', request.message);
     formData.append('stream', 'true');
@@ -1167,25 +1204,39 @@ export const strandsSearchApi = {
       formData.append('thread_id', request.thread_id);
     }
     
-    return fetch(`${backendUrl}/api/strands-search`, {
+    return fetch(`${backendUrl}/api/strands-search/chat`, {
       method: 'POST',
       body: formData,
     });
   },
 
-  // Strands Search 논스트리밍
+  // Strands Search 논스트리밍 (AgentsAsToolsSearchAgent)
   async search(request: StrandsSearchRequest): Promise<any> {
     const backendUrl = await getBackendUrl();
     
-    const response = await fetch(`${backendUrl}/api/strands-search`, {
+    // FormData for non-streaming as well to maintain consistency
+    const formData = new FormData();
+    formData.append('message', request.message);
+    formData.append('stream', 'false');
+    if (request.model_id) {
+      formData.append('model_id', request.model_id);
+    }
+    if (request.index_id) {
+      formData.append('index_id', request.index_id);
+    }
+    if (request.document_id) {
+      formData.append('document_id', request.document_id);
+    }
+    if (request.segment_id) {
+      formData.append('segment_id', request.segment_id);
+    }
+    if (request.thread_id) {
+      formData.append('thread_id', request.thread_id);
+    }
+    
+    const response = await fetch(`${backendUrl}/api/strands-search/chat`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        ...request,
-        stream: false
-      }),
+      body: formData,
     });
     
     if (!response.ok) {
@@ -1195,7 +1246,7 @@ export const strandsSearchApi = {
     return response.json();
   },
 
-  // Strands Search 헬스체크
+  // Strands Search 헬스체크 (AgentsAsToolsSearchAgent)
   async healthCheck(): Promise<any> {
     const backendUrl = await getBackendUrl();
     const response = await fetch(`${backendUrl}/api/strands-search/health`);
@@ -1207,7 +1258,7 @@ export const strandsSearchApi = {
     return response.json();
   },
 
-  // Strands Search 시스템 재초기화
+  // Strands Search 시스템 재초기화 (AgentsAsToolsSearchAgent)
   async reinitialize(model_id?: string): Promise<any> {
     const backendUrl = await getBackendUrl();
     const formData = new FormData();

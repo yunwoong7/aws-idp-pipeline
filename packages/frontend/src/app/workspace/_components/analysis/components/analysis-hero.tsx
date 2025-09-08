@@ -5,6 +5,7 @@ import {
   MessageCircle, 
   Sparkles,
   Zap,
+  Image as ImageIcon,
 } from "lucide-react";
 import React from "react";
 
@@ -13,13 +14,15 @@ interface AnalysisHeroProps {
   title?: string;
   subtitle?: string;
   examples?: string[];
+  onAttachClick?: () => void;
 }
 
 export function AnalysisHero({ 
   onExampleClick,
   title = "Talk to the Document Analysis AI",
   subtitle = "Ask me anything about your documents. I'll search, analyze and provide detailed answers with intelligent insights.",
-  examples
+  examples,
+  onAttachClick
 }: AnalysisHeroProps) {
   const features: { label: string; icon: React.ElementType; color: string }[] = [];
 
@@ -69,6 +72,8 @@ export function AnalysisHero({
         >
           {subtitle}
         </motion.p>
+
+        {/* Attach image button removed per request */}
 
         {/* Feature badges */}
         <motion.div

@@ -109,6 +109,7 @@ function useAlert() {
     showAlert,
     hideAlert,
     AlertComponent,
+    isAlertOpen: alertState?.isOpen || false,
     // 편의 메소드들
     showSuccess: (title: string, message: string) => showAlert('success', title, message),
     showError: (title: string, message: string) => showAlert('error', title, message),

@@ -78,11 +78,19 @@ async def lifespan(app: FastAPI):
             logger.error(f"MCP service startup error: {str(e)}")
             # server will start but run without MCP service
     
+    # Initialize Analysis agent on startup for better performance
+    try:
+        from src.routers.analysis_agent import initialize_agent_on_startup
+        await initialize_agent_on_startup()
+        logger.info("Analysis agent pre-initialization triggered")
+    except Exception as e:
+        logger.error(f"Failed to trigger Analysis agent initialization: {str(e)}")
+    
     yield  # this point, the application will run
     
     # shutdown event
     logger.info("AWS IDP AI Analysis API server shutting down...")
-    if MCP_AVAILABLE and mcp_service:
+    if MCP_AVAILABLE and mcp_service:   
         try:
             await mcp_service.shutdown()
             logger.info("MCP service shutdown complete")

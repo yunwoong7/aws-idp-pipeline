@@ -16,6 +16,7 @@ import { searchApi } from "@/lib/api";
 import { UploadNotificationContainer } from "@/components/ui/upload-notification";
 import { useUploadNotifications } from "@/hooks/use-upload-notifications";
 import { useWebSocket, WebSocketMessage } from "@/hooks/use-websocket";
+import { useAlert } from "@/components/ui/alert";
 
 interface DocumentsTabProps {
   indexId: string;
@@ -51,12 +52,15 @@ export function DocumentsTab({ indexId, onSelectDocument, onAttachToChat, onAnal
   const {
     uploadFiles,
     isUploading,
+    hasActiveUploads,
     getRootProps,
     getInputProps,
     isDragActive,
     startUpload,
     removeFile,
-    formatFileSize
+    formatFileSize,
+    clearAllToastItems,
+    clearAllProcessingToastItems
   } = useDocumentUpload({ 
     onUploadComplete: () => {
       // 업로드 완료 시 문서 목록 갱신 후 업로드 영역 닫기
@@ -104,6 +108,21 @@ export function DocumentsTab({ indexId, onSelectDocument, onAttachToChat, onAnal
   const [filteredDocuments, setFilteredDocuments] = useState<Document[]>([]);
   const [searchResults, setSearchResults] = useState<any[]>([]);
 
+  // Alert management
+  const { showWarning, AlertComponent, isAlertOpen } = useAlert();
+
+  // Check if there are any documents with processing status
+  const hasProcessingDocuments = useCallback(() => {
+    return documents.some(doc => {
+      const status = doc.status?.toLowerCase() || '';
+      return status.includes('upload') || 
+             status.includes('process') || 
+             status.includes('analyz') || 
+             status === 'pending' ||
+             status === 'in_progress';
+    });
+  }, [documents]);
+
   // WebSocket message handler
   const handleWebSocketMessage = useCallback((message: WebSocketMessage) => {
     console.log('WebSocket message received in documents-tab:', message);
@@ -121,6 +140,16 @@ export function DocumentsTab({ indexId, onSelectDocument, onAttachToChat, onAnal
             console.log('Document updated:', message.data);
             // 문서 목록 새로고침
             fetchDocuments();
+            
+            // 문서 상태 업데이트 후 진행 중인 작업이 없으면 토스트 정리
+            setTimeout(() => {
+              // fetchDocuments가 완료된 후 실행되도록 setTimeout 사용
+              if (!hasProcessingDocuments()) {
+                console.log('No processing documents found, clearing upload toasts');
+                clearAllToastItems();
+                clearAllProcessingToastItems();
+              }
+            }, 1000);
           } else if (message.event === 'remove') {
             // 문서가 삭제된 경우
             console.log('Document removed:', message.data);
@@ -136,6 +165,15 @@ export function DocumentsTab({ indexId, onSelectDocument, onAttachToChat, onAnal
           console.log('Upload completed:', message.file_name);
           // 문서 목록 새로고침
           fetchDocuments();
+          
+          // 업로드 완료 후 진행 중인 작업이 없으면 토스트 정리
+          setTimeout(() => {
+            if (!hasProcessingDocuments()) {
+              console.log('Upload completed, clearing upload toasts');
+              clearAllToastItems();
+              clearAllProcessingToastItems();
+            }
+          }, 1000);
         }
         break;
         
@@ -143,7 +181,7 @@ export function DocumentsTab({ indexId, onSelectDocument, onAttachToChat, onAnal
         // 다른 메시지 타입들은 무시
         break;
     }
-  }, [fetchDocuments]);
+  }, [fetchDocuments, hasProcessingDocuments, clearAllToastItems, clearAllProcessingToastItems]);
 
   // WebSocket 연결 (비활성화)
   const {
@@ -263,6 +301,23 @@ export function DocumentsTab({ indexId, onSelectDocument, onAttachToChat, onAnal
     }
   }, [documents, searchQuery]);
 
+  // Handle opening upload zone with upload state check
+  const handleOpenUploadZone = useCallback(() => {
+    const hasUploadsInProgress = hasActiveUploads || hasProcessingDocuments();
+    
+    if (hasUploadsInProgress) {
+      // Only show alert if one isn't already open
+      if (!isAlertOpen) {
+        showWarning(
+          "Upload in Progress", 
+          "Please wait for all current uploads to complete before starting new ones. Multiple simultaneous uploads may cause errors."
+        );
+      }
+      return;
+    }
+    setShowUploadZone(true);
+  }, [hasActiveUploads, hasProcessingDocuments, showWarning, isAlertOpen]);
+
 
   // Perform hybrid search on typing (debounced)
   useEffect(() => {
@@ -341,7 +396,7 @@ export function DocumentsTab({ indexId, onSelectDocument, onAttachToChat, onAnal
           <div className="h-full flex flex-col">
             {/* Header with controls */}
             <DocumentsPageHeader 
-              onAddDocument={() => setShowUploadZone(true)}
+              onAddDocument={handleOpenUploadZone}
               onRefresh={fetchDocuments}
               isLoading={loading}
               isUploading={isUploading}
@@ -444,6 +499,9 @@ export function DocumentsTab({ indexId, onSelectDocument, onAttachToChat, onAnal
         position="top-right"
         maxNotifications={3}
       />
+
+      {/* Alert Dialog */}
+      {AlertComponent}
     </div>
   );
 }

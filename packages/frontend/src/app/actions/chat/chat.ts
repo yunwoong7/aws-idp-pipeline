@@ -6,6 +6,19 @@ import {
   ToolUseContentItem,
 } from '@/types/agent.types';
 
+// Step 인터페이스 정의
+interface Step {
+  step: number;
+  node: string;
+  items: ContentItem[];
+  isComplete: boolean;
+}
+
+// Global step management variables
+const currentMessageSteps = new Map();
+const stepIdCounters = new Map();
+let currentMessageId = '';
+
 // use crypto.randomUUID() but fallback if not available
 function generateUUID(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -17,6 +30,30 @@ function generateUUID(): string {
     const v = c === 'x' ? r : (r & 0x3 | 0x8);
     return v.toString(16);
   });
+}
+
+// Step 기반 유틸리티 함수들
+function generateUniqueId(messageId: string, stepNumber: number, itemType: string, itemIndex: number): string {
+  return `${messageId}-${stepNumber}-${itemType}-${itemIndex}`;
+}
+
+function getOrCreateStep(stepNumber: number, node: string): Step {
+  if (!currentMessageSteps.has(stepNumber)) {
+    currentMessageSteps.set(stepNumber, {
+      step: stepNumber,
+      node: node,
+      items: [],
+      isComplete: false
+    });
+    stepIdCounters.set(stepNumber, 0);
+  }
+  return currentMessageSteps.get(stepNumber)!;
+}
+
+function getNextItemIndex(stepNumber: number): number {
+  const current = stepIdCounters.get(stepNumber) || 0;
+  stepIdCounters.set(stepNumber, current + 1);
+  return current;
 }
 
 // define backend response type
@@ -33,8 +70,10 @@ interface ChunkData {
   }>;
   toolCalls: any;
   metadata: {
-    langgraph_node: string;
-    langgraph_step: number;
+    langgraph_node?: string;  // ReactAgent metadata
+    strands_node?: string;    // StrandsAgent metadata
+    langgraph_step?: number;  // ReactAgent metadata  
+    strands_step?: number;    // StrandsAgent metadata
     type: string;
     is_image?: boolean;
     image_data?: string;
@@ -44,7 +83,11 @@ interface ChunkData {
   };
 }
 
-// state for accumulating text
+// Step 기반 상태 관리
+let accumulatedTextByStep = new Map();
+let currentStepForText = -1;
+
+// Legacy text accumulation variables
 let accumulatedText = '';
 let currentTextId = '';
 
@@ -66,87 +109,104 @@ function processChunk(
     return;
   }
 
+  // Extract step metadata
+  const strandsStep = chunkData.metadata?.strands_step;
+  const strandsNode = chunkData.metadata?.strands_node || 'agent';
+  const stepType = chunkData.metadata?.type;
+  
+  console.log(`📊 Step metadata: step=${strandsStep}, node=${strandsNode}, type=${stepType}`);
+
   for (const item of chunkData.chunk) {
     console.log('🔍 Processing chunk item:', item);
     
     switch (item.type) {
       case 'text':
         const newText = item.text || '';
-        if (newText.trim()) {
-          // 순수 텍스트만 누적 처리. 도구 호출은 'tool_use' 타입에서만 처리한다.
-          if (!currentTextId) {
-            currentTextId = generateUUID();
-            accumulatedText = '';
+        if (newText.trim() && stepType === 'ai_response' && strandsNode === 'agent') {
+          // Handle text accumulation per step
+          const step = strandsStep || 0;
+          
+          if (!accumulatedTextByStep.has(step)) {
+            // New step - create new text accumulator
+            accumulatedTextByStep.set(step, {
+              text: '',
+              id: generateUUID()
+            });
+            console.log(`📝 Starting text accumulation for step ${step}`);
           }
-          accumulatedText += newText;
-          console.log(`📝 Accumulating text (length: ${accumulatedText.length}):`, newText);
-          if (accumulatedText.length > 100 || newText.includes(' ') || newText.includes('\n')) {
-            const textItem: TextContentItem = {
-              id: currentTextId,
-              type: 'text',
-              content: accumulatedText,
-              timestamp: Date.now(),
-            };
-            console.log(`📝 Enqueuing accumulated text (${accumulatedText.length} chars):`, textItem);
-            controller.enqueue(textItem);
-            // 누적 버퍼를 비우지 않고 유지하여 다음 청크에서도 전체 내용을 지속적으로 갱신
-          }
+          
+          const accumulator = accumulatedTextByStep.get(step)!;
+          accumulator.text += newText;
+          console.log(`📝 Accumulating text (step ${step}):`, newText);
+          
+          // Stream text immediately for AI responses
+          const textItem: TextContentItem = {
+            id: accumulator.id,
+            type: 'text', 
+            content: accumulator.text,
+            timestamp: Date.now(),
+          };
+          console.log(`📝 Enqueuing text (step ${step}):`, textItem);
+          controller.enqueue(textItem);
         }
         break;
         
       case 'tool_use':
-        // identify tool based on index (group chunks with the same index)
-        const toolKey = `tool_${item.index}`;
-        const toolName = item.name || '';
-        const toolInput = item.input || '';
-        
-        console.log(`🔧 Processing tool_use chunk: key=${toolKey}, name="${toolName}", input="${toolInput}"`);
-        
-        if (!accumulatedToolUses.has(toolKey)) {
-          // start new tool use
-          accumulatedToolUses.set(toolKey, {
-            id: generateUUID(),
-            name: toolName,
-            input: toolInput,
-            timestamp: Date.now()
-          });
-          console.log(`🔧 Created new tool accumulation for ${toolKey}`);
-        } else {
-          // accumulate input to existing tool use
-          const existing = accumulatedToolUses.get(toolKey)!;
-          existing.input += toolInput;
-          existing.name = toolName || existing.name; // update name if it exists
-          console.log(`🔧 Updated tool accumulation for ${toolKey}: name="${existing.name}", input="${existing.input}"`);
-        }
-        
-        // Enqueue the current accumulated snapshot as a streaming update (no JSON parsing here)
-        {
+        // Only process tool use if they're part of a tools step
+        if (strandsNode === 'tools' && stepType === 'tool_use') {
+          const toolKey = `step_${strandsStep}_tool_${item.index}`;
+          const toolName = item.name || '';
+          const toolInput = item.input || '';
+          
+          console.log(`🔧 Processing tool_use chunk (step ${strandsStep}): key=${toolKey}, name="${toolName}", input="${toolInput}"`);
+          
+          if (!accumulatedToolUses.has(toolKey)) {
+            // start new tool use for this step
+            accumulatedToolUses.set(toolKey, {
+              id: generateUUID(),
+              name: toolName,
+              input: toolInput,
+              timestamp: Date.now()
+            });
+            console.log(`🔧 Created new tool accumulation for ${toolKey} in step ${strandsStep}`);
+          } else {
+            // accumulate input to existing tool use
+            const existing = accumulatedToolUses.get(toolKey)!;
+            existing.input += toolInput;
+            existing.name = toolName || existing.name; // update name if it exists
+            console.log(`🔧 Updated tool accumulation for ${toolKey}: name="${existing.name}", input="${existing.input}"`);
+          }
+          
+          // Enqueue the current accumulated snapshot as a streaming update
           const acc = accumulatedToolUses.get(toolKey)!;
           const toolUseItem: ToolUseContentItem = {
-            id: acc.id, // keep id stable for this index
+            id: acc.id, // keep id stable for this step
             type: 'tool_use',
             name: acc.name,
             input: acc.input,
             timestamp: acc.timestamp,
-            requiresApproval: false, // streaming updates do not request approval
+            requiresApproval: false,
             approved: false,
             collapsed: true,
           };
-          console.log('🔧 ⏩ Enqueuing streaming tool_use snapshot:', toolUseItem);
+          console.log(`🔧 ⏩ Enqueuing streaming tool_use snapshot (step ${strandsStep}):`, toolUseItem);
           controller.enqueue(toolUseItem);
         }
         break;
         
       case 'tool_result':
-        const toolResultItem: ToolResultContentItem = {
-          id: generateUUID(),
-          type: 'tool_result',
-          result: item.text || '',
-          timestamp: Date.now(),
-          collapsed: true,
-        };
-        console.log('✅ Enqueuing tool_result item:', toolResultItem);
-        controller.enqueue(toolResultItem);
+        // Only process tool results if they're part of a tools step
+        if (strandsNode === 'tools' && stepType === 'tool_result') {
+          const toolResultItem: ToolResultContentItem = {
+            id: generateUUID(),
+            type: 'tool_result',
+            result: item.text || '',
+            timestamp: Date.now(),
+            collapsed: true,
+          };
+          console.log(`✅ Enqueuing tool_result item (step ${strandsStep}):`, toolResultItem);
+          controller.enqueue(toolResultItem);
+        }
         break;
         
       case 'image':
@@ -183,6 +243,109 @@ function processChunk(
   }
 }
 
+// 새로운 Step 기반 처리 함수
+function processChunkWithSteps(
+  chunkData: ChunkData,
+  controller: ReadableStreamDefaultController<ContentItem>,
+  messageId: string,
+) {
+  console.log('🔍 Processing chunk with steps:', chunkData);
+  
+  if (!chunkData.chunk || chunkData.chunk.length === 0) {
+    return;
+  }
+
+  // 메타데이터에서 스텝 정보 추출
+  const strandsStep = chunkData.metadata?.strands_step || 0;
+  const strandsNode = chunkData.metadata?.strands_node || 'agent';
+  const stepType = chunkData.metadata?.type;
+  
+  console.log(`📊 Step metadata: step=${strandsStep}, node=${strandsNode}, type=${stepType}`);
+
+  // 현재 Step 가져오기 또는 생성
+  const currentStep = getOrCreateStep(strandsStep, strandsNode);
+  
+  for (const item of chunkData.chunk) {
+    console.log('🔍 Processing chunk item:', item);
+    
+    const itemIndex = getNextItemIndex(strandsStep);
+    const uniqueId = generateUniqueId(messageId, strandsStep, item.type, itemIndex);
+    
+    switch (item.type) {
+      case 'text':
+        const newText = item.text || '';
+        if (newText.trim() && stepType === 'ai_response' && strandsNode === 'agent') {
+          // 기존 텍스트 아이템 찾기 또는 새로 생성
+          let textItem = currentStep.items.find(i => i.type === 'text') as TextContentItem;
+          
+          if (!textItem) {
+            textItem = {
+              id: generateUUID(),
+              uniqueId: uniqueId,
+              type: 'text',
+              content: '',
+              timestamp: Date.now(),
+            } as TextContentItem;
+            currentStep.items.push(textItem);
+          }
+          
+          textItem.content += newText;
+          console.log(`📝 Accumulating text (step ${strandsStep}):`, newText);
+          
+          controller.enqueue(textItem);
+        }
+        break;
+        
+      case 'tool_use':
+        if (strandsNode === 'tools' && stepType === 'tool_use') {
+          // 기존 도구 사용 아이템 찾기 또는 새로 생성
+          let toolUseItem = currentStep.items.find(i => 
+            i.type === 'tool_use' && (i as ToolUseContentItem).name === item.name
+          ) as ToolUseContentItem;
+          
+          if (!toolUseItem) {
+            toolUseItem = {
+              id: item.id || generateUUID(),
+              uniqueId: uniqueId,
+              type: 'tool_use',
+              name: item.name || '',
+              input: '',
+              timestamp: Date.now(),
+              requiresApproval: false,
+              approved: false,
+              collapsed: true,
+            } as ToolUseContentItem;
+            currentStep.items.push(toolUseItem);
+          }
+          
+          toolUseItem.input = item.input || '';
+          console.log(`🔧 Tool use (step ${strandsStep}): ${item.name}`);
+          
+          controller.enqueue(toolUseItem);
+        }
+        break;
+        
+      case 'tool_result':
+        if (strandsNode === 'tools' && stepType === 'tool_result') {
+          const toolResultItem: ToolResultContentItem = {
+            id: generateUUID(),
+            uniqueId: uniqueId,
+            type: 'tool_result',
+            result: item.text || '',
+            timestamp: Date.now(),
+            collapsed: true,
+          } as ToolResultContentItem;
+          
+          currentStep.items.push(toolResultItem);
+          console.log(`✅ Tool result (step ${strandsStep}):`, item.text?.substring(0, 100));
+          
+          controller.enqueue(toolResultItem);
+        }
+        break;
+    }
+  }
+}
+
 export async function sendChatStream(
   message: string,
   conversationId?: string,
@@ -191,12 +354,11 @@ export async function sendChatStream(
 ) {
   console.log('🚀 Starting chat stream:', { message: message.substring(0, 100), projectId });
   
-  // initialize text accumulation state
-  accumulatedText = '';
-  currentTextId = '';
-  
-  // initialize tool use accumulation state
-  accumulatedToolUses.clear();
+  // initialize step-based state
+  currentMessageSteps.clear();
+  stepIdCounters.clear();
+  const messageId = generateUUID();
+  currentMessageId = messageId;
   
   return new ReadableStream<ContentItem>({
     async start(controller) {
@@ -256,7 +418,7 @@ export async function sendChatStream(
                 
                 try {
                   const chunkData: ChunkData = JSON.parse(data);
-                  processChunk(chunkData, controller);
+                  processChunkWithSteps(chunkData, controller, messageId);
                 } catch (parseError) {
                   console.error('❌ Failed to parse chunk data:', parseError, 'Original data:', data);
                 }
@@ -272,7 +434,7 @@ export async function sendChatStream(
             if (data && data !== '[DONE]') {
               try {
                 const chunkData: ChunkData = JSON.parse(data);
-                processChunk(chunkData, controller);
+                processChunkWithSteps(chunkData, controller, messageId);
               } catch (e) {
                 console.warn('⚠️ Leftover buffer parse failed (ignored):', e);
               }
@@ -396,7 +558,7 @@ export async function resumeFromInterrupt(
                 
                 try {
                   const chunkData: ChunkData = JSON.parse(data);
-                  processChunk(chunkData, controller);
+                  processChunkWithSteps(chunkData, controller, currentMessageId || generateUUID());
                 } catch (parseError) {
                   console.error('❌ Failed to parse resume chunk data:', parseError, 'Original data:', data);
                 }

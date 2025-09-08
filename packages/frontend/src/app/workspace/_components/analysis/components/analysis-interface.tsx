@@ -26,6 +26,7 @@ import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
 import { AttachedContent } from "@/types/chat.types";
 import { SecureImage } from "@/components/ui/secure-image";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { ToolDetailPopup } from "./tool-detail-popup";
 
 import { documentApi } from "@/lib/api";
 
@@ -72,8 +73,16 @@ type MessageChunk = {
     filename?: string;
 }
 
+interface Step {
+    step: number;          // metadata.strands_step
+    node: string;          // metadata.strands_node ('agent' or 'tools')
+    items: ContentItem[];  // 이 단계에 속한 콘텐츠 아이템들
+    isComplete: boolean;   // 이 단계의 스트리밍이 완료되었는지 여부
+}
+
 interface TextContentItem {
     id: string;
+    uniqueId?: string;  // messageId-step-type-index 형태의 절대적 고유 ID
     type: "text";
     content: string;
     timestamp: number;
@@ -81,6 +90,7 @@ interface TextContentItem {
 
 interface ToolUseContentItem {
     id: string;
+    uniqueId?: string;
     type: "tool_use";
     name: string;
     input: string;
@@ -93,14 +103,17 @@ interface ToolUseContentItem {
 
 interface ToolResultContentItem {
     id: string;
+    uniqueId?: string;
     type: "tool_result";
     result: string;
     timestamp: number;
     collapsed?: boolean;
+    tool_use_id?: string;
 }
 
 interface ImageContentItem {
     id: string;
+    uniqueId?: string;
     type: "image";
     imageData: string;
     mimeType: string;
@@ -109,6 +122,7 @@ interface ImageContentItem {
 
 interface DocumentContentItem {
     id: string;
+    uniqueId?: string;
     type: "document";
     filename: string;
     fileType: string;
@@ -165,16 +179,7 @@ interface Reference {
     image_uri?: string;
 }
 
-interface Message {
-    id: string;
-    sender: "user" | "ai";
-    content: string;
-    contentItems: ContentItem[];
-    isStreaming?: boolean;
-    references?: Reference[];
-    attachedContent?: AttachedContent[];
-    attachedFiles?: FileAttachment[];
-}
+type Message = import("@/types/chat.types").Message;
 
 interface UseAutoResizeTextareaProps {
     minHeight: number;
@@ -248,7 +253,6 @@ interface AnalysisInterfaceProps {
 
     onImageClick?: (references: Reference[], imageIndex: number, preloadedImageUrls?: { [key: string]: string }) => void;
     onPdfClick?: (ref: Reference) => void;
-    onToolToggle?: (messageId: string, itemId: string) => void;
     autoFocusAfterSend?: boolean;
     externalTextareaRef?: React.RefObject<HTMLTextAreaElement | null>;
 
@@ -288,7 +292,6 @@ export function AnalysisInterface({
     onToolApproval,
     onImageClick,
     onPdfClick,
-    onToolToggle,
     autoFocusAfterSend = true,
     externalTextareaRef,
     indexId,
@@ -309,67 +312,21 @@ export function AnalysisInterface({
     const [internalShowScrollButton, setInternalShowScrollButton] = useState(false);
     const [showResetConfirm, setShowResetConfirm] = useState(false);
     const isNearBottomRef = useRef(true);
-    // Persist tool collapsed state independently of streaming/typing
-    const [toolCollapsedById, setToolCollapsedById] = useState<Record<string, boolean>>({});
-    const [resultCollapsedById, setResultCollapsedById] = useState<Record<string, boolean>>({});
+    // Tool popup state
+    const [selectedTool, setSelectedTool] = useState<{
+        toolItem: ToolUseContentItem;
+        toolResult?: ToolResultContentItem;
+        effectiveInput: string;
+    } | null>(null);
 
-    // Derive stable keys for collapse state so streaming/typing won't reset UI
-    const getIdKey = useCallback((id?: string) => (id ? `id:${id}` : ''), []);
-    const getNameKey = useCallback((name?: string) => (name ? `name:${name}` : ''), []);
-
-    const getCollapsedForItem = useCallback((item: ToolUseContentItem) => {
-        const idKey = getIdKey(item.id);
-        const nameKey = getNameKey(item.name);
-        if (idKey && toolCollapsedById[idKey] !== undefined) return toolCollapsedById[idKey];
-        if (nameKey && toolCollapsedById[nameKey] !== undefined) return toolCollapsedById[nameKey];
-        return item.collapsed ?? true;
-    }, [toolCollapsedById, getIdKey, getNameKey]);
-
-    const toggleCollapsedForItem = useCallback((item: ToolUseContentItem) => {
-        setToolCollapsedById(prev => {
-            const idKey = getIdKey(item.id);
-            const nameKey = getNameKey(item.name);
-            const current = (idKey && prev[idKey] !== undefined)
-                ? prev[idKey]
-                : (nameKey && prev[nameKey] !== undefined)
-                    ? prev[nameKey]
-                    : (item.collapsed ?? true);
-            const nextVal = !current;
-            return {
-                ...prev,
-                ...(idKey ? { [idKey]: nextVal } : {}),
-                ...(nameKey ? { [nameKey]: nextVal } : {}),
-            };
+    // Handle tool popup opening
+    const openToolPopup = useCallback((toolItem: ToolUseContentItem, toolResult?: ToolResultContentItem, effectiveInput?: string) => {
+        setSelectedTool({
+            toolItem,
+            toolResult,
+            effectiveInput: effectiveInput || toolItem.input || ''
         });
-    }, [getIdKey, getNameKey]);
-
-    // Result collapse state lifted to parent to avoid flicker on re-renders
-    const getResultCollapsedForItem = useCallback((item: ToolUseContentItem) => {
-        const idKey = getIdKey(item.id);
-        const nameKey = getNameKey(item.name);
-        if (idKey && resultCollapsedById[idKey] !== undefined) return resultCollapsedById[idKey];
-        if (nameKey && resultCollapsedById[nameKey] !== undefined) return resultCollapsedById[nameKey];
-        // default collapsed true for result section
-        return true;
-    }, [resultCollapsedById, getIdKey, getNameKey]);
-
-    const toggleResultCollapsedForItem = useCallback((item: ToolUseContentItem) => {
-        const idKey = getIdKey(item.id);
-        const nameKey = getNameKey(item.name);
-        setResultCollapsedById(prev => {
-            const current = (idKey && prev[idKey] !== undefined)
-                ? prev[idKey]
-                : (nameKey && prev[nameKey] !== undefined)
-                    ? prev[nameKey]
-                    : true;
-            const nextVal = !current;
-            return {
-                ...prev,
-                ...(idKey ? { [idKey]: nextVal } : {}),
-                ...(nameKey ? { [nameKey]: nextVal } : {}),
-            };
-        });
-    }, [getIdKey, getNameKey]);
+    }, []);
 
     const { textareaRef, adjustHeight } = useAutoResizeTextarea({
         minHeight: 40,
@@ -543,30 +500,30 @@ export function AnalysisInterface({
 
     const selectCommandSuggestion = (index: number) => {
         const selectedCommand = defaultCommandSuggestions[index];
-        setInput(selectedCommand.prefix + ' ');
+        if (selectedCommand && selectedCommand.prefix) {
+            const newValue = selectedCommand.prefix + ' ';
+            // Ensure we're setting a string value
+            if (typeof newValue === 'string') {
+                setInput(newValue);
+            }
+        }
         setShowCommandPalette(false);
         adjustHeight();
         
-        setRecentCommand(selectedCommand.label);
+        setRecentCommand(selectedCommand?.label || '');
         setTimeout(() => setRecentCommand(null), 2000);
     };
 
-    // ToolUseItem component to handle useState within the component boundary
+    // ToolUseItem component - simplified button version
     const ToolUseItemInner: React.FC<{
         toolItem: ToolUseContentItem;
         messageId: string;
         shouldAnimate: boolean;
-        isCollapsed: boolean;
-        onToggleCollapsed: () => void;
         hasToolResult: boolean;
         toolResult?: ToolResultContentItem;
-        resultCollapsed: boolean;
-        onToggleResultCollapsed: () => void;
         effectiveInput: string;
-    }> = ({ toolItem, messageId, shouldAnimate, isCollapsed, onToggleCollapsed, hasToolResult, toolResult, resultCollapsed, onToggleResultCollapsed, effectiveInput }) => {
-
-        // Determine style based on tool execution completion
-        // hasToolResult/toolResult are now passed from parent to stabilize identity
+        onOpenPopup: () => void;
+    }> = ({ toolItem, messageId, shouldAnimate, hasToolResult, toolResult, effectiveInput, onOpenPopup }) => {
 
         return (
             <div 
@@ -578,16 +535,16 @@ export function AnalysisInterface({
                         {/* Animated border glow */}
                         <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-cyan-500/15 via-purple-500/8 to-pink-500/15 opacity-0 group-hover:opacity-100 transition-opacity duration-500 blur-sm"></div>
                         
-                        {/* Header */}
-            <div 
-                className="relative flex items-center justify-between p-3 cursor-pointer bg-gradient-to-r from-slate-900/30 via-slate-800/20 to-slate-900/30 hover:from-slate-800/40 hover:via-slate-700/30 hover:to-slate-800/40 transition-colors duration-200"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    onToggleCollapsed();
-                }}
-            >
+                        {/* Clickable Header */}
+                        <div 
+                            className="relative flex items-center justify-between p-3 cursor-pointer bg-gradient-to-r from-slate-900/30 via-slate-800/20 to-slate-900/30 hover:from-slate-800/40 hover:via-slate-700/30 hover:to-slate-800/40 transition-colors duration-200"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                onOpenPopup();
+                            }}
+                        >
                             <div className="flex items-center gap-3">
                                 {/* Icon with animated ring */}
                                 <div className="relative">
@@ -616,23 +573,23 @@ export function AnalysisInterface({
                                             {hasToolResult ? (
                                                 <>
                                                     <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></div>
-                                                    <span className="text-xs text-emerald-300 font-medium">완료</span>
+                                                    <span className="text-xs text-emerald-300 font-medium">Completed</span>
                                                 </>
                                             ) : (
                                                 <>
                                                     <div className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-pulse"></div>
-                                                    <span className="text-xs text-amber-300 font-medium">실행중</span>
+                                                    <span className="text-xs text-amber-300 font-medium">Executing</span>
                                                 </>
                                             )}
                                         </div>
                                     </div>
                                     <div className="text-xs text-slate-400 mt-0.5 font-mono">
-                                        {hasToolResult ? "작업이 성공적으로 완료되었습니다 ✨" : "도구를 실행하고 있습니다..."}
+                                        {hasToolResult ? "Click to view details ✨" : "Executing tool..."}
                                     </div>
                                 </div>
                             </div>
                             
-                            {/* Expand/collapse button */}
+                            {/* View details indicator */}
                             <div className="flex items-center gap-2">
                                 {hasToolResult && (
                                     <div className="flex items-center gap-0.5">
@@ -640,104 +597,11 @@ export function AnalysisInterface({
                                         <div className="w-1 h-1 bg-emerald-300 rounded-full animate-pulse delay-100"></div>
                                     </div>
                                 )}
-                                <div className="w-6 h-6 rounded-md bg-white/[0.05] border border-white/[0.08] flex items-center justify-center hover:bg-white/[0.08] transition-colors">
-                                                {isCollapsed ? 
-                                        <ChevronRight className="h-3 w-3 text-slate-300" /> : 
-                                        <ChevronDown className="h-3 w-3 text-slate-300" />
-                                    }
+                                <div className="px-2 py-1 rounded-md bg-white/[0.05] border border-white/[0.08] hover:bg-white/[0.08] transition-colors">
+                                    <span className="text-xs text-slate-300">Details</span>
                                 </div>
                             </div>
                         </div>
-                        
-                        {/* Expanded content */}
-                        {!isCollapsed && (
-                            <div 
-                                className="relative border-t border-white/[0.05]"
-                            >
-                                <div className="p-3 bg-gradient-to-br from-slate-900/15 to-slate-800/15">
-                                    {/* Parameters section */}
-                                    <div className="flex items-center gap-2 mb-3">
-                                        <div className="w-5 h-5 rounded-full bg-gradient-to-r from-cyan-400 to-purple-500 flex items-center justify-center">
-                                            <Wrench className="h-2.5 w-2.5 text-white" />
-                                        </div>
-                                        <span className="text-xs font-semibold text-slate-200">Run Parameters</span>
-                                    </div>
-                                    <div className="bg-black/50 backdrop-blur-sm rounded-lg p-3 border border-white/[0.05] mb-3">
-                                        <pre className="text-xs text-cyan-300 whitespace-pre-wrap break-words font-mono leading-relaxed overflow-x-auto">
-                                            {(() => {
-                                                const rawInput = effectiveInput || toolItem.input || '';
-                                                if (!rawInput.trim() || rawInput === '{}') {
-                                                    return '매개변수 없음';
-                                                }
-                                                
-                                                // During streaming, never parse; show raw as-is
-                                                if (isStreaming) {
-                                                    return rawInput;
-                                                }
-
-                                                try {
-                                                    // If concatenated JSON objects exist, extract the last balanced one
-                                                    const candidate = extractLastBalancedJsonObject(rawInput) || rawInput;
-                                                    const parsedInput = JSON.parse(candidate);
-                                                    console.log('✅ JSON parsing successful, showing formatted params:', parsedInput);
-                                                    return JSON.stringify(parsedInput, null, 2);
-                                                } catch (jsonError: any) {
-                                                    // After streaming: Attempt simple repair; if still invalid, show raw
-                                                    let repaired = (extractLastBalancedJsonObject(rawInput) || rawInput).trim();
-                                                    if (!repaired.startsWith('{') && rawInput.trim().startsWith('{')) repaired = '{' + repaired;
-                                                    if (!repaired.endsWith('}') && rawInput.trim().endsWith('}')) repaired = repaired + '}';
-                                                    try {
-                                                        const repairedObj = JSON.parse(repaired);
-                                                        return JSON.stringify(repairedObj, null, 2);
-                                                    } catch {
-                                                        return rawInput;
-                                                    }
-                                                }
-                                            })()}
-                                        </pre>
-                                    </div>
-                                    
-                                    {/* Result section (if completed) */}
-                                    {hasToolResult && toolResult && (
-                                        <>
-                                            {/* Result header with collapse button */}
-                                            <div 
-                                                className="flex items-center gap-2 mb-2 mt-2 cursor-pointer hover:bg-white/[0.02] rounded-lg p-2 -m-2 transition-colors"
-                                                onMouseDown={(e) => e.preventDefault()}
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    e.preventDefault();
-                                                    onToggleResultCollapsed();
-                                                }}
-                                            >
-                                                <div className="w-5 h-5 rounded-full bg-gradient-to-r from-cyan-400 to-blue-500 flex items-center justify-center">
-                                                    <FileText className="h-2.5 w-2.5 text-white" />
-                                                </div>
-                                                <span className="text-xs font-semibold text-cyan-200">실행 결과</span>
-                                                <div className="flex-1 h-px bg-gradient-to-r from-cyan-400/20 to-transparent"></div>
-                                                <div className="w-5 h-5 rounded-md bg-white/[0.05] border border-white/[0.08] flex items-center justify-center hover:bg-white/[0.08] transition-colors">
-                                                    {resultCollapsed ? 
-                                                        <ChevronRight className="h-3 w-3 text-cyan-300" /> : 
-                                                        <ChevronDown className="h-3 w-3 text-cyan-300" />
-                                                    }
-                                                </div>
-                                            </div>
-                                            
-                                            {/* Collapsible result content */}
-                                            {!resultCollapsed && (
-                                                <div>
-                                                    <div className="bg-black/40 backdrop-blur-sm rounded-lg p-3 border border-cyan-400/15">
-                                                        <div className="text-cyan-100 whitespace-pre-wrap break-words text-xs leading-relaxed font-mono selection:bg-cyan-400/20 overflow-x-auto">
-                                                            {toolResult.result}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </>
-                                    )}
-                                </div>
-                            </div>
-                        )}
                     </div>
                 </div>
             </div>
@@ -750,11 +614,9 @@ export function AnalysisInterface({
             prev.toolItem.id === next.toolItem.id &&
             prev.toolItem.input === next.toolItem.input && // Compare input changes for streaming updates
             prev.effectiveInput === next.effectiveInput &&
-            prev.isCollapsed === next.isCollapsed &&
             prev.shouldAnimate === next.shouldAnimate &&
             prev.hasToolResult === next.hasToolResult &&
-            prev.toolResult?.id === next.toolResult?.id &&
-            prev.resultCollapsed === next.resultCollapsed
+            prev.toolResult?.id === next.toolResult?.id
         );
     });
 
@@ -776,7 +638,7 @@ export function AnalysisInterface({
                         duration: shouldAnimate ? 0.3 : 0,
                         ease: "easeOut"
                     }}
-                    className="prevent-scroll max-w-full w-full"
+                    className="prevent-scroll max-w-full w-full markdown-fix"
                 >
                     <MarkdownRenderer content={textContent} />
                 </motion.div>
@@ -786,8 +648,6 @@ export function AnalysisInterface({
         // Render tool use item
         if (item.type === "tool_use") {
             const toolItem = item as ToolUseContentItem;
-            const collapsed = getCollapsedForItem(toolItem);
-            const resultCollapsed = getResultCollapsedForItem(toolItem);
             const toolResult = findResultAfter(toolItem.timestamp);
             const hasToolResult = !!toolResult;
             const effIndex = typeof toolItem.index === 'number' ? toolItem.index : 0;
@@ -799,13 +659,10 @@ export function AnalysisInterface({
                     toolItem={toolItem}
                     messageId={messageId}
                     shouldAnimate={shouldAnimate}
-                    isCollapsed={collapsed}
-                    onToggleCollapsed={() => toggleCollapsedForItem(toolItem)}
                     hasToolResult={hasToolResult}
                     toolResult={toolResult}
-                    resultCollapsed={resultCollapsed}
-                    onToggleResultCollapsed={() => toggleResultCollapsedForItem(toolItem)}
                     effectiveInput={effectiveInput}
+                    onOpenPopup={() => openToolPopup(toolItem, toolResult, effectiveInput)}
                 />
             );
         }
@@ -958,6 +815,24 @@ export function AnalysisInterface({
             display: none !important;
         }
         
+        /* Markdown list rendering fixes */
+        .markdown-fix ul,
+        .markdown-fix ol {
+            list-style-position: inside;
+            padding-left: 1rem;
+            margin: 0.25rem 0;
+        }
+        .markdown-fix li {
+            margin: 0.125rem 0;
+        }
+        .markdown-fix li > p {
+            display: inline;
+            margin: 0;
+        }
+        .markdown-fix p {
+            margin: 0.5rem 0;
+        }
+
         /* Chat Interface Independent Scroll Styles */
         .chat-interface-container {
             contain: layout style paint;
@@ -1362,52 +1237,118 @@ export function AnalysisInterface({
                                     </div>
                                 )}
                                                {(() => {
-                                                   // Identify last tool_result to aggregate following text chunks
-                                                   let lastToolResultIndex = -1;
-                                                   for (let i = 0; i < message.contentItems.length; i++) {
-                                                       const it = message.contentItems[i] as any;
-                                                       if (it && it.type === 'tool_result') lastToolResultIndex = i;
+                                                   // Step 기반 렌더링 우선
+                                                   if (message.steps && message.steps.length > 0) {
+                                                       return (
+                                                           <div className="steps-container space-y-3">
+                                                               {message.steps
+                                                                   .sort((a, b) => a.step - b.step)
+                                                                   .map((step) => (
+                                                                       <div key={`step-${step.step}`} className="step-section">
+                                                                           {/* Step의 텍스트 렌더링 */}
+                                                                           {step.node === 'agent' && step.items.some((i: any) => i.type === 'text') && (
+                                                                               <div className="mb-2">
+                                                                                   {step.items
+                                                                                       .filter((item: any) => item.type === 'text')
+                                                                                       .map((item: any, textIndex: number) => (
+                                                                                           <div key={`${step.step}-text-${textIndex}`} className="step-text">
+                                                                                               <MarkdownRenderer 
+                                                                                                   content={(item as TextContentItem).content} 
+                                                                                               />
+                                                                                           </div>
+                                                                                       ))}
+                                                                               </div>
+                                                                           )}
+                                                                           
+                                                                           {/* Step의 도구 렌더링 */}
+                                                                           {step.node === 'tools' && (
+                                                                               <div className="tool-section space-y-2">
+                                                                                   {step.items.map((item: any) => {
+                                                                                       if (item.type === 'tool_use') {
+                                                                                           const toolItem = item as ToolUseContentItem;
+                                                                                           // Find tool result that matches this tool use
+                                                                                           const toolResult = step.items.find((i: any) => 
+                                                                                               i.type === 'tool_result' && 
+                                                                                               ((i as ToolResultContentItem).tool_use_id === toolItem.id || 
+                                                                                                (i as ToolResultContentItem).tool_use_id === toolItem.uniqueId ||
+                                                                                                // Fallback: first tool_result if no specific match
+                                                                                                !(i as ToolResultContentItem).tool_use_id)
+                                                                                           ) as ToolResultContentItem;
+                                                                                           
+                                                                                           // 도구는 기본적으로 닫혀있어야 함, 명시적으로 false인 경우만 열림
+                                                                                           const isCollapsed = toolItem.collapsed !== false;
+                                                                                           const effectiveInput = (() => {
+                                                                                               try {
+                                                                                                   const parsed = JSON.parse(toolItem.input || '{}');
+                                                                                                   return JSON.stringify(parsed, null, 2);
+                                                                                               } catch {
+                                                                                                   return toolItem.input || '';
+                                                                                               }
+                                                                                           })();
+                                                                                           
+                                                                                           return (
+                                                                                               <ToolUseItem
+                                                                                                   key={item.uniqueId || item.id}
+                                                                                                   toolItem={toolItem}
+                                                                                                   toolResult={toolResult}
+                                                                                                   messageId={message.id}
+                                                                                                   shouldAnimate={false}
+                                                                                                   hasToolResult={!!toolResult}
+                                                                                                   effectiveInput={effectiveInput}
+                                                                                                   onOpenPopup={() => openToolPopup(toolItem, toolResult, effectiveInput)}
+                                                                                               />
+                                                                                           );
+                                                                                       }
+                                                                                       return null;
+                                                                                   })}
+                                                                               </div>
+                                                                           )}
+                                                                       </div>
+                                                                   ))}
+                                                           </div>
+                                                       );
                                                    }
-
-                                                   const trailingText = message.contentItems
-                                                       .slice(lastToolResultIndex + 1)
-                                                       .filter(ci => (ci as any).type === 'text')
-                                                       .map(ci => (ci as any).content || '')
-                                                       .join('');
-
-                                                   // Compute last occurrence index for each tool_use id to avoid duplicate snapshots
-                                                   const lastToolUseIndexById: Record<string, number> = {};
-                                                   for (let i = 0; i < message.contentItems.length; i++) {
-                                                       const it = message.contentItems[i] as any;
-                                                       if (it && it.type === 'tool_use' && typeof it.id === 'string') {
-                                                           lastToolUseIndexById[it.id] = i;
+                                                   
+                                                   // 기존 contentItems 방식 (하위 호환성)
+                                                   const toolUseItems: ToolUseContentItem[] = [];
+                                                   const toolResultItems: ToolResultContentItem[] = [];
+                                                   const textItems: TextContentItem[] = [];
+                                                   
+                                                   for (const item of message.contentItems) {
+                                                       if (item.type === 'tool_use') {
+                                                           toolUseItems.push(item as ToolUseContentItem);
+                                                       } else if (item.type === 'tool_result') {
+                                                           toolResultItems.push(item as ToolResultContentItem);
+                                                       } else if (item.type === 'text') {
+                                                           textItems.push(item as TextContentItem);
                                                        }
                                                    }
+
+                                                   const uniqueToolUses = new Map<string, ToolUseContentItem>();
+                                                   toolUseItems.forEach(item => {
+                                                       uniqueToolUses.set(item.id, item);
+                                                   });
+
+                                                   const finalText = textItems
+                                                       .map(item => item.content)
+                                                       .join('');
  
                                                    return (
                                                        <>
-                                                           {message.contentItems.map((item, index) => {
-                                                               // Skip trailing text items; we will render them combined below
-                                                               if (lastToolResultIndex >= 0 && index > lastToolResultIndex && (item as any).type === 'text') {
-                                                                   return null;
-                                                               }
-                                                               // Special handling for tool_use item
-                                                               if (item.type === 'tool_use' && onToolApproval) {
-                                                                   const toolItem = item as ToolUseContentItem;
-                                                                    // Overwrite semantics: only render the last snapshot of this tool_use id
-                                                                    if (toolItem.id && lastToolUseIndexById[toolItem.id] !== index) {
-                                                                        return null;
-                                                                    }
+                                                           {/* Render tools first */}
+                                                           {Array.from(uniqueToolUses.values()).map((toolItem, index) => {
+                                                               // Special handling for tool_use items requiring approval
+                                                               if (onToolApproval) {
                                                                    return (
-                                                                       <div key={item.id} className="mt-2 mb-2">
+                                                                       <div key={toolItem.id} className="mt-2 mb-2">
                                                                            <div className="bg-blue-900/20 rounded-md p-3 text-xs border border-blue-700/50 shadow-lg">
-                                                                               <div className="font-medium text-blue-300 mb-1 flex justify_between items-center">
+                                                                               <div className="font-medium text-blue-300 mb-1 flex justify-between items-center">
                                                                                    <div className="flex items-center gap-2">
                                                                                        <Wrench className="h-4 w-4" />
                                                                                        <span>Tool use: {toolItem.name}</span>
                                                                                    </div>
                                                                                </div>
-                                                                               {/* Approval button */}
+                                                                               {/* Approval UI */}
                                                                                {toolItem.requiresApproval && !toolItem.approved && (
                                                                                    <div className="mt-3 pt-3 border-t border-blue-700/30">
                                                                                        <div className="flex items-center justify-between">
@@ -1424,7 +1365,7 @@ export function AnalysisInterface({
                                                                                                    승인
                                                                                                </button>
                                                                                                <button 
-                                                                                                   className="bg-gray-600/20 hover:bg-gray-600/30 border border-gray-500/50 text-gray-300 hover:text-gray-200 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 flex items_center gap-1"
+                                                                                                   className="bg-gray-600/20 hover:bg-gray-600/30 border border-gray-500/50 text-gray-300 hover:text-gray-200 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 flex items-center gap-1"
                                                                                                    onClick={() => onToolApproval(toolItem, false)}
                                                                                                >
                                                                                                    <span className="text-red-400">✗</span>
@@ -1434,66 +1375,25 @@ export function AnalysisInterface({
                                                                                        </div>
                                                                                    </div>
                                                                                )}
-                                                                               {/* Tool parameters (only if not empty) */}
-                                                                               {(() => {
-                                                                                   const rawInput = toolItem.input || '';
-                                                                                   if (!rawInput.trim() || rawInput === '{}') {
-                                                                                       return null;
-                                                                                   }
-                                                                                   try {
-                                                                                       const parsedInput = JSON.parse(rawInput);
-                                                                                       const hasParams = Object.keys(parsedInput).length > 0;
-                                                                                       if (hasParams) {
-                                                                                           return (
-                                                                                               <div className="mt-2 p-2 bg-gray-900/50 rounded border border-gray-800">
-                                                                                                   <div className="text-xs text-blue-400 mb-1">Parameters:</div>
-                                                                                                   <pre className="text-xs text_green-400 whitespace-pre-wrap break-all">
-                                                                                                       {JSON.stringify(parsedInput, null, 2)}
-                                                                                                   </pre>
-                                                                                               </div>
-                                                                                           );
-                                                                                       }
-                                                                                       return null;
-                                                                                   } catch (jsonError) {
-                                                                                       const isStreaming = rawInput.includes('}{') || rawInput.endsWith('{') || (!rawInput.endsWith('}') && rawInput.startsWith('{'));
-                                                                                       if (isStreaming) {
-                                                                                           return (
-                                                                                               <div className="mt-2 p-2 bg-gray-900/50 rounded border border-gray-800">
-                                                                                                   <div className="text-xs text-blue-400 mb-1 flex items-center gap-2">
-                                                                                                       Parameters:
-                                                                                                       <div className="w-3 h-3 border border-blue-400 border-t-transparent rounded-full animate-spin"></div>
-                                                                                                   </div>
-                                                                                                   <div className="text-xs text-amber-400 italic">로딩 중...</div>
-                                                                                               </div>
-                                                                                           );
-                                                                                       } else {
-                                                                                           return (
-                                                                                               <div className="mt-2 p-2 bg-gray-900/50 rounded border border-gray-800">
-                                                                                                   <div className="text-xs text-blue-400 mb-1">Parameters:</div>
-                                                                                                   <pre className="text-xs text-green-400 whitespace-pre-wrap break-words overflow-x-auto">
-                                                                                                       {rawInput}
-                                                                                                   </pre>
-                                                                                               </div>
-                                                                                           );
-                                                                                       }
-                                                                                   }
-                                                                               })()}
                                                                            </div>
                                                                        </div>
                                                                    );
+                                                               } else {
+                                                                   // Use default tool rendering
+                                                                   return (
+                                                                       <div key={toolItem.id}>
+                                                                           {renderContentItem ? 
+                                                                               renderContentItem(toolItem, index, !!message.isStreaming, message.id) :
+                                                                               defaultRenderContentItem(toolItem, index, !!message.isStreaming, message.id)}
+                                                                       </div>
+                                                                   );
                                                                }
-                                                               // General content item handling
-                                                               return (
-                                                                   <div key={item.id || `${message.id}-content-${index}`}>
-                                                                       {renderContentItem ? 
-                                                                           renderContentItem(item, index, !!message.isStreaming, message.id) :
-                                                                           defaultRenderContentItem(item, index, !!message.isStreaming, message.id)}
-                                                                   </div>
-                                                               );
                                                            })}
-                                                           {lastToolResultIndex >= 0 && trailingText && (
-                                                               <div className="mt-1">
-                                                                   <MarkdownRenderer content={trailingText} />
+                                                           
+                                                           {/* Render final AI text response */}
+                                                           {finalText && (
+                                                               <div className="mt-2">
+                                                                   <MarkdownRenderer content={finalText} />
                                                                </div>
                                                            )}
                                                        </>
@@ -1538,6 +1438,7 @@ export function AnalysisInterface({
                     attachedContent && attachedContent.length > 0 ? "h-36" : "h-24"
                 )}>
                     <div className="max-w-3xl mx-auto w-full">
+                        {/* Attachment previews hidden in chat input to avoid layout shift */}
                         {/* Attached content chips */}
                         {attachedContent && attachedContent.length > 0 && (
                             <div className="mb-2 flex flex-wrap gap-2">
@@ -1599,7 +1500,7 @@ export function AnalysisInterface({
                                 )}
                             </AnimatePresence>
 
-                            <div className="relative p-4 flex items-center">
+                            <div className="relative p-4 flex items-center flex-nowrap gap-2">
                                 <div className="flex-shrink-0 mr-3">
                                     <div className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-500/20 to-purple-500/20 flex items-center justify-center">
                                         <Sparkles className="w-5 h-5 text-cyan-400 animate-pulse" />
@@ -1610,16 +1511,123 @@ export function AnalysisInterface({
                                     <button 
                                         type="button"
                                         onClick={() => setShowResetConfirm(true)}
-                                        className="mr-3 p-2 rounded-full hover:bg-white/5 transition-all group"
+                                        className="p-2 rounded-full hover:bg-white/5 transition-all group"
                                         title="Reset Chat"
                                     >
                                         <RotateCcw className="w-5 h-5 text-orange-400 group-hover:text-orange-300 transition-colors" />
                                     </button>
                                 )}
+                                {/* Attach Image Button */}
+                                <button
+                                    type="button"
+                                    onClick={onAttachButtonClick}
+                                    className="p-2 rounded-full hover:bg-white/5 transition-all group"
+                                    title="Attach image"
+                                    aria-label="Attach image"
+                                >
+                                    <ImageIcon className="w-5 h-5 text-cyan-300 group-hover:text-cyan-200 transition-colors" />
+                                </button>
+                                {/* Inline attachment strip (no height change) */}
+                                {attachments && attachments.length > 0 && (
+                                    <div className="mr-2 flex items-center gap-1 overflow-x-auto max-w-[30%] hide-scrollbar flex-shrink-0">
+                                        {attachments.map(att => (
+                                            <div key={att.id} className="relative">
+                                                {att.type?.startsWith('image/') && att.previewUrl ? (
+                                                    <Image
+                                                        src={att.previewUrl}
+                                                        alt={att.file.name}
+                                                        width={24}
+                                                        height={24}
+                                                        unoptimized
+                                                        className="w-6 h-6 rounded object-cover border border-white/20"
+                                                    />
+                                                ) : (
+                                                    <div className="w-6 h-6 rounded bg-white/10 border border-white/20 flex items-center justify-center">
+                                                        <FileIcon className="w-3.5 h-3.5 text-white/60" />
+                                                    </div>
+                                                )}
+                                                <button
+                                                    className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-black/70 border border-white/20 flex items-center justify-center hover:bg-black/90"
+                                                    onClick={() => onRemoveAttachment(att.id)}
+                                                    aria-label="Remove attachment"
+                                                >
+                                                    <X className="w-3 h-3 text-white/80" />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                                 <input
                                     type="text"
                                     value={input}
-                                    onChange={(e) => setInput(e.target.value)}
+                                    onChange={(e) => {
+                                        const value = e.target.value;
+                                        // Ensure we only set string values
+                                        if (typeof value === 'string') {
+                                            setInput(value);
+                                        }
+                                    }}
+                                    onPaste={(e) => {
+                                        // Prevent default and handle clipboard data safely
+                                        e.preventDefault();
+                                        
+                                        let pastedText = '';
+                                        
+                                        // Try multiple clipboard data types for Excel compatibility
+                                        const clipboardData = e.clipboardData;
+                                        const dataTypes = ['text/plain', 'text/html', 'text/csv', 'text'];
+                                        
+                                        for (const type of dataTypes) {
+                                            try {
+                                                const data = clipboardData.getData(type);
+                                                if (data && typeof data === 'string' && data.trim()) {
+                                                    pastedText = data;
+                                                    break;
+                                                }
+                                            } catch (error) {
+                                                console.log(`Failed to get clipboard data for type ${type}:`, error);
+                                                continue;
+                                            }
+                                        }
+                                        
+                                        // If HTML content, try to extract text content
+                                        if (pastedText.includes('<') && pastedText.includes('>')) {
+                                            try {
+                                                const tempDiv = document.createElement('div');
+                                                tempDiv.innerHTML = pastedText;
+                                                const extractedText = tempDiv.textContent || tempDiv.innerText || '';
+                                                if (extractedText && typeof extractedText === 'string') {
+                                                    pastedText = extractedText;
+                                                }
+                                            } catch (error) {
+                                                console.log('Failed to extract text from HTML:', error);
+                                            }
+                                        }
+                                        
+                                        // Final validation and insertion
+                                        if (pastedText && typeof pastedText === 'string') {
+                                            // Clean up the text (remove extra whitespace, normalize line breaks)
+                                            const cleanedText = pastedText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+                                            
+                                            if (cleanedText) {
+                                                const input = e.currentTarget;
+                                                const start = input.selectionStart || 0;
+                                                const end = input.selectionEnd || 0;
+                                                const currentValue = input.value || '';
+                                                const newValue = currentValue.slice(0, start) + cleanedText + currentValue.slice(end);
+                                                
+                                                // Double-check the result is a string
+                                                if (typeof newValue === 'string') {
+                                                    setInput(newValue);
+                                                    // Set cursor position after pasted text
+                                                    requestAnimationFrame(() => {
+                                                        const newCursorPos = start + cleanedText.length;
+                                                        input.setSelectionRange(newCursorPos, newCursorPos);
+                                                    });
+                                                }
+                                            }
+                                        }
+                                    }}
                                     onKeyDown={(e) => {
                                         if (e.key === 'Enter' && !e.shiftKey && !isComposing) {
                                             e.preventDefault();
@@ -1628,22 +1636,25 @@ export function AnalysisInterface({
                                             } else {
                                                 // During streaming, Enter creates a new line
                                                 const input = e.currentTarget;
-                                                const currentValue = input.value;
+                                                const currentValue = input.value || '';
                                                 const cursorPos = input.selectionStart || 0;
                                                 const newValue = currentValue.slice(0, cursorPos) + '\n' + currentValue.slice(cursorPos);
-                                                setInput(newValue);
-                                                // Maintain focus and set cursor position after newline
-                                                requestAnimationFrame(() => {
-                                                    input.focus();
-                                                    input.setSelectionRange(cursorPos + 1, cursorPos + 1);
-                                                });
+                                                // Ensure we're setting a string value
+                                                if (typeof newValue === 'string') {
+                                                    setInput(newValue);
+                                                    // Maintain focus and set cursor position after newline
+                                                    requestAnimationFrame(() => {
+                                                        input.focus();
+                                                        input.setSelectionRange(cursorPos + 1, cursorPos + 1);
+                                                    });
+                                                }
                                             }
                                         }
                                     }}
                                     onCompositionStart={() => setIsComposing(true)}
                                     onCompositionEnd={() => setIsComposing(false)}
                                     placeholder="What would you like to analyze?"
-                                    className="bg-transparent flex-1 outline-none text-white placeholder:text-white/50 text-lg font-medium"
+                                    className="bg-transparent flex-1 min-w-0 outline-none text-white placeholder:text-white/50 text-lg font-medium"
                                     ref={externalTextareaRef as unknown as React.RefObject<HTMLInputElement>}
                                 />
                                 {/* Send button */}
@@ -1767,6 +1778,17 @@ export function AnalysisInterface({
                 cancelText="Cancel"
                 variant="destructive"
             />
+
+            {/* Tool Detail Popup */}
+            {selectedTool && (
+                <ToolDetailPopup
+                    isOpen={true}
+                    onClose={() => setSelectedTool(null)}
+                    toolItem={selectedTool.toolItem}
+                    toolResult={selectedTool.toolResult}
+                    effectiveInput={selectedTool.effectiveInput}
+                />
+            )}
         </>
     );
 }

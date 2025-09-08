@@ -3,7 +3,7 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import Image from "next/image";
 import ReactDOM from "react-dom";
-import { BarChart3, FileText, Loader2, X, Search, Hash, MessageCircle, Users, SendIcon, Sparkles, RotateCcw } from "lucide-react";
+import { BarChart3, FileText, Loader2, X, Search, Hash, MessageCircle, Users, SendIcon, Sparkles, RotateCcw, Image as ImageIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useDocuments } from "@/hooks/use-documents";
@@ -61,6 +61,29 @@ interface AnalysisTabProps {
 export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persistentState, onStateUpdate }: AnalysisTabProps) {
   // Alert hook for status warnings
   const { showWarning, AlertComponent } = useAlert();
+  
+  // Step 관리 헬퍼 함수들
+  const getOrCreateStep = (messages: Message[], messageId: string, stepNumber: number, node: string) => {
+    const message = messages.find(m => m.id === messageId);
+    if (!message) return null;
+    
+    if (!message.steps) {
+      message.steps = [];
+    }
+    
+    let step = message.steps.find(s => s.step === stepNumber);
+    if (!step) {
+      step = {
+        step: stepNumber,
+        node: node,
+        items: [],
+        isComplete: false
+      };
+      message.steps.push(step);
+    }
+    
+    return step;
+  };
   
   // Debug indexId
   useEffect(() => {
@@ -499,49 +522,68 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
   // File upload handling
   const handleFileUpload = async (files: FileList) => {
     if (!files || files.length === 0) return;
-    
-    const newAttachments: FileAttachment[] = [];
-    
+
+    const nonImageAttachments: FileAttachment[] = [];
+    const imagePromises: Promise<FileAttachment>[] = [];
+
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const fileId = uuidv4();
-      
+
       if (file.type.startsWith('image/')) {
-        const reader = new FileReader();
-        
-        reader.onload = () => {
-          const result = reader.result as string;
-          
-          const attachment: FileAttachment = {
-            id: uuidv4(),
-            file: file,
-            type: file.type,
-            previewUrl: result,
-            fileId: fileId
-          };
-          
-          onStateUpdate?.({ attachments: [...attachments, attachment] });
-        };
-        
-        reader.onerror = (error) => {
-          console.error("FileReader error:", error);
-        };
-        
-        reader.readAsDataURL(file);
+        imagePromises.push(new Promise((resolve, reject) => {
+          try {
+            const reader = new FileReader();
+            reader.onload = () => {
+              try {
+                const result = reader.result as string;
+                resolve({
+                  id: uuidv4(),
+                  file,
+                  type: file.type,
+                  previewUrl: result,
+                  fileId
+                });
+              } catch (e) {
+                reject(e);
+              }
+            };
+            reader.onerror = (error) => reject(error);
+            reader.readAsDataURL(file);
+          } catch (e) {
+            reject(e);
+          }
+        }));
       } else {
-        const attachment: FileAttachment = {
+        nonImageAttachments.push({
           id: uuidv4(),
           file,
           type: file.type || getFileTypeFromExtension(file.name),
-          fileId: fileId
-        };
-
-        newAttachments.push(attachment);
+          fileId
+        });
       }
     }
-    
-    if (newAttachments.length > 0) {
-      onStateUpdate?.({ attachments: [...attachments, ...newAttachments] });
+
+    try {
+      const imageAttachments = await Promise.all(imagePromises);
+      const finalAttachments = [...attachments, ...nonImageAttachments, ...imageAttachments];
+      onStateUpdate?.({ attachments: finalAttachments });
+    } catch (e) {
+      console.error('Failed to read one or more images:', e);
+      // Even if some images fail, attach what we have
+      try {
+        const settled = await Promise.allSettled(imagePromises);
+        const okImages = settled
+          .filter((s): s is PromiseFulfilledResult<FileAttachment> => s.status === 'fulfilled')
+          .map(s => s.value);
+        const finalAttachments = [...attachments, ...nonImageAttachments, ...okImages];
+        onStateUpdate?.({ attachments: finalAttachments });
+      } catch {}
+    }
+
+    // reset input value so selecting the same files again works
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   };
 
@@ -586,7 +628,7 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
     
     if (!inputText.trim() && attachedContent.length === 0 && attachments.length === 0) return;
 
-    const attachmentStrings = attachedContent.map(item => {
+    const attachmentStrings = attachedContent.map((item: any) => {
       if (item.type === 'document') {
         return `[Document: ${item.file_name}, document_id: ${item.document_id}]`;
       }
@@ -717,6 +759,7 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
                       sender: "ai",
                       content: "",
                       contentItems: [],
+                      steps: [],  // Step 기반 구조 추가
                       references: [],
                       timestamp: Date.now(),
                       isStreaming: true
@@ -725,54 +768,82 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
                     setLocalMessages(prev => [...prev, newMessage]);
                   }
                   
-                  // Process each chunk
-                  for (const chunk of data.chunk) {
-                    if (chunk.type === 'text' && chunk.text && currentMessageId) {
-                      accumulatedText += chunk.text;
-                      
-                      const updatedContentItems = [...currentContentItems];
-                      const textItemIndex = updatedContentItems.findIndex(item => item.id === mainTextItemId);
-                      
-                      if (textItemIndex >= 0) {
-                        updatedContentItems[textItemIndex] = {
-                          ...updatedContentItems[textItemIndex],
-                          content: accumulatedText
-                        };
-                      } else {
-                        updatedContentItems.push({
-                          id: mainTextItemId,
-                          type: "text",
-                          content: accumulatedText,
-                          timestamp: Date.now()
-                        });
-                      }
-                      
+                  // Step 기반 처리를 위한 메타데이터 추출
+                  const strandsStep = data.metadata?.strands_step || 0;
+                  const strandsNode = data.metadata?.strands_node || 'agent';
+                  const stepType = data.metadata?.type;
+                  
+                  // console.log(`📊 Step metadata: step=${strandsStep}, node=${strandsNode}, type=${stepType}`);
+                  // console.log(`📊 Chunk array length: ${data.chunk.length}`, data.chunk.map(c => `${c.type}:${c.text?.length || 'no-text'}`));
+                  
+                  // Process each chunk with Step support
+                  for (let chunkIndex = 0; chunkIndex < data.chunk.length; chunkIndex++) {
+                    const chunk = data.chunk[chunkIndex];
+                    // console.log(`🔄 Processing chunk ${chunkIndex}/${data.chunk.length - 1}:`, chunk.type, chunk.text?.length);
+                    // Step 기반 텍스트 처리
+                    if (chunk.type === 'text' && chunk.text && currentMessageId && stepType === 'ai_response') {
                       setLocalMessages(prev => {
-                        const updated = prev.map(msg => 
-                          msg.id === currentMessageId 
-                            ? { 
-                                ...msg, 
-                                content: accumulatedText,
-                                contentItems: updatedContentItems
-                              }
-                            : msg
-                        );
-                        console.log('📝 Updating message with text:', accumulatedText.slice(0, 50) + '...');
-                        return updated;
+                        const messages = [...prev];
+                        const message = messages.find(m => m.id === currentMessageId);
+                        if (!message) return prev;
+                        
+                        // Step 가져오기 또는 생성
+                        if (!message.steps) message.steps = [];
+                        let step = message.steps.find(s => s.step === strandsStep);
+                        if (!step) {
+                          step = {
+                            step: strandsStep,
+                            node: strandsNode,
+                            items: [],
+                            isComplete: false
+                          };
+                          message.steps.push(step);
+                          // console.log(`🆕 Created new step ${strandsStep} with node ${strandsNode}`);
+                        }
+                        
+                        // Step 내의 텍스트 아이템 찾기 또는 생성
+                        let textItem = step.items.find((item: any) => item.type === 'text');
+                        if (!textItem) {
+                          textItem = {
+                            id: uuidv4(),
+                            uniqueId: `${currentMessageId}-${strandsStep}-text-0`,
+                            type: 'text',
+                            content: '',
+                            timestamp: Date.now()
+                          };
+                          step.items.push(textItem);
+                          // console.log(`📄 Created new text item for step ${strandsStep}`);
+                        }
+                        
+                        // 중복 텍스트 추가 방지 - 이미 끝에 같은 텍스트가 있으면 스킵
+                        const alreadyAdded = textItem.content.endsWith(chunk.text);
+                        if (alreadyAdded) {
+                          // console.log(`⚠️ Duplicate chunk detected, skipping: "${chunk.text}"`);
+                          return prev;
+                        }
+                        
+                        // 텍스트 누적
+                        textItem.content += chunk.text;
+                        
+                        // Step-based 렌더링을 사용하므로 message.content는 사용하지 않음
+                        // 각 Step의 텍스트는 해당 Step 내에서만 관리됨
+                        message.content = ""; // Step-based rendering 사용
+                        
+                        // console.log(`📝 Step ${strandsStep} text update (length: ${chunk.text.length}):`, chunk.text.substring(0, 50) + (chunk.text.length > 50 ? '...' : ''));
+                        // console.log(`📝 Current step text total length: ${textItem.content.length}`);
+                        return messages;
                       });
-                      
-                      currentContentItems = updatedContentItems;
                     }
                     
-                    // Handle tool_use within chunks
-                    else if (chunk.type === 'tool_use' && currentMessageId) {
-                      // Only process if we have a name (first chunk) or if we're updating input
+                    // Step 기반 도구 사용 처리
+                    else if (chunk.type === 'tool_use' && currentMessageId && stepType === 'tool_use') {
                       if (!chunk.name && !chunk.input) {
                         continue; // Skip empty chunks
                       }
 
-                      const toolUseKey = `tool_${chunk.index || 0}`;
-                      let toolUseId = chunk.id;
+                      // Step과 index를 조합하여 고유한 key 생성
+                      const toolUseKey = `tool_step${strandsStep}_${chunk.index || 0}`;
+                      let toolUseId = chunk.id || `${currentMessageId}_step${strandsStep}_tool${chunk.index || 0}_${Date.now()}`;
                       
                       // Find existing tool by ID or name/index
                       const existingTool = currentContentItems.find(item => 
@@ -816,38 +887,85 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
                           timestamp: Date.now()
                         };
                         
-                        console.log('🔧 Processing tool_use chunk:', {
-                          toolUseKey,
-                          chunkInput: chunk.input,
-                          accumulatedInput: accumulatedToolInputs.get(toolUseKey),
-                          finalInput: finalInput,
-                          inputLength: finalInput.length
-                        });
+                        // console.log('🔧 Processing tool_use chunk:', toolUseKey);
                         
-                        // Compute next contentItems from the latest local snapshot, then set state once
-                        const nextContentItems = [...currentContentItems];
-                        const existingIndexLocal = nextContentItems.findIndex(item => item.id === toolUseId || item.tempKey === toolUseKey);
-                        if (existingIndexLocal >= 0) {
-                          nextContentItems[existingIndexLocal] = toolUse;
-                        } else {
-                          nextContentItems.push(toolUse);
-                        }
+                        // Update Steps structure
+                        setLocalMessages(messages => {
+                          return messages.map(msg => {
+                            if (msg.id !== currentMessageId) return msg;
 
-                        setLocalMessages(prev => prev.map(msg => (
-                          msg.id === currentMessageId
-                            ? { ...msg, contentItems: nextContentItems }
-                            : msg
-                        )));
+                            // Step 가져오기 또는 생성
+                            if (!msg.steps) msg.steps = [];
+                            let step = msg.steps.find(s => s.step === strandsStep);
+                            if (!step) {
+                              step = {
+                                step: strandsStep,
+                                node: strandsNode,
+                                items: [],
+                                isComplete: false
+                              };
+                              msg.steps.push(step);
+                            }
+
+                            // Add uniqueId for React stability
+                            const toolUseWithUniqueId = {
+                              ...toolUse,
+                              uniqueId: `${currentMessageId}-${strandsStep}-tool-${toolUseKey}`
+                            };
+
+                            // Update step items (preserve collapsed state only)
+                            const existingStepIndex = step.items.findIndex((item: any) => item.id === toolUseId || item.tempKey === toolUseKey);
+                            if (existingStepIndex >= 0) {
+                              const existingItem = step.items[existingStepIndex] as any;
+                              step.items[existingStepIndex] = {
+                                ...toolUseWithUniqueId,
+                                // Preserve collapsed state (use existing value or default to true)
+                                collapsed: existingItem.hasOwnProperty('collapsed') ? existingItem.collapsed : true
+                              };
+                            } else {
+                              step.items.push({
+                                ...toolUseWithUniqueId,
+                                collapsed: true // Default to collapsed for new items
+                              });
+                            }
+
+                            // Also update contentItems for backward compatibility (preserve collapsed state only)
+                            const nextContentItems = [...msg.contentItems];
+                            const existingIndexLocal = nextContentItems.findIndex((item: any) => item.id === toolUseId || item.tempKey === toolUseKey);
+                            if (existingIndexLocal >= 0) {
+                              const existingItem = nextContentItems[existingIndexLocal] as any;
+                              nextContentItems[existingIndexLocal] = {
+                                ...toolUseWithUniqueId,
+                                // Preserve collapsed state (use existing value or default to true)
+                                collapsed: existingItem.hasOwnProperty('collapsed') ? existingItem.collapsed : true
+                              };
+                            } else {
+                              nextContentItems.push({
+                                ...toolUseWithUniqueId,
+                                collapsed: true // Default to collapsed for new items
+                              });
+                            }
+
+                            // console.log(`🔧 Step ${strandsStep} tool added:`, chunk.name);
+                            return { ...msg, contentItems: nextContentItems };
+                          });
+                        });
 
                         // Sync local working array for subsequent chunk processing
-                        currentContentItems = nextContentItems;
+                        currentContentItems = [...currentContentItems];
+                        const existingIndexLocal = currentContentItems.findIndex((item: any) => item.id === toolUseId || item.tempKey === toolUseKey);
+                        if (existingIndexLocal >= 0) {
+                          currentContentItems[existingIndexLocal] = toolUse;
+                        } else {
+                          currentContentItems.push(toolUse);
+                        }
                       }
                     }
                     
                     // Handle tool_result within chunks  
                     else if (chunk.type === 'tool_result' && currentMessageId) {
                       // Find or create tool_result (avoid duplicates)
-                      const resultKey = `result_${chunk.index || 0}_${chunk.tool_use_id || 'default'}`;
+                      const resultKey = `result_step${strandsStep}_${chunk.index || 0}_${chunk.tool_use_id || 'default'}`;
                       const existingResult = currentContentItems.find(item => 
                         item.type === 'tool_result' && (
                           item.tool_use_id === chunk.tool_use_id ||
@@ -855,7 +973,7 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
                         )
                       );
                       
-                      const toolResultId = existingResult?.id || uuidv4();
+                      const toolResultId = existingResult?.id || `${currentMessageId}_step${strandsStep}_result${chunk.index || 0}_${Date.now()}`;
                       const toolResult = {
                         id: toolResultId,
                         type: "tool_result" as const,
@@ -865,8 +983,76 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
                         timestamp: Date.now()
                       };
                       
-                      console.log('📋 Processing tool_result chunk:', toolResult);
+                      // console.log('📋 Processing tool_result chunk:', toolResult);
                       
+                      // Update Steps structure
+                      setLocalMessages(messages => {
+                        return messages.map(msg => {
+                          if (msg.id !== currentMessageId) return msg;
+
+                          // Step 가져오기 또는 생성
+                          if (!msg.steps) msg.steps = [];
+                          let step = msg.steps.find(s => s.step === strandsStep);
+                          if (!step) {
+                            step = {
+                              step: strandsStep,
+                              node: strandsNode,
+                              items: [],
+                              isComplete: false
+                            };
+                            msg.steps.push(step);
+                          }
+
+                          // Add uniqueId for React stability
+                          const toolResultWithUniqueId = {
+                            ...toolResult,
+                            uniqueId: `${currentMessageId}-${strandsStep}-result-${resultKey}`
+                          };
+
+                          // Update step items (preserve collapsed state and append streaming content)
+                          const existingStepIndex = step.items.findIndex((item: any) => item.id === toolResultId);
+                          if (existingStepIndex >= 0) {
+                            const existingItem = step.items[existingStepIndex] as any;
+                            step.items[existingStepIndex] = {
+                              ...toolResultWithUniqueId,
+                              // Preserve collapsed state (use existing value or default to true)
+                              collapsed: existingItem.hasOwnProperty('collapsed') ? existingItem.collapsed : true,
+                              // Append streaming content
+                              result: ((existingItem as any).result || '') + ((toolResultWithUniqueId as any).result || '')
+                            };
+                          } else {
+                            step.items.push({
+                              ...toolResultWithUniqueId,
+                              collapsed: true // Default to collapsed for new items
+                            });
+                          }
+
+                          // Also update contentItems for backward compatibility (preserve collapsed state)
+                          const updatedContentItems = [...msg.contentItems];
+                          const existingIndex = updatedContentItems.findIndex(item => item.id === toolResultId);
+                          
+                          if (existingIndex >= 0) {
+                            const existingItem = updatedContentItems[existingIndex] as any;
+                            updatedContentItems[existingIndex] = {
+                              ...toolResultWithUniqueId,
+                              // Preserve collapsed state (use existing value or default to true)
+                              collapsed: existingItem.hasOwnProperty('collapsed') ? existingItem.collapsed : true,
+                              // Append streaming content
+                              result: ((existingItem as any).result || '') + ((toolResultWithUniqueId as any).result || '')
+                            };
+                          } else {
+                            updatedContentItems.push({
+                              ...toolResultWithUniqueId,
+                              collapsed: true // Default to collapsed for new items
+                            });
+                          }
+
+                          // console.log(`📋 Step ${strandsStep} tool result added`);
+                          return { ...msg, contentItems: updatedContentItems };
+                        });
+                      });
+                      
+                      // Update local working array
                       const updatedContentItems = [...currentContentItems];
                       const existingIndex = updatedContentItems.findIndex(item => item.id === toolResultId);
                       
@@ -875,12 +1061,6 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
                       } else {
                         updatedContentItems.push(toolResult);
                       }
-                      
-                      setLocalMessages(prev => prev.map(msg => 
-                        msg.id === currentMessageId 
-                          ? { ...msg, contentItems: updatedContentItems }
-                          : msg
-                      ));
                       
                       currentContentItems = updatedContentItems;
                     }
@@ -1012,26 +1192,7 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
     onStateUpdate?.({ attachedContent: attachedContent.filter(content => content.id !== id) });
   };
 
-  // Toggle function for tool collapse/expand
-  const toggleToolCollapse = (messageId: string, itemId: string) => {
-    setLocalMessages(prev => prev.map(message => {
-      if (message.id === messageId) {
-        return {
-          ...message,
-          contentItems: message.contentItems.map(item => {
-            if (item.id === itemId && (item.type === 'tool_use' || item.type === 'tool_result')) {
-              return {
-                ...item,
-                collapsed: !item.collapsed
-              };
-            }
-            return item;
-          })
-        };
-      }
-      return message;
-    }));
-  };
+  // Note: Tool collapse/expand functionality has been replaced with popup modal
 
   return (
     <div className="h-full flex flex-col bg-black text-white relative">
@@ -1122,15 +1283,57 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
                         "Analyze the main data in the document",
                         "Provide important insights from this document"
                       ]}
+                      onAttachClick={handleAttachButtonClick}
                       onExampleClick={(example) => {
                         handleSetInput(example);
-                        // Auto-send the message
-                        setTimeout(() => {
-                          handleSendMessage();
-                        }, 100);
+                        handleSendMessage(example);
                       }}
                     />
+
+                    {/* Fixed-height attachment preview strip (hero area, no vertical shift) */}
+                    <div className="h-10 px-4 flex items-center gap-2">
+                      <div className="flex items-center gap-2 w-full overflow-x-auto hide-scrollbar rounded-xl bg-white/5/50 border border-white/10 backdrop-blur-md shadow-sm px-3 py-1">
+                        {attachments && attachments.length > 0 && (
+                          <div className="flex items-center gap-2 text-[10px] text-white/70">
+                            <div className="px-2 py-0.5 rounded-full bg-white/10 border border-white/15">
+                              {attachments.length} files
+                            </div>
+                            <div className="w-px h-4 bg-white/10" />
+                          </div>
+                        )}
+                        {attachments && attachments.length > 0 && attachments.map((att) => (
+                          <div key={att.id} className="relative group">
+                            <div className="absolute inset-0 rounded-md bg-gradient-to-br from-cyan-400/10 to-purple-500/10 opacity-0 group-hover:opacity-100 transition-opacity" />
+                            {att.type?.startsWith('image/') && att.previewUrl ? (
+                              <Image
+                                src={att.previewUrl}
+                                alt={att.file.name}
+                                width={28}
+                                height={28}
+                                unoptimized
+                                className="w-7 h-7 rounded object-cover border border-white/20 transform transition-transform duration-200 group-hover:scale-105"
+                                title={att.file.name}
+                              />
+                            ) : (
+                              <div className="w-7 h-7 rounded bg-white/10 border border-white/20 flex items-center justify-center transform transition-transform duration-200 group-hover:scale-105" title={att.file.name}>
+                                <FileText className="w-4 h-4 text-white/60" />
+                              </div>
+                            )}
+                            <button
+                              className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-black/70 border border-white/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/90"
+                              onClick={() => removeAttachment(att.id)}
+                              aria-label="Remove attachment"
+                            >
+                              <X className="w-3 h-3 text-white/80" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                     
+                    {/* Attached file previews (hero view) */}
+                    {/* Hide attachment preview in hero to prevent layout shift */}
+
                     {/* Search Bar - Enhanced Style */}
                     <motion.div 
                       className="relative mt-8"
@@ -1140,12 +1343,24 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
                     >
                       <div className="relative bg-gradient-to-r from-gray-900/90 to-gray-800/90 border border-white/20 rounded-full backdrop-blur-xl shadow-2xl">
                         <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/10 via-purple-500/10 to-pink-500/10 rounded-full animate-pulse" />
-                        <div className="relative p-4 flex items-center">
+                        <div className="relative p-4 flex items-center flex-nowrap gap-2">
                           <div className="flex-shrink-0 mr-3">
                             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-500/20 to-purple-500/20 flex items-center justify-center">
                               <Sparkles className="w-5 h-5 text-cyan-400 animate-pulse" />
                             </div>
                           </div>
+                          {/* Attach image button inside hero search bar */
+                          /* Keep button but avoid any extra layout blocks above */}
+                          <button
+                            onClick={handleAttachButtonClick}
+                            className="mr-2 p-3 rounded-full bg-white/10 hover:bg-white/20 transition-all"
+                            title="Attach image"
+                            aria-label="Attach image"
+                          >
+                            <ImageIcon className="w-5 h-5 text-white" />
+                          </button>
+
+                          {/* keep inputs from wrapping: */}
                           <input
                             type="text"
                             value={input}
@@ -1158,7 +1373,7 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
                             }}
                             placeholder="Ask me anything about the document..."
                             disabled={isStreaming}
-                            className="bg-transparent flex-1 outline-none text-white placeholder:text-white/50 text-lg font-medium"
+                            className="bg-transparent flex-1 min-w-0 outline-none text-white placeholder:text-white/50 text-lg font-medium"
                           />
                           <button
                             onClick={() => handleSendMessage()}
@@ -1168,6 +1383,7 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
                             <SendIcon className="w-5 h-5 text-white" />
                           </button>
                         </div>
+                        {/* Attachment strip removed in hero to prevent any vertical shift */}
                       </div>
                     </motion.div>
                     
@@ -1212,13 +1428,6 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
                   messages={(() => {
                     // Use localMessages during streaming, persistent messages otherwise
                     const displayMessages = isStreaming ? localMessages : (localMessages.length > messages.length ? localMessages : messages);
-                    // console.log('💬 Messages passed to AnalysisInterface:', {
-                    //   isStreaming,
-                    //   localMessages: localMessages.length,
-                    //   persistentMessages: messages.length,
-                    //   using: displayMessages.length,
-                    //   displayType: isStreaming ? 'local' : (localMessages.length > messages.length ? 'local' : 'persistent')
-                    // });
                     return displayMessages;
                   })()}
                   input={input}
@@ -1239,7 +1448,6 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
                   onSetZoomedImage={setZoomedImage}
                   onImageClick={() => {}}
                   onPdfClick={() => {}}
-                  onToolToggle={toggleToolCollapse}
                   externalTextareaRef={inputRef}
                   indexId={indexId}
                   selectedDocument={selectedDocument ? {
