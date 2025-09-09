@@ -67,6 +67,13 @@ For a visual walkthrough of the application's key features, see the [**Applicati
 
 ---
 
+### Documentation
+
+- Analysis Pipeline Guide: [Kor](docs/analysis_pipeline_kr.md) / [Eng](docs/analysis_pipeline.md)
+- Agent Usage Guide: [Kor](docs/agents_usage_kr.md) / [Eng](docs/agents_usage.md)
+
+---
+
 ### System Architecture
 
 See [**Backend System Architecture Overview**](docs/ARCHITECTURE_OVERVIEW.md) for details.

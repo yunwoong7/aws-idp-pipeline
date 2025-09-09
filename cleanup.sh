@@ -238,64 +238,14 @@ echo "  CodeBuild > Build projects > $CLEANUP_PROJECT"
 echo ""
 echo "The cleanup will take 30-60 minutes to complete (OpenSearch deletion takes ~30 minutes)."
 echo ""
-echo "After Infrastructure Cleanup completes, run this script again and select option 2:"
+echo "📝 Commands for monitoring:"
+echo ""
+echo "Check cleanup status:"
+echo "  aws codebuild batch-get-builds --ids $BUILD_ID --query 'builds[0].buildStatus' --output text"
+echo ""
+echo "View logs in real-time:"
+echo "  aws logs tail /aws/codebuild/$CLEANUP_PROJECT --follow"
+echo ""
+echo "After Infrastructure Cleanup completes (SUCCEEDED status), run this script again and select option 2:"
 echo "  ./cleanup.sh --stage $STAGE"
-echo ""
-
-# Ask user preference
-read -p "Do you want to wait for completion? (y/N): " -n 1 -r
-echo ""
-
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    echo "Monitoring cleanup progress (checking every 5 minutes)..."
-    echo ""
-    
-    # Wait for build to complete with longer intervals
-    WAIT_COUNT=0
-    MAX_WAIT=36  # 36 * 5 minutes = 3 hours max (matching CodeBuild timeout)
-    
-    while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
-        BUILD_STATUS=$(aws codebuild batch-get-builds --ids "$BUILD_ID" --query 'builds[0].buildStatus' --output text 2>/dev/null)
-        
-        if [ "$BUILD_STATUS" = "IN_PROGRESS" ]; then
-            WAIT_COUNT=$((WAIT_COUNT + 1))
-            echo "[$((WAIT_COUNT * 5)) minutes] Still running... (Status: $BUILD_STATUS)"
-            sleep 300  # 5 minutes
-        elif [ "$BUILD_STATUS" = "SUCCEEDED" ]; then
-            echo ""
-            echo "✅ Infrastructure Cleanup successful after ~$((WAIT_COUNT * 5)) minutes!"
-            echo ""
-            echo "🔄 Now run this script again and select option 2 to complete cleanup:"
-            echo "  ./cleanup.sh --stage $STAGE"
-            echo ""
-            echo "Remaining Resources Cleanup will:"
-            echo "  - Delete remaining DynamoDB tables"
-            echo "  - Remove Amazon Cognito User Pools"
-            echo "  - Delete the cleanup CodeBuild stack"
-            break
-        elif [ "$BUILD_STATUS" = "FAILED" ] || [ "$BUILD_STATUS" = "STOPPED" ]; then
-            echo ""
-            echo "❌ Cleanup $BUILD_STATUS. Check the logs in CodeBuild console."
-            echo "To manually delete the cleanup stack, run:"
-            echo "  aws cloudformation delete-stack --stack-name $CLEANUP_STACK"
-            break
-        fi
-    done
-    
-    if [ $WAIT_COUNT -eq $MAX_WAIT ]; then
-        echo "⏱️  Timeout after 3 hours. Check status manually in CodeBuild console."
-    fi
-else
-    echo ""
-    echo "📝 Commands for later:"
-    echo ""
-    echo "Check cleanup status:"
-    echo "  aws codebuild batch-get-builds --ids $BUILD_ID --query 'builds[0].buildStatus' --output text"
-    echo ""
-    echo "After Infrastructure Cleanup completes, run script again with option 2:"
-    echo "  ./cleanup.sh --stage $STAGE"
-    echo ""
-    echo "Or check status first, then run cleanup with option 2:"
-    echo "  [ \$(aws codebuild batch-get-builds --ids $BUILD_ID --query 'builds[0].buildStatus' --output text) = 'SUCCEEDED' ] && echo 'Infrastructure cleanup completed. Run ./cleanup.sh again and select option 2' || echo 'Infrastructure cleanup not yet successful'"
-fi
 
