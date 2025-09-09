@@ -70,12 +70,6 @@ Resources:
                 Resource: '*'
               - Effect: Allow
                 Action:
-                  - dynamodb:ListTables
-                  - dynamodb:DescribeTable
-                  - dynamodb:DeleteTable
-                Resource: '*'
-              - Effect: Allow
-                Action:
                   - iam:UpdateAssumeRolePolicy
                   - iam:UpdateRole
                   - sts:AssumeRole
@@ -153,10 +147,6 @@ Resources:
                   "echo 'Deleting CloudWatch Log Groups'",
                   "aws logs describe-log-groups --output text --query 'logGroups[].logGroupName' | grep 'aws-idp-ai' > /tmp/loggroups.txt || echo '' > /tmp/loggroups.txt",
                   "for loggroup in $(cat /tmp/loggroups.txt); do if [ -n \\\"$loggroup\\\" ] && [ \\\"$loggroup\\\" != \\\"None\\\" ]; then echo \\\"Deleting log group: $loggroup\\\"; aws logs delete-log-group --log-group-name \\\"$loggroup\\\" 2>/dev/null || true; fi; done",
-                  "echo 'Deleting DynamoDB Tables'",
-                  "aws dynamodb list-tables --output text --query 'TableNames' | grep 'aws-idp-ai' | tr '\\t' '\\n' > /tmp/dynamodb-tables.txt || echo '' > /tmp/dynamodb-tables.txt",
-                  "if [ -s /tmp/dynamodb-tables.txt ]; then echo 'Found DynamoDB tables to delete:' && cat /tmp/dynamodb-tables.txt; fi",
-                  "for table in $(cat /tmp/dynamodb-tables.txt 2>/dev/null); do if [ -n \\\"$table\\\" ]; then echo \\\"Attempting to disable deletion protection for table: $table\\\"; aws dynamodb update-table --table-name \\\"$table\\\" --deletion-protection-enabled=false 2>/dev/null || echo \\\"Could not disable deletion protection (may not be enabled)\\\"; echo \\\"Deleting DynamoDB table: $table\\\"; aws dynamodb delete-table --table-name \\\"$table\\\" 2>&1 && echo \\\"Table $table deletion initiated\\\" || echo \\\"Could not delete table $table - may be protected by CloudFormation\\\"; fi; done || true",
                   "echo 'Step 2 Emptying ALB logs bucket before CDK destroy'",
                   "echo 'ALB logs bucket must be empty for CDK destroy to succeed'",
                   "aws s3 rm s3://aws-idp-alb-logs-${STAGE}-${ACCOUNT_ID} --recursive 2>/dev/null || echo 'ALB logs bucket not found or already empty'",
@@ -192,25 +182,12 @@ Resources:
                   "for stack in $(cat /tmp/stacks.txt); do if [ -n \\\"$stack\\\" ] && [ \\\"$stack\\\" != \\\"None\\\" ]; then echo \\\"Deleting remaining stack: $stack\\\"; aws cloudformation delete-stack --stack-name \\\"$stack\\\" 2>/dev/null || true; fi; done",
                   "echo 'Skipping CDK Bootstrap resources - they should be kept for future deployments'",
                   "echo 'Keeping deploy CodeBuild stack for now - will be deleted at the end'",
-                  "echo 'Step 7 Final cleanup of remaining DynamoDB tables'",
-                  "echo 'Checking for any remaining DynamoDB tables...'",
-                  "echo 'All DynamoDB tables in account:'",
-                  "aws dynamodb list-tables --output text --query 'TableNames' | head -20",
-                  "echo '---'",
-                  "echo 'Filtering for aws-idp-ai tables:'",
-                  "aws dynamodb list-tables --output text --query 'TableNames' | grep 'aws-idp-ai' | tr '\\t' '\\n' > /tmp/remaining-dynamodb-tables.txt || echo '' > /tmp/remaining-dynamodb-tables.txt",
-                  "if [ -s /tmp/remaining-dynamodb-tables.txt ]; then echo 'Found remaining DynamoDB tables:' && cat /tmp/remaining-dynamodb-tables.txt; fi",
-                  "for table in $(cat /tmp/remaining-dynamodb-tables.txt 2>/dev/null); do if [ -n \\\"$table\\\" ]; then echo \\\"Final attempt: disabling protection and deleting table: $table\\\"; aws dynamodb update-table --table-name \\\"$table\\\" --deletion-protection-enabled=false 2>/dev/null || true; sleep 5; aws dynamodb delete-table --table-name \\\"$table\\\" 2>&1 | head -3 && echo \\\"Table $table deletion initiated\\\" || echo \\\"Final deletion failed for $table - likely protected by CloudFormation\\\"; fi; done || true",
-                  "echo 'Waiting 30 seconds for DynamoDB tables to delete...'",
-                  "sleep 30",
-                  "echo 'Checking again for DynamoDB tables...'",
-                  "REMAINING_TABLES=$(aws dynamodb list-tables --output text --query 'TableNames' | grep 'aws-idp-ai' || echo '')",
-                  "if [ -n \\\"$REMAINING_TABLES\\\" ]; then echo \\\"Warning: Some DynamoDB tables still exist: $REMAINING_TABLES\\\"; else echo 'All DynamoDB tables deleted successfully'; fi",
-                  "echo 'Step 8 Final attempt to delete Cognito stack'",
+                  "echo 'Note: DynamoDB tables will be cleaned up in Step 2 of cleanup process'",
+                  "echo 'Step 7 Final attempt to delete Cognito stack'",
                   "echo 'Checking if Cognito stack still exists...'",
                   "COGNITO_EXISTS=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-cognito --query 'Stacks[0].StackName' --output text 2>/dev/null || echo 'NOT_FOUND')",
                   "if [ \"$COGNITO_EXISTS\" != \"NOT_FOUND\" ]; then echo 'Cognito stack still exists, attempting final deletion...'; aws cloudformation delete-stack --stack-name aws-idp-ai-cognito --retain-resources 2>/dev/null || aws cloudformation delete-stack --stack-name aws-idp-ai-cognito 2>/dev/null || echo 'Could not delete Cognito stack'; sleep 10; fi",
-                  "echo 'Step 9 Checking if all stacks are deleted'",
+                  "echo 'Step 8 Checking if all stacks are deleted'",
                   "REMAINING_STACKS=$(aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE DELETE_FAILED ROLLBACK_COMPLETE --output text --query 'StackSummaries[].StackName' | grep 'aws-idp-ai' | grep -v 'cleanup-codebuild' || true)",
                   "if [ -z \"$REMAINING_STACKS\" ]; then echo 'All aws-idp-ai stacks successfully deleted. CDKToolkit stack will be kept for future deployments.'; else echo 'Warning: Some stacks still exist:'; echo \"$REMAINING_STACKS\"; echo 'Please manually delete these stacks'; fi"
                 ]
