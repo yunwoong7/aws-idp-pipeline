@@ -70,6 +70,12 @@ Resources:
                 Resource: '*'
               - Effect: Allow
                 Action:
+                  - dynamodb:ListTables
+                  - dynamodb:DescribeTable
+                  - dynamodb:DeleteTable
+                Resource: '*'
+              - Effect: Allow
+                Action:
                   - iam:UpdateAssumeRolePolicy
                   - iam:UpdateRole
                   - sts:AssumeRole
@@ -149,7 +155,7 @@ Resources:
                   "for loggroup in $(cat /tmp/loggroups.txt); do if [ -n \\\"$loggroup\\\" ] && [ \\\"$loggroup\\\" != \\\"None\\\" ]; then echo \\\"Deleting log group: $loggroup\\\"; aws logs delete-log-group --log-group-name \\\"$loggroup\\\" 2>/dev/null || true; fi; done",
                   "echo 'Deleting DynamoDB Tables'",
                   "aws dynamodb list-tables --output text --query 'TableNames' | grep 'aws-idp-ai' | tr '\\t' '\\n' > /tmp/dynamodb-tables.txt || echo '' > /tmp/dynamodb-tables.txt",
-                  "if [ -s /tmp/dynamodb-tables.txt ]; then cat /tmp/dynamodb-tables.txt | while read table; do if [ -n \\\"$table\\\" ] && [ \\\"$table\\\" != 'None' ]; then echo \\\"Deleting DynamoDB table: $table\\\"; aws dynamodb delete-table --table-name \\\"$table\\\" 2>/dev/null && echo \\\"Table $table deletion initiated\\\" || echo \\\"Failed to delete table $table\\\"; fi; done; else echo 'No DynamoDB tables found'; fi",
+                  "if [ -s /tmp/dynamodb-tables.txt ]; then echo 'Found DynamoDB tables to delete:'; cat /tmp/dynamodb-tables.txt; cat /tmp/dynamodb-tables.txt | while read table; do if [ -n \\\"$table\\\" ] && [ \\\"$table\\\" != 'None' ]; then echo \\\"Deleting DynamoDB table: $table\\\"; aws dynamodb delete-table --table-name \\\"$table\\\" 2>&1 && echo \\\"Table $table deletion initiated\\\" || echo \\\"Note: Could not delete table $table (may be protected or already deleting)\\\"; fi; done; else echo 'No DynamoDB tables found'; fi",
                   "echo 'Step 2 Emptying ALB logs bucket before CDK destroy'",
                   "echo 'ALB logs bucket must be empty for CDK destroy to succeed'",
                   "aws s3 rm s3://aws-idp-alb-logs-${STAGE}-${ACCOUNT_ID} --recursive 2>/dev/null || echo 'ALB logs bucket not found or already empty'",
@@ -188,7 +194,12 @@ Resources:
                   "echo 'Step 7 Final cleanup of remaining DynamoDB tables'",
                   "echo 'Checking for any remaining DynamoDB tables...'",
                   "aws dynamodb list-tables --output text --query 'TableNames' | grep 'aws-idp-ai' | tr '\\t' '\\n' > /tmp/remaining-dynamodb-tables.txt || echo '' > /tmp/remaining-dynamodb-tables.txt",
-                  "if [ -s /tmp/remaining-dynamodb-tables.txt ]; then echo 'Found remaining DynamoDB tables, deleting...'; cat /tmp/remaining-dynamodb-tables.txt | while read table; do if [ -n \\\"$table\\\" ]; then echo \\\"Force deleting DynamoDB table: $table\\\"; aws dynamodb delete-table --table-name \\\"$table\\\" 2>/dev/null && echo \\\"Table $table deletion initiated\\\" || echo \\\"Failed to delete table $table\\\"; fi; done; else echo 'No remaining DynamoDB tables found'; fi",
+                  "if [ -s /tmp/remaining-dynamodb-tables.txt ]; then echo 'Found remaining DynamoDB tables, deleting...'; cat /tmp/remaining-dynamodb-tables.txt | while read table; do if [ -n \\\"$table\\\" ]; then echo \\\"Checking status of DynamoDB table: $table\\\"; TABLE_STATUS=$(aws dynamodb describe-table --table-name \\\"$table\\\" --query 'Table.TableStatus' --output text 2>/dev/null || echo 'NOT_FOUND'); if [ \\\"$TABLE_STATUS\\\" = 'ACTIVE' ]; then echo \\\"Force deleting ACTIVE DynamoDB table: $table\\\"; aws dynamodb delete-table --table-name \\\"$table\\\" 2>&1 | head -5 || echo \\\"Failed to delete table $table\\\"; elif [ \\\"$TABLE_STATUS\\\" = 'DELETING' ]; then echo \\\"Table $table is already being deleted\\\"; else echo \\\"Table $table status: $TABLE_STATUS\\\"; fi; fi; done; else echo 'No remaining DynamoDB tables found'; fi",
+                  "echo 'Waiting 30 seconds for DynamoDB tables to delete...'",
+                  "sleep 30",
+                  "echo 'Checking again for DynamoDB tables...'",
+                  "REMAINING_TABLES=$(aws dynamodb list-tables --output text --query 'TableNames' | grep 'aws-idp-ai' || echo '')",
+                  "if [ -n \\\"$REMAINING_TABLES\\\" ]; then echo \\\"Warning: Some DynamoDB tables still exist: $REMAINING_TABLES\\\"; else echo 'All DynamoDB tables deleted successfully'; fi",
                   "echo 'Step 8 Final attempt to delete Cognito stack'",
                   "echo 'Checking if Cognito stack still exists...'",
                   "COGNITO_EXISTS=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-cognito --query 'Stacks[0].StackName' --output text 2>/dev/null || echo 'NOT_FOUND')",
