@@ -377,6 +377,8 @@ export const documentApi = {
     if (indexId) {
       params.append('index_id', indexId);
     }
+    // Request maximum 1000 segments
+    params.append('size', '1000');
     const queryString = params.toString() ? `?${params.toString()}` : '';
     
     const baseUrl = await getApiBaseUrl();

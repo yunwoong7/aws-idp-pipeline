@@ -44,9 +44,7 @@ const SecureVideo = ({ s3Uri, indexId, className = '', style, seekToSeconds }: S
       setError(null);
 
       try {
-        console.log('🎥 [SecureVideo] Fetching presigned URL for:', s3Uri, 'with indexId:', indexId);
         const response = await documentApi.getPresignedUrlFromS3Uri(s3Uri, 3600, indexId);
-        console.log('🎥 [SecureVideo] Got presigned URL:', response.presigned_url);
         setPresignedUrl(response.presigned_url);
         setError(null);
       } catch (err) {
@@ -737,7 +735,6 @@ export function DocumentDetailDialog({
                       
                       // Add to segs array
                       segmentMap.forEach((segment) => segs.push(segment));
-                      console.log('🔍 [DEBUG] Using analysisData fallback, created segments:', segs);
                     }
                     
                     segs.forEach((s) => {
@@ -768,27 +765,11 @@ export function DocumentDetailDialog({
                     //   });
                     // }
                     
-                    console.log('🔍 [DEBUG] Raw segments data:', segs);
-                    console.log('🔍 [DEBUG] page_images with status:', segs.slice(0, 3).map(s => ({
-                      segment_index: s?.page_index ?? s?.segment_index,
-                      page_status: s?.page_status || s?.status,
-                      raw_page_status: s?.page_status,
-                      raw_status: s?.status
-                    })));
-                    console.log('🔍 [DEBUG] Final statusByIndex:', statusByIndex);
-                    
                     const indices = Array.from({ length: totalSegments }, (_, i) => i);
                     const isCompleted = (st: string) => st === 'completed';
                     const isFailed = (st: string) => st.includes('failed') || st === 'error';
                     const isAnalyzing = (st: string) => st.includes('analyz') || st.includes('process') || st.includes('extract');
                     
-                    console.log('🔍 [DEBUG] Status checking logic:', {
-                      statusByIndex,
-                      sampleStatus: statusByIndex[0],
-                      isCompletedCheck: isCompleted(statusByIndex[0] || ''),
-                      isAnalyzingCheck: isAnalyzing(statusByIndex[0] || ''),
-                      isFailedCheck: isFailed(statusByIndex[0] || '')
-                    });
                     
                     const completed = indices.filter(i => isCompleted(statusByIndex[i] || ''));
                     const failed = indices.filter(i => isFailed(statusByIndex[i] || ''));
@@ -870,7 +851,6 @@ export function DocumentDetailDialog({
                         page_status: 'completed',
                         status: 'completed'
                       };
-                      console.log('🔍 [DEBUG] Using analysisData fallback for current segment:', currentSegment);
                     }
                   }
                   
@@ -880,14 +860,6 @@ export function DocumentDetailDialog({
                     currentSegment?.status ||
                     ''
                   ).toLowerCase();
-                  
-                  console.log('🔍 [DEBUG] Current segment status:', { 
-                    currentSegmentIndex, 
-                    segStatus, 
-                    currentSegment,
-                    rawPageStatus: currentSegment?.page_status,
-                    rawStatus: currentSegment?.status 
-                  });
                   
                   if (!segStatus) return null;
                   
