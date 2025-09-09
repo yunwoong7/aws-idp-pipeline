@@ -67,17 +67,12 @@ cleanup_dynamodb_tables() {
 }
 
 # Parse command-line arguments
-CLEANUP_STEP=""
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         --stage) STAGE="$2"; shift ;;
         --force) FORCE_RECREATE=true ;;
         --help)
-            echo "Usage: $0 [STEP] [OPTIONS]"
-            echo ""
-            echo "Steps:"
-            echo "  1               Run main cleanup (CodeBuild execution)"
-            echo "  2               Run final cleanup (DynamoDB + cleanup stack deletion)"
+            echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
             echo "  --stage STAGE   Stage to clean up (dev/prod)"
@@ -85,7 +80,6 @@ while [[ "$#" -gt 0 ]]; do
             echo "  --help          Show this help message"
             exit 0
             ;;
-        1|2) CLEANUP_STEP="$1" ;;
         *) echo "Unknown parameter: $1"; exit 1 ;;
     esac
     shift
@@ -96,15 +90,79 @@ echo "========================================="
 echo "  AWS IDP AI Pipeline - Cleanup Starter"
 echo "========================================="
 echo "Stage: $STAGE"
-if [ -n "$CLEANUP_STEP" ]; then
-    echo "Step: $CLEANUP_STEP"
-fi
 echo ""
+
+# Interactive cleanup menu
+echo "Please select cleanup option:"
+echo "(Note: For complete cleanup, run option 1 first, then run option 2)"
+echo ""
+echo "1) Infrastructure Cleanup"
+echo "   - Remove main AWS infrastructure (S3, ECR, CloudWatch, CDK stacks, etc.)"
+echo "   - Uses CodeBuild for comprehensive resource deletion"
+echo "   - Takes 30-60 minutes to complete"
+echo ""
+echo "2) Remaining Resources Cleanup"
+echo "   - Delete remaining DynamoDB tables"
+echo "   - Remove Amazon Cognito User Pools"
+echo "   - Delete cleanup CodeBuild stack"
+echo "   - Final cleanup of leftover resources"
+echo ""
+
+while true; do
+    read -p "Enter your choice (1 or 2): " choice
+    case $choice in
+        1)
+            echo ""
+            echo "🏗️  Selected: Infrastructure Cleanup"
+            CLEANUP_STEP="1"
+            break
+            ;;
+        2)
+            echo ""
+            echo "🗑️  Selected: Remaining Resources Cleanup"
+            CLEANUP_STEP="2"
+            break
+            ;;
+        *)
+            echo "Invalid choice. Please enter 1 or 2."
+            ;;
+    esac
+done
 
 # Handle step-based execution
 if [ "$CLEANUP_STEP" = "2" ]; then
-    echo "🗑️  Step 2: Final cleanup (DynamoDB + cleanup stack deletion)"
-    echo "============================================================"
+    echo "============================================="
+    echo ""
+    
+    # Check and delete Cognito User Pools
+    echo "🔍 Checking for Amazon Cognito User Pools..."
+    USER_POOLS=$(aws cognito-idp list-user-pools --max-results 60 --query 'UserPools[?contains(Name, `aws-idp-ai`)].Id' --output text || echo "")
+    
+    if [ -n "$USER_POOLS" ] && [ "$USER_POOLS" != "None" ]; then
+        echo "Found Cognito User Pools:"
+        for pool_id in $USER_POOLS; do
+            POOL_NAME=$(aws cognito-idp describe-user-pool --user-pool-id "$pool_id" --query 'UserPool.Name' --output text 2>/dev/null || echo "Unknown")
+            echo "  - $pool_id ($POOL_NAME)"
+        done
+        echo ""
+        
+        read -p "Do you want to delete these Cognito User Pools? (y/N): " -n 1 -r
+        echo ""
+        
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            for pool_id in $USER_POOLS; do
+                echo "Deleting Cognito User Pool: $pool_id"
+                aws cognito-idp delete-user-pool --user-pool-id "$pool_id" 2>/dev/null && echo "  ✅ Deleted" || echo "  ❌ Failed to delete"
+            done
+        else
+            echo "Cognito User Pool deletion skipped"
+        fi
+    else
+        echo "✅ No Cognito User Pools found with 'aws-idp-ai' in name"
+    fi
+    echo ""
+    
+    # DynamoDB cleanup
     cleanup_dynamodb_tables
     
     echo ""
@@ -121,7 +179,7 @@ if [ "$CLEANUP_STEP" = "2" ]; then
         echo "✅ Cleanup stack $CLEANUP_STACK not found or already deleted"
     fi
     echo ""
-    echo "✅ Step 2 completed!"
+    echo "✅ Remaining Resources Cleanup completed!"
     exit 0
 fi
 
@@ -169,7 +227,7 @@ echo ""
 echo "Starting cleanup process..."
 BUILD_ID=$(aws codebuild start-build --project-name "$CLEANUP_PROJECT" --query 'build.id' --output text)
 
-echo "✅ Step 1: Main cleanup started!"
+echo "✅ Infrastructure Cleanup started!"
 echo "Build ID: $BUILD_ID"
 echo ""
 echo "You can monitor the progress using:"
@@ -180,8 +238,8 @@ echo "  CodeBuild > Build projects > $CLEANUP_PROJECT"
 echo ""
 echo "The cleanup will take 30-60 minutes to complete (OpenSearch deletion takes ~30 minutes)."
 echo ""
-echo "After Step 1 completes, run Step 2 to finish cleanup:"
-echo "  ./cleanup.sh 2 --stage $STAGE"
+echo "After Infrastructure Cleanup completes, run this script again and select option 2:"
+echo "  ./cleanup.sh --stage $STAGE"
 echo ""
 
 # Ask user preference
@@ -205,13 +263,14 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
             sleep 300  # 5 minutes
         elif [ "$BUILD_STATUS" = "SUCCEEDED" ]; then
             echo ""
-            echo "✅ Step 1 cleanup successful after ~$((WAIT_COUNT * 5)) minutes!"
+            echo "✅ Infrastructure Cleanup successful after ~$((WAIT_COUNT * 5)) minutes!"
             echo ""
-            echo "🔄 Now run Step 2 to complete the cleanup:"
-            echo "  ./cleanup.sh 2 --stage $STAGE"
+            echo "🔄 Now run this script again and select option 2 to complete cleanup:"
+            echo "  ./cleanup.sh --stage $STAGE"
             echo ""
-            echo "Step 2 will:"
+            echo "Remaining Resources Cleanup will:"
             echo "  - Delete remaining DynamoDB tables"
+            echo "  - Remove Amazon Cognito User Pools"
             echo "  - Delete the cleanup CodeBuild stack"
             break
         elif [ "$BUILD_STATUS" = "FAILED" ] || [ "$BUILD_STATUS" = "STOPPED" ]; then
@@ -233,10 +292,10 @@ else
     echo "Check cleanup status:"
     echo "  aws codebuild batch-get-builds --ids $BUILD_ID --query 'builds[0].buildStatus' --output text"
     echo ""
-    echo "After Step 1 completes, run Step 2:"
-    echo "  ./cleanup.sh 2 --stage $STAGE"
+    echo "After Infrastructure Cleanup completes, run script again with option 2:"
+    echo "  ./cleanup.sh --stage $STAGE"
     echo ""
-    echo "Or check status first, then run Step 2:"
-    echo "  [ \$(aws codebuild batch-get-builds --ids $BUILD_ID --query 'builds[0].buildStatus' --output text) = 'SUCCEEDED' ] && ./cleanup.sh 2 --stage $STAGE || echo 'Step 1 not yet successful'"
+    echo "Or check status first, then run cleanup with option 2:"
+    echo "  [ \$(aws codebuild batch-get-builds --ids $BUILD_ID --query 'builds[0].buildStatus' --output text) = 'SUCCEEDED' ] && echo 'Infrastructure cleanup completed. Run ./cleanup.sh again and select option 2' || echo 'Infrastructure cleanup not yet successful'"
 fi
 
