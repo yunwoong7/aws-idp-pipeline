@@ -185,7 +185,11 @@ Resources:
                   "for stack in $(cat /tmp/stacks.txt); do if [ -n \\\"$stack\\\" ] && [ \\\"$stack\\\" != \\\"None\\\" ]; then echo \\\"Deleting remaining stack: $stack\\\"; aws cloudformation delete-stack --stack-name \\\"$stack\\\" 2>/dev/null || true; fi; done",
                   "echo 'Skipping CDK Bootstrap resources - they should be kept for future deployments'",
                   "echo 'Keeping deploy CodeBuild stack for now - will be deleted at the end'",
-                  "echo 'Step 7 Checking if all stacks are deleted'",
+                  "echo 'Step 7 Final attempt to delete Cognito stack'",
+                  "echo 'Checking if Cognito stack still exists...'",
+                  "COGNITO_EXISTS=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-cognito --query 'Stacks[0].StackName' --output text 2>/dev/null || echo 'NOT_FOUND')",
+                  "if [ \"$COGNITO_EXISTS\" != \"NOT_FOUND\" ]; then echo 'Cognito stack still exists, attempting final deletion...'; aws cloudformation delete-stack --stack-name aws-idp-ai-cognito --retain-resources 2>/dev/null || aws cloudformation delete-stack --stack-name aws-idp-ai-cognito 2>/dev/null || echo 'Could not delete Cognito stack'; sleep 10; fi",
+                  "echo 'Step 8 Checking if all stacks are deleted'",
                   "REMAINING_STACKS=$(aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE DELETE_FAILED ROLLBACK_COMPLETE --output text --query 'StackSummaries[].StackName' | grep 'aws-idp-ai' | grep -v 'cleanup-codebuild' || true)",
                   "if [ -z \"$REMAINING_STACKS\" ]; then echo 'All aws-idp-ai stacks successfully deleted. CDKToolkit stack will be kept for future deployments.'; else echo 'Warning: Some stacks still exist:'; echo \"$REMAINING_STACKS\"; echo 'Please manually delete these stacks'; fi"
                 ]
@@ -194,6 +198,9 @@ Resources:
                 "commands": [
                   "echo 'Cleanup completed'",
                   "echo 'All AWS IDP AI resources have been removed'",
+                  "echo 'Final cleanup: Ensuring Cognito stack is deleted'",
+                  "aws cloudformation delete-stack --stack-name aws-idp-ai-cognito 2>/dev/null || echo 'Cognito stack already deleted or not found'",
+                  "aws cloudformation delete-stack --stack-name aws-idp-ai-cognito-${STAGE} 2>/dev/null || echo 'Cognito stack with stage already deleted or not found'",
                   "echo 'Finally deleting deploy CodeBuild stack'",
                   "aws cloudformation delete-stack --stack-name aws-idp-ai-codebuild-deploy-${STAGE} 2>/dev/null || echo 'Deploy CodeBuild stack not found or already deleted'",
                   "echo 'Cleanup completed successfully'",
