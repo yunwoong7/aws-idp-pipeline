@@ -32,6 +32,24 @@
    chmod +x packages/infra/cleanup.sh && ./packages/infra/cleanup.sh
    ```
 
+### 삭제 옵션 안내 (cleanup.sh 실행 시 선택 화면)
+
+실행하면 아래 두 가지 옵션 중 하나를 선택할 수 있습니다. 완전한 삭제를 원하면 1번 수행 완료 후, 스크립트를 다시 실행해 2번을 수행하는 순서로 진행해야 합니다. 
+
+<div align="center">   
+<img src="assets/quick-destroy-4.png" alt="quick-destroy-1" width="900"/>
+</div>
+
+1) Infrastructure Cleanup
+   - S3, ECR, CloudWatch, 주요 CDK 스택 등 핵심 인프라 리소스를 제거합니다.
+   - CodeBuild를 통해 광범위한 리소스 삭제를 수행하며, 전체 소요시간은 보통 30~60분입니다.
+
+2) Remaining Resources Cleanup
+   - 남아있는 DynamoDB 테이블 삭제
+   - Amazon Cognito User Pool 삭제
+   - 정리용 CodeBuild 스택(`aws-idp-ai-cleanup-codebuild-<stage>`) 제거
+   - 잔여 리소스 최종 정리
+
 ## 삭제 모니터링
 
 - AWS CodeBuild 콘솔에서 삭제 진행 상황을 확인할 수 있습니다.

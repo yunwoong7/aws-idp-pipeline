@@ -32,6 +32,24 @@ This document explains how to safely delete the AWS IDP infrastructure that was 
    chmod +x packages/infra/cleanup.sh && ./packages/infra/cleanup.sh
    ```
 
+### Deletion Options (when running cleanup.sh)
+
+When executed, you will be prompted to choose one of two options. For a complete cleanup, run option 1 first, then run the script again and choose option 2.
+
+<div align="center">   
+<img src="assets/quick-destroy-4.png" alt="quick-destroy-options" width="900"/>
+</div>
+
+1) Infrastructure Cleanup
+   - Removes core infrastructure resources (S3, ECR, CloudWatch, major CDK stacks, etc.)
+   - Uses CodeBuild to orchestrate broad resource deletion; typically takes 30–60 minutes
+
+2) Remaining Resources Cleanup
+   - Deletes remaining DynamoDB tables
+   - Deletes Amazon Cognito User Pools
+   - Removes the cleanup CodeBuild stack (`aws-idp-ai-cleanup-codebuild-<stage>`)
+   - Final pass to clean up any leftover resources
+
 ## Monitoring Deletion
 
 - You can monitor the deletion progress in the AWS CodeBuild console.
