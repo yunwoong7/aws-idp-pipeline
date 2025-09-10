@@ -25,6 +25,7 @@ AWS Management Console 우측 상단의 CloudShell 아이콘을 클릭하여 Clo
 <div align="center">   
   <img src="assets/quick-deploy-1.png" alt="quick-deploy-1" width="900"/>
 </div>
+
 ```bash
 git clone https://github.com/yunwoong7/aws-idp-pipeline.git
 cd aws-idp-pipeline
