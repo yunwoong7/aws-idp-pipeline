@@ -377,8 +377,8 @@ export class EcsStack extends cdk.Stack {
     // ALB 액세스 로그 설정
     this.frontendService.loadBalancer.logAccessLogs(albLogsBucket, 'alb-access-logs');
     
-    // ALB idle timeout 설정 (스트리밍 응답을 위해 300초로 증가)
-    this.frontendService.loadBalancer.setAttribute('idle_timeout.timeout_seconds', '300');
+    // ALB idle timeout 설정 (대용량 파일 업로드를 위해 600초로 증가)
+    this.frontendService.loadBalancer.setAttribute('idle_timeout.timeout_seconds', '600');
 
     // Security group configuration - allow internet access for Cognito authentication
     // Remove IP whitelist since we're using Cognito for authentication

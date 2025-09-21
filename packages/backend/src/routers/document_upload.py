@@ -197,25 +197,44 @@ async def upload_document(
 async def upload_document_chunked(
     file: UploadFile = File(...),
     index_id: str = Form(...),
+    description: Optional[str] = Form(None),
     chunk_size: int = Form(default=5 * 1024 * 1024)  # 5MB chunks
 ):
     """
     Upload large document with streaming
     Handles files of any size efficiently
     """
+    if not s3_client or not BUCKET_NAME:
+        logger.error("S3 client or bucket name not initialized")
+        raise HTTPException(status_code=500, detail="S3 client not properly configured")
+
     try:
-        # Generate document ID
+        # Generate document ID and sanitize filename
+        from .common.utils import sanitize_filename
         document_id = str(uuid.uuid4())
-        
+        safe_filename = sanitize_filename(file.filename or 'unknown_file')
+
         # Create S3 key
-        s3_key = f"indexes/{index_id}/documents/{document_id}/{file.filename}"
-        
-        # Initiate multipart upload
+        s3_key = f"indexes/{index_id}/documents/{document_id}/{safe_filename}"
+
+        # Encode metadata for S3 compatibility
+        import base64
+        original_filename_encoded = base64.b64encode((file.filename or 'unknown').encode('utf-8')).decode('ascii')
+        description_encoded = base64.b64encode((description or '').encode('utf-8')).decode('ascii')
+
+        # Initiate multipart upload with metadata
         multipart_upload = s3_client.create_multipart_upload(
             Bucket=BUCKET_NAME,
             Key=s3_key,
             ContentType=file.content_type or 'application/octet-stream',
-            ServerSideEncryption='AES256'
+            ServerSideEncryption='AES256',
+            Metadata={
+                'index_id': index_id,
+                'document_id': document_id,
+                'original_filename_b64': original_filename_encoded,
+                'description_b64': description_encoded,
+                'safe_filename': safe_filename
+            }
         )
         upload_id = multipart_upload['UploadId']
         
@@ -258,7 +277,73 @@ async def upload_document_chunked(
             )
             
             file_uri = f"s3://{BUCKET_NAME}/{s3_key}"
-            
+
+            # Create DynamoDB record for large file
+            current_time = datetime.now(timezone.utc).isoformat()
+            media_type = infer_media_type(file.content_type or '', file.filename or '')
+
+            if documents_table:
+                document_item = {
+                    'document_id': document_id,
+                    'index_id': index_id,
+                    'file_name': file.filename or 'unknown',
+                    'safe_file_name': safe_filename,
+                    'file_type': file.content_type or 'application/octet-stream',
+                    'file_size': total_size,
+                    'file_uri': file_uri,
+                    'status': 'pending_upload',  # Lambda expects this status
+                    'media_type': media_type,
+                    'description': description or '',
+                    'summary': '',
+                    'total_pages': 0,
+                    'created_at': current_time,
+                    'updated_at': current_time,
+                    'statistics': {
+                        'table_count': 0,
+                        'figure_count': 0,
+                        'hyperlink_count': 0,
+                        'element_count': 0
+                    },
+                    'representation': {
+                        'markdown': ''
+                    }
+                }
+
+                try:
+                    documents_table.put_item(Item=document_item)
+                    logger.info(f"Document record created for large file: {document_id}")
+                except Exception as e:
+                    logger.error(f"Failed to create DynamoDB record: {str(e)}")
+
+            # Call Lambda upload-complete endpoint to trigger workflow
+            try:
+                import requests
+                import json as json_lib
+
+                # Get API Gateway URL from environment
+                api_base_url = os.environ.get('API_BASE_URL')
+                if api_base_url:
+                    upload_complete_url = f"{api_base_url}/api/documents/{document_id}/upload-complete"
+
+                    # Call the upload-complete Lambda endpoint
+                    response = requests.post(
+                        upload_complete_url,
+                        json={},  # Empty body as Lambda expects
+                        headers={'Content-Type': 'application/json'},
+                        timeout=30
+                    )
+
+                    if response.status_code == 200:
+                        logger.info(f"Upload complete callback successful for large file: {document_id}")
+                    else:
+                        logger.error(f"Upload complete callback failed: {response.status_code} - {response.text}")
+                else:
+                    logger.warning("API_BASE_URL not set, skipping upload-complete callback")
+
+            except Exception as e:
+                logger.error(f"Failed to call upload-complete for large file: {str(e)}")
+                # Don't fail the upload if callback fails, but log the error
+
             return JSONResponse(
                 status_code=200,
                 content={

@@ -137,19 +137,16 @@ class VideoAnalyzerTool(BaseTool):
             # Log query content
             logger.info(f"Video analysis query: {query}")
             
-            # Get analysis context from kwargs
-            previous_analysis_context = kwargs.get('previous_analysis_context', '')
-            
-            if previous_analysis_context:
-                logger.info(f"🔍 Using previous analysis context: {len(previous_analysis_context)} characters")
-            else:
-                previous_analysis_context = "**Previous analysis context**: No previous analysis results"
-                logger.info("🔍 No previous analysis context - using default")
-            
-            # Generate analysis prompt (remove previous_analysis_context from kwargs to avoid duplication)
-            kwargs_without_context = {k: v for k, v in kwargs.items() if k != 'previous_analysis_context'}
+            # Skip previous analysis context for video to avoid token limit (max 2000 tokens)
+            # Video analysis should be self-contained per chapter
+            logger.info("🔍 Skipping previous analysis context for video (token limit: 2000)")
+
+            # Remove previous_analysis_context from kwargs to avoid duplicate argument error
+            kwargs_clean = {k: v for k, v in kwargs.items() if k != 'previous_analysis_context'}
+
+            # Generate analysis prompt without previous context
             analysis_prompt = self._generate_analysis_prompt(
-                start_timecode, end_timecode, query, previous_analysis_context, **kwargs_without_context
+                start_timecode, end_timecode, query, None, **kwargs_clean
             )
             
             # Analyze video with Bedrock
@@ -200,8 +197,8 @@ class VideoAnalyzerTool(BaseTool):
             return self._create_error_result(error_msg)
 
     def _generate_analysis_prompt(
-        self, 
-        start_timecode: str, 
+        self,
+        start_timecode: str,
         end_timecode: str,
         query: str,
         previous_analysis_context: str,
@@ -213,11 +210,15 @@ class VideoAnalyzerTool(BaseTool):
         # Get context from kwargs
         segment_type = kwargs.get('segment_type', 'CHAPTER')
         file_uri = kwargs.get('file_path') or kwargs.get('file_uri', 'Unknown')
-        
+
         # Get current date for context
         from datetime import datetime
         current_date = datetime.now().strftime("%Y-%m-%d")
-        
+
+        # For video analysis, always set empty previous context to avoid token limit
+        if previous_analysis_context is None:
+            previous_analysis_context = ""
+
         # Get prompts from YAML
         prompts = prompt_manager.get_prompt(
             'video_analyzer',
@@ -230,7 +231,7 @@ class VideoAnalyzerTool(BaseTool):
             query=query,
             current_date=current_date
         )
-        
+
         logger.info(f"📝 Video analysis prompt generated: {start_timecode} ~ {end_timecode}")
         return prompts['user_prompt']
 

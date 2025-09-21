@@ -224,7 +224,9 @@ class ReactorNode:
             
             if i < len(observations):
                 obs = observations[i]
-                context_parts.append(f"Observation: {obs.get('result', '')[:500]}...")  # Truncate long results
+                result = obs.get('result', '')
+                # Show full observation result for ReAct to make proper decisions
+                context_parts.append(f"Observation: {result}")
             
             context_parts.append("")
         

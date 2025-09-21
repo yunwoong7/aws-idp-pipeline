@@ -25,7 +25,7 @@ video_chapter_analysis:
     - Maintain objectivity while highlighting critical insights
 
   user_prompt_template: |
-    Analyze this video chapter and provide comprehensive insights.
+    Analyze this video chapter with detailed timeline-based breakdown.
 
     Today's date is: {{current_date}}
 
@@ -46,25 +46,79 @@ video_chapter_analysis:
 
     ## Analysis Guidelines:
 
-    **Progressive Strategy**: Build upon previous findings, focus on NEW information not yet covered.
+    **CRITICAL REQUIREMENT**: Provide a DETAILED TIMELINE ANALYSIS of the video content.
+
+    **Timeline Analysis Requirements**:
+    - Break down the video into meaningful time segments
+    - Document what happens at specific timestamps
+    - Capture all important moments, transitions, and changes
+    - Note when key information, demonstrations, or explanations occur
+    - Include both visual and audio elements at each time point
 
     **Key Analysis Areas**:
-    1. **Content Overview**: Main topics and themes covered
-    2. **Technical Details**: Specific procedures, specifications, or methods shown
-    3. **Visual Elements**: Important diagrams, demonstrations, or visual aids
-    4. **Key Insights**: Critical knowledge or actionable information
-    5. **Context & Implications**: How this content relates to broader objectives
+    1. **Timeline Breakdown**:
+       - Provide timestamps for each significant segment
+       - Format: [MM:SS] - Description of what occurs
+       - Include ALL important moments chronologically
 
-    ## Output Structure:
+    2. **Content Details by Time**:
+       - What is shown/explained at each timestamp
+       - Technical procedures or methods demonstrated
+       - Visual elements (text, diagrams, demonstrations)
+       - Audio narration or explanations
+       - Scene changes or transitions
 
-    1. **Previous Findings Summary** (brief, if applicable)
-    2. **New Video Analysis**:
-    - Main topics and content overview
-    - Technical specifications or procedures identified
-    - Important visual elements and demonstrations
-    - Key insights and actionable information
-    3. **Professional Implications & Recommendations**
+    3. **Technical Specifications**:
+       - Specific data, numbers, or measurements shown
+       - Process steps or procedures
+       - Tools, equipment, or systems demonstrated
 
-    **Focus**: Provide professional-grade insights that help users understand and apply the video content effectively.
-    
-    **Language**: Please provide your analysis in Korean (한국어) for better user comprehension.
+    4. **Visual Elements Analysis**:
+       - On-screen text or titles
+       - Diagrams, charts, or graphics
+       - Demonstrations or examples
+       - UI/UX elements if applicable
+
+    5. **Key Insights & Knowledge**:
+       - Critical information extracted
+       - Actionable takeaways
+       - Important warnings or notes
+
+    ## Required Output Structure:
+
+    ### 1. 타임라인 상세 분석 (Timeline Detailed Analysis)
+    **[시작 - 끝]** 전체 구간 요약
+
+    **시간대별 세부 내용:**
+    - [00:00] 시작 내용...
+    - [00:05] 다음 중요 장면...
+    - [00:10] 핵심 설명 부분...
+    (모든 중요 시점을 포함하여 상세히 기록)
+
+    ### 2. 핵심 내용 분석 (Core Content Analysis)
+    - 주요 주제 및 개념
+    - 기술적 세부사항
+    - 시연된 프로세스나 방법론
+
+    ### 3. 시각적 요소 (Visual Elements)
+    - 화면에 표시된 텍스트
+    - 도표, 그래프, 다이어그램
+    - 실제 시연 장면
+
+    ### 4. 중요 인사이트 (Key Insights)
+    - 추출된 핵심 지식
+    - 실행 가능한 정보
+    - 주의사항 또는 경고
+
+    ### 5. 전문적 시사점 (Professional Implications)
+    - 비즈니스/기술적 가치
+    - 실무 적용 방안
+    - 추가 고려사항
+
+    **IMPORTANT**:
+    - Provide EXHAUSTIVE timeline coverage - miss nothing important
+    - Include specific timestamps for EVERY significant moment
+    - Describe both what is SEEN and what is HEARD
+    - Capture all text, numbers, and technical details shown
+
+    **Language**: Provide your analysis in Korean (한국어) with timestamps in [MM:SS] format.

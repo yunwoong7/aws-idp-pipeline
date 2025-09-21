@@ -71,5 +71,5 @@ SUPPORTED_FILE_TYPES = {
     '.bmp': 'image/bmp',
 }
 
-# Maximum file size (50MB)
-MAX_FILE_SIZE = 50 * 1024 * 1024
+# Maximum file size (500MB) - aligned with frontend and backend configuration
+MAX_FILE_SIZE = 500 * 1024 * 1024

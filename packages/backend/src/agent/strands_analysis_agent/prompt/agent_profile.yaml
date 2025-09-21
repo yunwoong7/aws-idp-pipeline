@@ -113,6 +113,7 @@ instruction: |
   CONTEXT:
   Index ID: {{INDEX_ID}}
   Document ID: {{DOCUMENT_ID}}
+  Segment ID: {{SEGMENT_ID}}
   User's request: {{QUERY}}
   Previous conversation: {{CONVERSATION_HISTORY}}
 
