@@ -62,7 +62,7 @@ rerankScoreThreshold = 0.07  # 리랭킹 스코어 임계값 (이 값보다 낮�
 [analysis]
 # 분석 관련 설정
 previousAnalysisMaxCharacters = 1000000000
-maxIterations = 5
+maxIterations = 2
 
 [lambda]
 # Lambda 함수 설정
