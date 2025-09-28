@@ -286,6 +286,13 @@ export function DocumentDetailDialog({
   const [currentSegmentDetail, setCurrentSegmentDetail] = useState<any>(null);
   const [segmentDetailLoading, setSegmentDetailLoading] = useState(false);
 
+  // 문서 변경 시 캐시 초기화
+  useEffect(() => {
+    // 문서가 변경되거나 Dialog가 열릴 때 캐시 초기화
+    setSegmentDetailsCache({});
+    setCurrentSegmentDetail(null);
+  }, [document?.document_id, open]);
+
   // 초기 로딩 시 document detail과 segment 리스트 가져오기
   useEffect(() => {
     const shouldLoad = open && indexId && document?.document_id;

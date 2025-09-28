@@ -1444,27 +1444,26 @@ export class WorkflowStack extends cdk.Stack {
       comment: 'Process each segment in parallel using ReAct analysis with Distributed Map',
       maxConcurrency: stepFunctionsConfig.maxConcurrency,  // Use config value (30)
       itemsPath: '$.Payload.segment_ids',  // Use segment_ids array from GetDocumentPagesTask
-      parameters: {
-        'document_id.$': '$.Payload.document_id',  // Get from parent payload
-        'index_id.$': '$$.Execution.Input.index_id',  // Get from execution input
-        'file_uri.$': '$$.Execution.Input.file_uri',  // Use execution input file_uri as fallback for all segments
-        'media_type.$': '$.Payload.media_type',  // Media type from getDocumentPagesTask output (Payload wrapped)
-        'segment_id.$': '$$.Map.Item.Value.segment_id',  // Get current item from Map iteration
-        'segment_index.$': '$$.Map.Item.Value.segment_index',  // Get current item from Map iteration
-      },
       resultPath: sfn.JsonPath.DISCARD,  // Discard Map results to avoid size limit issues with large documents
       toleratedFailurePercentage: 5,  // Allow 5% of segments to fail without failing the entire workflow
       mapExecutionType: sfn.StateMachineType.STANDARD,  // Use STANDARD for child executions (supports longer running tasks)
     });
 
-    // 8. Single segment ReAct analysis task
+    // 8. Single segment ReAct analysis task with parameters
     const singlePageReactAnalysisTask = new sfnTasks.LambdaInvoke(
       this,
       'SinglePageReactAnalysis',
       {
         lambdaFunction: reactAnalysisLambda,
         comment: 'Perform ReAct analysis on a single segment',
-        payload: sfn.TaskInput.fromJsonPathAt('$'),
+        payload: sfn.TaskInput.fromObject({
+          'document_id.$': '$.Payload.document_id',  // Get from parent payload
+          'index_id.$': '$$.Execution.Input.index_id',  // Get from execution input
+          'file_uri.$': '$$.Execution.Input.file_uri',  // Use execution input file_uri as fallback for all segments
+          'media_type.$': '$.Payload.media_type',  // Media type from getDocumentPagesTask output (Payload wrapped)
+          'segment_id.$': '$$.Map.Item.Value.segment_id',  // Get current item from Map iteration
+          'segment_index.$': '$$.Map.Item.Value.segment_index',  // Get current item from Map iteration
+        }),
         timeout: cdk.Duration.minutes(15), // Explicit timeout to match Lambda timeout
         // Only keep essential fields to reduce result size
         resultSelector: {
