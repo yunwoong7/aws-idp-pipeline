@@ -322,10 +322,11 @@ def handle_recreate_index(event: Dict[str, Any]) -> Dict[str, Any]:
 
 def handle_get_opensearch_documents(event: Dict[str, Any]) -> Dict[str, Any]:
     """Retrieve OpenSearch documents by document ID - GET /api/opensearch/documents/{document_id}
-    
+
     Query Parameters:
-    - size: Page size (default: 100, max: 1000)
+    - size: Page size (default: 5000 for metadata_only, 100 for full data, max: 5000 for metadata_only, 1000 for full data)
     - filter_final: 'true' to filter only final_ai_response (default: 'false')
+    - metadata_only: 'true' to return only metadata without content (default: 'false')
     """
     try:
         path_params = event.get('pathParameters', {})
@@ -343,14 +344,17 @@ def handle_get_opensearch_documents(event: Dict[str, Any]) -> Dict[str, Any]:
         
         # Check filtering options
         filter_final_only = query_params.get('filter_final', 'false').lower() == 'true'
-        
-        logger.info(f"🔍 Starting OpenSearch document retrieval: document_id={document_id}, filter_final={filter_final_only}")
+        metadata_only = query_params.get('metadata_only', 'false').lower() == 'true'
+
+        logger.info(f"🔍 Starting OpenSearch document retrieval: document_id={document_id}, filter_final={filter_final_only}, metadata_only={metadata_only}")
         
         opensearch = _get_opensearch_service()
         s3 = _get_s3_service()
         
-        # Set page size
-        size = min(int(query_params.get('size', 100)), 1000)
+        # Set page size - increase default and limit for metadata-only requests
+        default_size = 5000 if metadata_only else 100
+        max_size = 5000 if metadata_only else 1000
+        size = min(int(query_params.get('size', default_size)), max_size)
         
         # Construct direct search query (ensure filters are applied correctly)
         search_body = {
@@ -364,6 +368,19 @@ def handle_get_opensearch_documents(event: Dict[str, Any]) -> Dict[str, Any]:
             },
             "sort": [{"segment_index": {"order": "asc"}}]
         }
+
+        # For metadata-only requests, exclude heavy content fields
+        if metadata_only:
+            search_body["_source"] = {
+                "excludes": [
+                    "tools.bda_indexer.content",
+                    "tools.pdf_text_extractor.content",
+                    "tools.ai_analysis.content",
+                    "tools.user_content.content",
+                    "content_combined",
+                    "vector_content"
+                ]
+            }
         
         logger.info(f"🔍 Search query: {search_body}")
         
@@ -388,8 +405,16 @@ def handle_get_opensearch_documents(event: Dict[str, Any]) -> Dict[str, Any]:
             
             # Process content by tool type (based on filtering option)
             tools = source.get('tools', {})
-            
-            if filter_final_only:
+
+            # If metadata_only is requested, return minimal tool information
+            if metadata_only:
+                tools_detail = {
+                    "bda_indexer": [{"analysis_query": tool.get('analysis_query', ''), "created_at": tool.get('created_at', '')} for tool in tools.get('bda_indexer', [])],
+                    "pdf_text_extractor": [{"analysis_query": tool.get('analysis_query', ''), "created_at": tool.get('created_at', '')} for tool in tools.get('pdf_text_extractor', [])],
+                    "ai_analysis": [{"analysis_query": tool.get('analysis_query', ''), "metadata": tool.get('metadata', {}), "created_at": tool.get('created_at', '')} for tool in tools.get('ai_analysis', [])],
+                    "user_content": [{"analysis_query": tool.get('analysis_query', ''), "created_at": tool.get('created_at', '')} for tool in tools.get('user_content', [])]
+                }
+            elif filter_final_only:
                 # Filter and return only final_ai_response (optimized data size)
                 final_ai_responses = [
                     {

@@ -71,53 +71,52 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
             except Exception as update_error:
                 logger.warning(f"⚠️ Document status update failed (continuing): {str(update_error)}")
         
-        # Query all segments of the document from DynamoDB Segments table
+        # Query all segments of the document from DynamoDB Segments table with pagination support
         try:
-            response = db_service.query_items(
-                table_name='segments',
-                key_condition_expression=Key('document_id').eq(document_id),
-                index_name='DocumentIdIndex'
-            )
-            items = response.get('Items', [])
-            # Extract required fields and include video chapter information directly from items
-            filtered_segments = []
+            items = []
+            last_evaluated_key = None
+
+            # Paginate through all results
+            while True:
+                response = db_service.query_items(
+                    table_name='segments',
+                    key_condition_expression=Key('document_id').eq(document_id),
+                    index_name='DocumentIdIndex',
+                    exclusive_start_key=last_evaluated_key
+                )
+                page_items = response.get('Items', [])
+                items.extend(page_items)
+
+                # Check if there are more pages
+                last_evaluated_key = response.get('LastEvaluatedKey')
+                if not last_evaluated_key:
+                    break
+
+            logger.info(f"Retrieved {len(items)} segments with pagination")
+
+            # Extract only essential segment IDs to stay within 32KB Step Function limit
+            segment_ids = []
             for item in items:
-                segment_data = {
+                segment_info = {
                     'segment_id': item.get('segment_id'),
                     'segment_index': item.get('segment_index', 0),
-                    'image_uri': item.get('image_uri', ''),
-                    'document_id': item.get('document_id')
                 }
-                
-                # 세그먼트 타입 추가 (모든 경우에 대해)
-                segment_type = item.get('segment_type', 'PAGE')  # 기본값은 PAGE
-                segment_data['segment_type'] = segment_type
-                    
-                # 동영상 챕터 시간 정보 추가 (VideoAnalyzerTool용)
-                # Step Function에서 필드를 참조하므로 모든 경우에 대해 기본값 설정
-                start_timecode = item.get('start_timecode_smpte', '')
-                end_timecode = item.get('end_timecode_smpte', '')
-                file_uri = item.get('file_uri', '')
-                
-                segment_data['start_timecode_smpte'] = start_timecode
-                segment_data['end_timecode_smpte'] = end_timecode
-                segment_data['file_uri'] = file_uri
-                    
-                filtered_segments.append(segment_data)
-        except Exception:
-            filtered_segments = []
-        logger.info(f"📊 Number of segments retrieved: {len(filtered_segments)}")
-        
+                segment_ids.append(segment_info)
+        except Exception as e:
+            logger.error(f"Failed to retrieve segments: {str(e)}")
+            segment_ids = []
+        logger.info(f"📊 Number of segments retrieved: {len(segment_ids)}")
+
         # Sort segments by segment_index
-        segments_sorted = sorted(filtered_segments, key=lambda x: int(x.get('segment_index', 0)))
+        segments_sorted = sorted(segment_ids, key=lambda x: int(x.get('segment_index', 0)))
         
         # Log results
         for segment in segments_sorted:
             logger.info(f"  - Segment {segment.get('segment_index')}: {segment.get('segment_id')}")
         
-        # Success response (Step Function compatible - direct data return)
+        # Success response (Step Function compatible - minimal payload)
         result = {
-            'segments': segments_sorted,
+            'segment_ids': segments_sorted,  # Only IDs and indices
             'count': len(segments_sorted),
             'document_id': document_id,
             'index_id': index_id,
@@ -135,7 +134,7 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         # Error response (Step Function compatible - direct data return)
         return {
             'error': error_message,
-            'segments': [],
+            'segment_ids': [],
             'count': 0,
             'timestamp': get_current_timestamp()
         } 

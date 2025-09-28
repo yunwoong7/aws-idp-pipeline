@@ -20,7 +20,7 @@ import { AnalysisInterface } from "./components/analysis-interface";
 import { AnalysisHero } from "./components/analysis-hero";
 import { motion, AnimatePresence } from "framer-motion";
 import { v4 as uuidv4 } from 'uuid';
-import { analysisAgentApi, systemApi } from "@/lib/api";
+import { analysisAgentApi, systemApi, documentApi } from "@/lib/api";
 
 // Import types from chat.types.ts
 import type { Message, AttachedContent, FileAttachment } from "@/types/chat.types";
@@ -159,6 +159,10 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
     return hookSelectedSegmentId || null;
   }, [analysisData, selectedSegment, hookSelectedSegmentId]);
 
+  // Segment detail state (similar to DocumentDetailDialog)
+  const [currentSegmentDetail, setCurrentSegmentDetail] = useState<any>(null);
+  const [segmentDetailLoading, setSegmentDetailLoading] = useState(false);
+
   // Local non-persistent states
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
@@ -211,6 +215,45 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
       hookViewDocument(selectedDocument);
     }
   }, [selectedDocument, selectedDocument?.document_id, analysisData, analysisData?.length, analysisLoading, hookViewDocument]);
+
+  // Fetch segment detail when selectedSegmentId changes (similar to DocumentDetailDialog)
+  useEffect(() => {
+    if (!selectedDocument || !selectedSegmentId || !indexId) {
+      setCurrentSegmentDetail(null);
+      return;
+    }
+
+    (async () => {
+      setSegmentDetailLoading(true);
+      try {
+        console.log('🔍 [AnalysisTab] Fetching segment detail:', {
+          indexId,
+          documentId: selectedDocument.document_id,
+          segmentId: selectedSegmentId,
+          selectedSegment
+        });
+
+        const segmentDetail = await documentApi.getSegmentDetail(
+          indexId,
+          selectedDocument.document_id,
+          selectedSegmentId
+        );
+
+        console.log('📄 [AnalysisTab] Segment detail loaded:', {
+          segmentId: selectedSegmentId,
+          analysis_results_count: segmentDetail?.analysis_results?.length || 0,
+          segmentDetail
+        });
+
+        setCurrentSegmentDetail(segmentDetail);
+      } catch (error) {
+        console.error('❌ [AnalysisTab] Failed to load segment detail:', error);
+        setCurrentSegmentDetail(null);
+      } finally {
+        setSegmentDetailLoading(false);
+      }
+    })();
+  }, [selectedDocument?.document_id, selectedSegmentId, indexId, selectedSegment]);
 
   // Reset image state when document changes
   useEffect(() => {
@@ -1241,6 +1284,7 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
           totalSegments={totalSegments}
           analysisData={analysisData}
           analysisLoading={analysisLoading}
+          currentSegmentDetail={currentSegmentDetail}
           zoomedImage={zoomedImage}
           onDocumentSelect={() => setShowDocumentSelect(true)}
           onZoomIn={handleZoomIn}
@@ -1668,7 +1712,7 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
         isOpen={analysisPopup.isOpen}
         type={analysisPopup.type}
         selectedSegment={selectedSegment}
-        analysisData={analysisData}
+        analysisData={currentSegmentDetail ? currentSegmentDetail.analysis_results || [] : []}
         onClose={() => setAnalysisPopup({ type: null, isOpen: false })}
       />
       

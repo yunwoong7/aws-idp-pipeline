@@ -216,7 +216,7 @@ interface DocumentPreviewProps {
   // Document related
   selectedDocument: Document | null;
   indexId?: string;
-  
+
   // Image state
   imageZoom: number;
   imageRotation: number;
@@ -225,15 +225,16 @@ interface DocumentPreviewProps {
   imageLoading: boolean;
   isDragging: boolean;
   dragStart: { x: number; y: number };
-  
+
   // Segment state
   selectedSegment: number;
   totalSegments: number;
-  
-  // Analysis data
+
+  // Analysis data - now expecting segment detail format
   analysisData: any[];
   analysisLoading: boolean;
-  
+  currentSegmentDetail?: any; // Current segment's detailed analysis data
+
   // Zoomed image state
   zoomedImage: ZoomedImageState;
   
@@ -269,6 +270,7 @@ export function DocumentPreview({
   totalSegments,
   analysisData,
   analysisLoading,
+  currentSegmentDetail,
   zoomedImage,
   onDocumentSelect,
   onZoomIn,
@@ -329,7 +331,7 @@ export function DocumentPreview({
     if (!Array.isArray(data) || data.length === 0) {
       return { bda: 0, pdf: 0, ai: 0 };
     }
-    
+
     let counts = { bda: 0, pdf: 0, ai: 0 };
     data.forEach((item: any) => {
       if (item.tool_name === 'bda_indexer') counts.bda++;
@@ -339,27 +341,27 @@ export function DocumentPreview({
     return counts;
   };
 
-  const getSegmentCounts = (data: any[], segmentIndex: number) => {
-    if (!Array.isArray(data) || data.length === 0) {
+  // Get current segment counts from segment detail
+  const getCurrentSegmentCounts = (segmentDetail: any) => {
+    if (!segmentDetail?.analysis_results) {
       return { bda: 0, pdf: 0, ai: 0 };
     }
-    
+
+    const analysisResults = segmentDetail.analysis_results || [];
     let counts = { bda: 0, pdf: 0, ai: 0 };
-    data.forEach((item: any) => {
-      const itemSegmentIndex = (typeof item.segment_index === 'number' ? item.segment_index : undefined) ??
-                             (typeof item.page_index === 'number' ? item.page_index : undefined);
-      
-      if (itemSegmentIndex === segmentIndex) {
-        if (item.tool_name === 'bda_indexer') counts.bda++;
-        else if (item.tool_name === 'pdf_text_extractor') counts.pdf++;
-        else if (item.tool_name === 'ai_analysis') counts.ai++;
-      }
+
+    analysisResults.forEach((result: any) => {
+      const toolName = result.tool_name;
+      if (toolName === 'bda_indexer') counts.bda++;
+      else if (toolName === 'pdf_text_extractor') counts.pdf++;
+      else if (toolName === 'ai_analysis') counts.ai++;
     });
+
     return counts;
   };
 
   const allCounts = getAllCounts(analysisData);
-  const currentSegmentCounts = getSegmentCounts(analysisData, selectedSegment);
+  const currentSegmentCounts = getCurrentSegmentCounts(currentSegmentDetail);
 
   const isVideo = !!selectedDocument && (selectedDocument.file_type.includes('video') || ['mp4', 'avi', 'mov', 'wmv', 'mkv', 'webm'].some(ext => selectedDocument.file_name.toLowerCase().endsWith(ext)));
 
@@ -464,28 +466,20 @@ export function DocumentPreview({
                   {/* Analysis Results Summary for Video - Compact with integrated buttons */}
                   <div className="w-full pt-1 mt-2">
                     <div className="px-3 py-2 bg-gradient-to-r from-slate-800/50 to-slate-700/50 rounded-md border border-white/10 space-y-3">
-                      {/* Header */}
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <div className="h-4 w-4 text-cyan-300">
-                            <svg className="w-full h-full" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                            </svg>
-                          </div>
-                          <span className="text-sm text-white font-medium">Total Analysis Results</span>
-                          {analysisLoading && (
-                            <div className="w-3 h-3 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin"></div>
-                          )}
-                        </div>
-                        <Badge variant="outline" className="text-cyan-300 border-cyan-400/30 bg-cyan-500/10 font-semibold text-sm px-2 py-0.5">
-                          {analysisLoading ? 'Loading...' : `${allCounts.bda + allCounts.pdf + allCounts.ai}개`}
-                        </Badge>
-                      </div>
-                      
                       {/* Compact Analysis Type Buttons */}
                       <div className="grid grid-cols-3 gap-1.5">
                         <button
-                          onClick={() => currentSegmentCounts.bda > 0 && onAnalysisPopup({ type: 'bda', isOpen: true })}
+                          onClick={() => {
+                            console.log('🔍 [DocumentPreview] BDA analysis clicked (video)', {
+                              currentSegmentCounts,
+                              bda: currentSegmentCounts.bda,
+                              currentSegmentDetail,
+                              analysis_results: currentSegmentDetail?.analysis_results
+                            });
+                            if (currentSegmentCounts.bda > 0) {
+                              onAnalysisPopup({ type: 'bda', isOpen: true });
+                            }
+                          }}
                           disabled={currentSegmentCounts.bda === 0}
                           className={`flex items-center justify-between px-2 py-1.5 rounded border transition-all duration-200 group ${
                             currentSegmentCounts.bda > 0
@@ -495,8 +489,8 @@ export function DocumentPreview({
                         >
                           <div className="flex items-center gap-1">
                             <div className={`w-1.5 h-1.5 rounded-full ${
-                              currentSegmentCounts.bda > 0 
-                                ? 'bg-slate-400 group-hover:animate-pulse' 
+                              currentSegmentCounts.bda > 0
+                                ? 'bg-slate-400 group-hover:animate-pulse'
                                 : 'bg-slate-600'
                             }`}></div>
                             <span className={`text-xs font-medium ${
@@ -504,16 +498,26 @@ export function DocumentPreview({
                             }`}>BDA</span>
                           </div>
                           <span className={`text-sm font-bold transition-transform ${
-                            currentSegmentCounts.bda > 0 
-                              ? 'text-white group-hover:scale-110' 
+                            currentSegmentCounts.bda > 0
+                              ? 'text-white group-hover:scale-110'
                               : 'text-slate-600'
                           }`}>
                             {currentSegmentCounts.bda}
                           </span>
                         </button>
-                        
+
                         <button
-                          onClick={() => currentSegmentCounts.pdf > 0 && onAnalysisPopup({ type: 'pdf', isOpen: true })}
+                          onClick={() => {
+                            console.log('🔍 [DocumentPreview] PDF analysis clicked (video)', {
+                              currentSegmentCounts,
+                              pdf: currentSegmentCounts.pdf,
+                              currentSegmentDetail,
+                              analysis_results: currentSegmentDetail?.analysis_results
+                            });
+                            if (currentSegmentCounts.pdf > 0) {
+                              onAnalysisPopup({ type: 'pdf', isOpen: true });
+                            }
+                          }}
                           disabled={currentSegmentCounts.pdf === 0}
                           className={`flex items-center justify-between px-2 py-1.5 rounded border transition-all duration-200 group ${
                             currentSegmentCounts.pdf > 0
@@ -523,8 +527,8 @@ export function DocumentPreview({
                         >
                           <div className="flex items-center gap-1">
                             <div className={`w-1.5 h-1.5 rounded-full ${
-                              currentSegmentCounts.pdf > 0 
-                                ? 'bg-slate-400 group-hover:animate-pulse' 
+                              currentSegmentCounts.pdf > 0
+                                ? 'bg-slate-400 group-hover:animate-pulse'
                                 : 'bg-slate-600'
                             }`}></div>
                             <span className={`text-xs font-medium ${
@@ -532,16 +536,26 @@ export function DocumentPreview({
                             }`}>PDF</span>
                           </div>
                           <span className={`text-sm font-bold transition-transform ${
-                            currentSegmentCounts.pdf > 0 
-                              ? 'text-white group-hover:scale-110' 
+                            currentSegmentCounts.pdf > 0
+                              ? 'text-white group-hover:scale-110'
                               : 'text-slate-600'
                           }`}>
                             {currentSegmentCounts.pdf}
                           </span>
                         </button>
-                        
+
                         <button
-                          onClick={() => currentSegmentCounts.ai > 0 && onAnalysisPopup({ type: 'ai', isOpen: true })}
+                          onClick={() => {
+                            console.log('🔍 [DocumentPreview] AI analysis clicked (video)', {
+                              currentSegmentCounts,
+                              ai: currentSegmentCounts.ai,
+                              currentSegmentDetail,
+                              analysis_results: currentSegmentDetail?.analysis_results
+                            });
+                            if (currentSegmentCounts.ai > 0) {
+                              onAnalysisPopup({ type: 'ai', isOpen: true });
+                            }
+                          }}
                           disabled={currentSegmentCounts.ai === 0}
                           className={`flex items-center justify-between px-2 py-1.5 rounded border transition-all duration-200 group ${
                             currentSegmentCounts.ai > 0
@@ -551,8 +565,8 @@ export function DocumentPreview({
                         >
                           <div className="flex items-center gap-1">
                             <div className={`w-1.5 h-1.5 rounded-full ${
-                              currentSegmentCounts.ai > 0 
-                                ? 'bg-slate-400 group-hover:animate-pulse' 
+                              currentSegmentCounts.ai > 0
+                                ? 'bg-slate-400 group-hover:animate-pulse'
                                 : 'bg-slate-600'
                             }`}></div>
                             <span className={`text-xs font-medium ${
@@ -560,8 +574,8 @@ export function DocumentPreview({
                             }`}>AI</span>
                           </div>
                           <span className={`text-sm font-bold transition-transform ${
-                            currentSegmentCounts.ai > 0 
-                              ? 'text-white group-hover:scale-110' 
+                            currentSegmentCounts.ai > 0
+                              ? 'text-white group-hover:scale-110'
                               : 'text-slate-600'
                           }`}>
                             {currentSegmentCounts.ai}
@@ -740,28 +754,20 @@ export function DocumentPreview({
                   {/* Analysis Results Summary - Compact with integrated buttons */}
                   <div className="w-full pt-1 mt-2">
                     <div className="px-3 py-2 bg-gradient-to-r from-slate-800/50 to-slate-700/50 rounded-md border border-white/10 space-y-3">
-                      {/* Header */}
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <div className="h-4 w-4 text-cyan-300">
-                            <svg className="w-full h-full" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                            </svg>
-                          </div>
-                          <span className="text-sm text-white font-medium">Total Analysis Results</span>
-                          {analysisLoading && (
-                            <div className="w-3 h-3 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin"></div>
-                          )}
-                        </div>
-                        <Badge variant="outline" className="text-cyan-300 border-cyan-400/30 bg-cyan-500/10 font-semibold text-sm px-2 py-0.5">
-                          {analysisLoading ? 'Loading...' : `${allCounts.bda + allCounts.pdf + allCounts.ai} results`}
-                        </Badge>
-                      </div>
-                      
                       {/* Compact Analysis Type Buttons */}
                       <div className="grid grid-cols-3 gap-1.5">
                         <button
-                          onClick={() => currentSegmentCounts.bda > 0 && onAnalysisPopup({ type: 'bda', isOpen: true })}
+                          onClick={() => {
+                            console.log('🔍 [DocumentPreview] BDA analysis clicked (image)', {
+                              currentSegmentCounts,
+                              bda: currentSegmentCounts.bda,
+                              currentSegmentDetail,
+                              analysis_results: currentSegmentDetail?.analysis_results
+                            });
+                            if (currentSegmentCounts.bda > 0) {
+                              onAnalysisPopup({ type: 'bda', isOpen: true });
+                            }
+                          }}
                           disabled={currentSegmentCounts.bda === 0}
                           className={`flex items-center justify-between px-2 py-1.5 rounded border transition-all duration-200 group ${
                             currentSegmentCounts.bda > 0
@@ -771,8 +777,8 @@ export function DocumentPreview({
                         >
                           <div className="flex items-center gap-1">
                             <div className={`w-1.5 h-1.5 rounded-full ${
-                              currentSegmentCounts.bda > 0 
-                                ? 'bg-slate-400 group-hover:animate-pulse' 
+                              currentSegmentCounts.bda > 0
+                                ? 'bg-slate-400 group-hover:animate-pulse'
                                 : 'bg-slate-600'
                             }`}></div>
                             <span className={`text-xs font-medium ${
@@ -780,16 +786,26 @@ export function DocumentPreview({
                             }`}>BDA</span>
                           </div>
                           <span className={`text-sm font-bold transition-transform ${
-                            currentSegmentCounts.bda > 0 
-                              ? 'text-white group-hover:scale-110' 
+                            currentSegmentCounts.bda > 0
+                              ? 'text-white group-hover:scale-110'
                               : 'text-slate-600'
                           }`}>
                             {currentSegmentCounts.bda}
                           </span>
                         </button>
-                        
+
                         <button
-                          onClick={() => currentSegmentCounts.pdf > 0 && onAnalysisPopup({ type: 'pdf', isOpen: true })}
+                          onClick={() => {
+                            console.log('🔍 [DocumentPreview] PDF analysis clicked (image)', {
+                              currentSegmentCounts,
+                              pdf: currentSegmentCounts.pdf,
+                              currentSegmentDetail,
+                              analysis_results: currentSegmentDetail?.analysis_results
+                            });
+                            if (currentSegmentCounts.pdf > 0) {
+                              onAnalysisPopup({ type: 'pdf', isOpen: true });
+                            }
+                          }}
                           disabled={currentSegmentCounts.pdf === 0}
                           className={`flex items-center justify-between px-2 py-1.5 rounded border transition-all duration-200 group ${
                             currentSegmentCounts.pdf > 0
@@ -799,8 +815,8 @@ export function DocumentPreview({
                         >
                           <div className="flex items-center gap-1">
                             <div className={`w-1.5 h-1.5 rounded-full ${
-                              currentSegmentCounts.pdf > 0 
-                                ? 'bg-slate-400 group-hover:animate-pulse' 
+                              currentSegmentCounts.pdf > 0
+                                ? 'bg-slate-400 group-hover:animate-pulse'
                                 : 'bg-slate-600'
                             }`}></div>
                             <span className={`text-xs font-medium ${
@@ -808,16 +824,26 @@ export function DocumentPreview({
                             }`}>PDF</span>
                           </div>
                           <span className={`text-sm font-bold transition-transform ${
-                            currentSegmentCounts.pdf > 0 
-                              ? 'text-white group-hover:scale-110' 
+                            currentSegmentCounts.pdf > 0
+                              ? 'text-white group-hover:scale-110'
                               : 'text-slate-600'
                           }`}>
                             {currentSegmentCounts.pdf}
                           </span>
                         </button>
-                        
+
                         <button
-                          onClick={() => currentSegmentCounts.ai > 0 && onAnalysisPopup({ type: 'ai', isOpen: true })}
+                          onClick={() => {
+                            console.log('🔍 [DocumentPreview] AI analysis clicked (image)', {
+                              currentSegmentCounts,
+                              ai: currentSegmentCounts.ai,
+                              currentSegmentDetail,
+                              analysis_results: currentSegmentDetail?.analysis_results
+                            });
+                            if (currentSegmentCounts.ai > 0) {
+                              onAnalysisPopup({ type: 'ai', isOpen: true });
+                            }
+                          }}
                           disabled={currentSegmentCounts.ai === 0}
                           className={`flex items-center justify-between px-2 py-1.5 rounded border transition-all duration-200 group ${
                             currentSegmentCounts.ai > 0
@@ -827,8 +853,8 @@ export function DocumentPreview({
                         >
                           <div className="flex items-center gap-1">
                             <div className={`w-1.5 h-1.5 rounded-full ${
-                              currentSegmentCounts.ai > 0 
-                                ? 'bg-slate-400 group-hover:animate-pulse' 
+                              currentSegmentCounts.ai > 0
+                                ? 'bg-slate-400 group-hover:animate-pulse'
                                 : 'bg-slate-600'
                             }`}></div>
                             <span className={`text-xs font-medium ${
@@ -836,8 +862,8 @@ export function DocumentPreview({
                             }`}>AI</span>
                           </div>
                           <span className={`text-sm font-bold transition-transform ${
-                            currentSegmentCounts.ai > 0 
-                              ? 'text-white group-hover:scale-110' 
+                            currentSegmentCounts.ai > 0
+                              ? 'text-white group-hover:scale-110'
                               : 'text-slate-600'
                           }`}>
                             {currentSegmentCounts.ai}

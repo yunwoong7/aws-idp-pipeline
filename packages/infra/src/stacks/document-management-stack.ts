@@ -306,9 +306,9 @@ export class DocumentManagementStack extends cdk.Stack {
         path: '/api/opensearch/documents/{document_id}',
         methods: [apigw.HttpMethod.GET],
       },
-      // GET /api/opensearch/documents/{document_id}/segments/{segment_id} - Retrieve specific document+segment
+      // GET /api/opensearch/projects/{project_id}/documents/{document_id}/segments/{segment_index} - Retrieve specific document+segment
       {
-        path: '/api/opensearch/documents/{document_id}/segments/{segment_id}',
+        path: '/api/opensearch/projects/{project_id}/documents/{document_id}/segments/{segment_index}',
         methods: [apigw.HttpMethod.GET],
       },
       // POST /api/opensearch/search/hybrid - Hybrid search

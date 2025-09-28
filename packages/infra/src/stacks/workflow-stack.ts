@@ -465,7 +465,7 @@ export class WorkflowStack extends cdk.Stack {
       deadLetterQueueEnabled: false,
       commonLayer: commonLayer,
       timeout: cdk.Duration.minutes(10),
-      memorySize: 2048,
+      memorySize: 8192,
       // VPC setup (deployed in the same VPC as the OpenSearch domain)
       vpc: (vpc && opensearchDomain) ? vpc : undefined,
       stage: stage,
@@ -1443,19 +1443,16 @@ export class WorkflowStack extends cdk.Stack {
     const reactAnalysisParallelMap = new sfn.Map(this, 'ReactAnalysisParallelMap', {
       comment: 'Process each segment in parallel using ReAct analysis',
       maxConcurrency: stepFunctionsConfig.maxConcurrency,
-      itemsPath: '$.Payload.segments',
+      itemsPath: '$.Payload.segment_ids',  // Changed to use minimal segment_ids array
       parameters: {
-        'document_id.$': '$$.Map.Item.Value.document_id',  // Get current item from Map iteration
+        'document_id.$': '$.Payload.document_id',  // Get from parent payload
         'index_id.$': '$$.Execution.Input.index_id',  // Get from execution input
         'file_uri.$': '$$.Execution.Input.file_uri',  // Use execution input file_uri as fallback for all segments
         'media_type.$': '$.Payload.media_type',  // Media type from getDocumentPagesTask output (Payload wrapped)
         'segment_id.$': '$$.Map.Item.Value.segment_id',  // Get current item from Map iteration
         'segment_index.$': '$$.Map.Item.Value.segment_index',  // Get current item from Map iteration
-        'image_uri.$': '$$.Map.Item.Value.image_uri',  // Get current item from Map iteration
-        'segment_type.$': '$$.Map.Item.Value.segment_type',  // Get segment type for video chapters (optional)
-        'start_timecode_smpte.$': '$$.Map.Item.Value.start_timecode_smpte',  // Video chapter start time (optional)
-        'end_timecode_smpte.$': '$$.Map.Item.Value.end_timecode_smpte',  // Video chapter end time (optional)
       },
+      resultPath: sfn.JsonPath.DISCARD,  // Discard Map results to avoid size limit issues with large documents
     });
 
     // 8. Single segment ReAct analysis task
@@ -1466,6 +1463,13 @@ export class WorkflowStack extends cdk.Stack {
         lambdaFunction: reactAnalysisLambda,
         comment: 'Perform ReAct analysis on a single segment',
         payload: sfn.TaskInput.fromJsonPathAt('$'),
+        timeout: cdk.Duration.minutes(15), // Explicit timeout to match Lambda timeout
+        // Only keep essential fields to reduce result size
+        resultSelector: {
+          'segment_id.$': '$.Payload.segment_id',
+          'document_id.$': '$.Payload.document_id',
+          'success.$': '$.Payload.success',
+        },
       },
     );
 
@@ -1478,9 +1482,15 @@ export class WorkflowStack extends cdk.Stack {
         comment: 'Finalize single segment - combine content and create embedding for this segment',
         payload: sfn.TaskInput.fromObject({
           'index_id.$': '$$.Execution.Input.index_id',
-          'document_id.$': '$.Payload.document_id',
-          'segment_id.$': '$.Payload.segment_id',
+          'document_id.$': '$.document_id',  // Get from previous step's result
+          'segment_id.$': '$.segment_id',  // Get from previous step's result
         }),
+        timeout: cdk.Duration.minutes(15), // Explicit timeout to match Lambda timeout
+        // Only keep minimal result to avoid accumulating large data in Map state
+        resultSelector: {
+          'document_id.$': '$.Payload.document_id',
+          'success.$': '$.Payload.success',
+        },
       },
     );
 

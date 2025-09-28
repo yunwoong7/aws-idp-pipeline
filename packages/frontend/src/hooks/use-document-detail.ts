@@ -255,17 +255,16 @@ export const useDocumentDetail = (indexId: string, externalSelectedDocument?: Do
 
         try {
             setAnalysisLoading(true);
-            const data = await documentApi.getAnalysisData(indexId, docId);
-            console.log('Analysis data fetch success:', data);
+            const data = await documentApi.getDocumentDetail(docId, indexId);
+            console.log('Document detail fetch success:', data);
             console.log('API response structure check (segments expected):', {
-                hasData: !!data?.data,
-                hasSegments: !!(data?.data?.segments || data?.segments),
-                segmentCount: (data?.data?.segments || data?.segments || []).length,
+                hasSegments: !!(data?.segments),
+                segmentCount: (data?.segments || []).length,
             });
 
             // 새 segment 기반 구조로 변환
             const convertedAnalysisData: AnalysisDocument[] = [];
-            const segments = data?.data?.segments || data?.segments || [];
+            const segments = data?.segments || [];
 
             console.log('🔍 [DEBUG] Segments data from API:', segments);
             console.log('🔍 [DEBUG] First segment status:', segments?.[0]?.status);
@@ -280,59 +279,30 @@ export const useDocumentDetail = (indexId: string, externalSelectedDocument?: Do
                 } catch {
                     setSegmentStartTimecodes([]);
                 }
+
+                // 기본 segment 정보만으로 분석 데이터 생성 (상세 분석은 개별 조회시 처리)
                 segments.forEach((segment: any) => {
-                    const tools = segment?.tools_detail || {};
-                    const toolTypes = ['bda_indexer', 'pdf_text_extractor', 'ai_analysis', 'user_content'];
-                    toolTypes.forEach((toolName) => {
-                        const toolResults: any[] = Array.isArray(tools[toolName]) ? tools[toolName] : [];
-                        toolResults.forEach((result, index) => {
-                            convertedAnalysisData.push({
-                                opensearch_doc_id: `${segment.segment_id || segment.page_id}_${toolName}_${index}`,
-                                score: null,
-                                index_id: segment.index_id || data?.data?.index_id || indexId,
-                                document_id: segment.document_id || data?.data?.document_id,
-                                segment_id: segment.segment_id,
-                                segment_index: segment.segment_index,
-                                page_number: typeof segment.segment_index === 'number' ? segment.segment_index + 1 : undefined,
-                                page_index: segment.segment_index,
-                                tool_name: toolName,
-                                content: result?.content || '',
-                                analysis_query: result?.analysis_query || `${toolName} 분석`,
-                                vector_dimensions: 0,
-                                file_uri: segment.file_uri || '',
-                                file_path: segment.file_uri || '',
-                                image_file_uri: segment.image_uri || '',
-                                image_path: segment.image_uri || '',
-                                execution_time: null,
-                                created_at: result?.created_at || segment.created_at,
-                                data_structure: 'segment_unit',
-                            } as any);
-                        });
-                    });
-                    // 도구가 전혀 없는 세그먼트도 최소 카드로 표시
-                    if (!segment?.tools_detail || Object.keys(segment.tools_detail).length === 0) {
-                        convertedAnalysisData.push({
-                            opensearch_doc_id: segment.segment_id || segment.page_id,
-                            score: null,
-                            index_id: segment.index_id || data?.data?.index_id || indexId,
-                            document_id: segment.document_id || data?.data?.document_id,
-                            segment_id: segment.segment_id,
-                            segment_index: segment.segment_index,
-                            page_number: typeof segment.segment_index === 'number' ? segment.segment_index + 1 : undefined,
-                            page_index: segment.segment_index,
-                            tool_name: 'segment_info',
-                            content: `Segment ${typeof segment.segment_index === 'number' ? segment.segment_index + 1 : ''} - No analysis data available`,
-                            analysis_query: '세그먼트 기본 정보',
-                            vector_dimensions: 0,
-                            file_uri: segment.file_uri || '',
-                            file_path: segment.file_uri || '',
-                            image_file_uri: segment.image_uri || '',
-                            image_path: segment.image_uri || '',
-                            execution_time: null,
-                            created_at: segment.created_at,
-                            data_structure: 'segment_unit',
-                        } as any);
-                    }
+                    convertedAnalysisData.push({
+                        opensearch_doc_id: segment.segment_id || `segment_${segment.segment_index}`,
+                        score: null,
+                        index_id: segment.index_id || indexId,
+                        document_id: segment.document_id || docId,
+                        segment_id: segment.segment_id,
+                        segment_index: segment.segment_index,
+                        page_number: typeof segment.segment_index === 'number' ? segment.segment_index + 1 : undefined,
+                        page_index: segment.segment_index,
+                        tool_name: 'segment_info',
+                        content: `Segment ${typeof segment.segment_index === 'number' ? segment.segment_index + 1 : ''} - Status: ${segment.status || 'pending'}`,
+                        analysis_query: '세그먼트 기본 정보',
+                        vector_dimensions: 0,
+                        file_uri: segment.file_uri || '',
+                        file_path: segment.file_uri || '',
+                        image_file_uri: segment.image_uri || '',
+                        image_path: segment.image_uri || '',
+                        execution_time: null,
+                        created_at: segment.created_at,
+                        data_structure: 'segment_unit',
+                    } as any);
                 });
             }
 
@@ -442,40 +412,8 @@ export const useDocumentDetail = (indexId: string, externalSelectedDocument?: Do
                 });
             }
             
-            // 분석 데이터 조회
+            // 분석 데이터 조회 (getDocumentDetail이 segment 정보도 함께 반환)
             if (documentId) {
-                // 병렬로 상세 정보 호출하여 segment_images에서 status/이미지 반영
-                (async () => {
-                    try {
-                        const detail = await documentApi.getDocumentDetail(documentId, indexId);
-                        const detailData = detail?.data || detail;
-                        const segmentImages = detailData?.segment_images;
-                        if (Array.isArray(segmentImages) && segmentImages.length > 0) {
-                            // page_images로도 채워서 기존 경로 재사용
-                            const pageImages = segmentImages
-                                .sort((a: any, b: any) => (a.segment_index ?? 0) - (b.segment_index ?? 0))
-                                .map((seg: any) => ({
-                                    page_number: typeof seg.segment_index === 'number' ? seg.segment_index + 1 : 1,
-                                    page_index: seg.segment_index,
-                                    image_uri: seg.image_uri,
-                                    image_url: seg.image_uri,
-                                    file_uri: seg.file_uri,
-                                    image_file_uri: seg.image_uri,
-                                    page_status: seg.status,
-                                }));
-
-                            setSelectedDocument(prev => prev ? { ...prev, page_images: pageImages } : prev);
-                            if (updateExternalDocument && externalSelectedDocument) {
-                                updateExternalDocument({
-                                    selectedDocument: { ...externalSelectedDocument, page_images: pageImages }
-                                });
-                            }
-                        }
-                    } catch (e) {
-                        console.warn('⚠️ Failed to fetch document detail for segments:', e);
-                    }
-                })();
-
                 fetchAnalysisData(documentId, updateExternalDocument);
             }
         }

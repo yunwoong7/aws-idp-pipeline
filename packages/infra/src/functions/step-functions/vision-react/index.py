@@ -84,15 +84,15 @@ class LambdaVisionReactHandler:
             document_id = segment_data['document_id']
             segment_index = segment_data['segment_index']
             segment_id = segment_data['segment_id']
-            image_uri = segment_data['image_uri']
-            file_path = segment_data['file_path']
+            image_uri = segment_data.get('image_uri', '')  # May be empty for non-image segments
+            file_path = segment_data.get('file_path', '')
             thread_id = segment_data.get('thread_id')
-            
+
             # Video chapter info
-            segment_type = segment_data.get('segment_type')
-            start_timecode_smpte = segment_data.get('start_timecode_smpte')
-            end_timecode_smpte = segment_data.get('end_timecode_smpte')
-            
+            segment_type = segment_data.get('segment_type', 'PAGE')
+            start_timecode_smpte = segment_data.get('start_timecode_smpte', '')
+            end_timecode_smpte = segment_data.get('end_timecode_smpte', '')
+
             # Media type
             media_type = segment_data.get('media_type', 'DOCUMENT')
             
@@ -309,20 +309,33 @@ def lambda_handler(event, context):
         # Run async analysis
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        
+
         try:
+            # Get essential segment details from DynamoDB using single query (optimized for minimal latency)
+            segment_id = event['segment_id']
+
+            segment_details = db_service.get_item(
+                table_name='segments',
+                key={'segment_id': segment_id}
+            )
+
+            if not segment_details:
+                raise Exception(f"Segment not found in database: {segment_id}")
+
+            logger.info(f"✅ Retrieved segment details for segment_id: {segment_id}")
+
             # Convert event to segment data
             segment_data = {
                 'index_id': event['index_id'],
                 'document_id': event['document_id'],
-                'segment_index': event['segment_index'],
-                'segment_id': event['segment_id'],
-                'image_uri': event['image_uri'],
-                'file_path': event.get('file_uri', ''),
+                'segment_index': event.get('segment_index', segment_details.get('segment_index', 0)),
+                'segment_id': segment_id,
+                'image_uri': segment_details.get('image_uri', ''),
+                'file_path': event.get('file_uri', segment_details.get('file_uri', '')),
                 'thread_id': event.get('thread_id'),
-                'segment_type': event.get('segment_type'),
-                'start_timecode_smpte': event.get('start_timecode_smpte'),
-                'end_timecode_smpte': event.get('end_timecode_smpte'),
+                'segment_type': segment_details.get('segment_type', 'PAGE'),
+                'start_timecode_smpte': segment_details.get('start_timecode_smpte', ''),
+                'end_timecode_smpte': segment_details.get('end_timecode_smpte', ''),
                 'media_type': event.get('media_type', 'DOCUMENT')
             }
             

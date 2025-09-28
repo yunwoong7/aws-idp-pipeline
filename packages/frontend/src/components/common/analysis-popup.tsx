@@ -50,18 +50,16 @@ export function AnalysisPopup({
     }
   }, []);
 
-  // Filter analysis items by tool type and current segment
+  // Filter analysis items by tool type (segment is already filtered when passed)
   const collectAnalysisItems = useCallback((toolType: 'bda_indexer' | 'pdf_text_extractor' | 'ai_analysis') => {
     const filteredItems = analysisData.filter((item: any) => {
       const matchesTool = item.tool_name === toolType;
-      const itemSegmentIndex = (typeof item.segment_index === 'number' ? item.segment_index : undefined) ??
-                             (typeof item.page_index === 'number' ? item.page_index : undefined);
-      const matchesSegment = itemSegmentIndex === selectedSegment;
-      return matchesTool && matchesSegment;
+      return matchesTool;
     });
-    console.log(`📋 collectAnalysisItems - ${toolType} items for segment ${selectedSegment}:`, filteredItems.length);
+    console.log(`📋 collectAnalysisItems - ${toolType} items:`, filteredItems.length);
+    console.log(`📋 Sample item:`, filteredItems[0]);
     return filteredItems;
-  }, [analysisData, selectedSegment]);
+  }, [analysisData]);
 
   // Hook-safe derived values (must be before any early return)
   const toolType = type === 'bda' ? 'bda_indexer' : type === 'pdf' ? 'pdf_text_extractor' : type === 'ai' ? 'ai_analysis' : null;

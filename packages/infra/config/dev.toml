@@ -78,7 +78,7 @@ runtime = "python3.13"
 [stepfunctions]
 # Step Functions 워크플로우 설정
 documentProcessingTimeout = 60  # 문서 처리 워크플로우 제한 시간 (분)
-maxConcurrency = 1  # ReactAnalysis 병렬 처리 최대 동시 실행 수
+maxConcurrency = 50  # ReactAnalysis 병렬 처리 최대 동시 실행 수
 
 [sqs]
 # SQS 설정

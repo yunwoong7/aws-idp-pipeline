@@ -100,13 +100,19 @@ class AWSClientFactory:
         return cls._instances[key]
     
     @classmethod
-    def get_bedrock_runtime_client(cls, region: Optional[str] = None) -> boto3.client:
-        """Get Bedrock Runtime client for embeddings."""
-        key = f"bedrock_runtime_{region or 'default'}"
+    def get_bedrock_runtime_client(cls, region: Optional[str] = None, timeout: int = 300) -> boto3.client:
+        """Get Bedrock Runtime client with configurable timeout."""
+        key = f"bedrock_runtime_{region or 'default'}_{timeout}"
         if key not in cls._instances:
+            config = Config(
+                read_timeout=timeout,  # 5 minutes for AI model processing
+                connect_timeout=60,    # 1 minute for connection
+                retries={'max_attempts': 3, 'mode': 'adaptive'}
+            )
             cls._instances[key] = boto3.client(
                 'bedrock-runtime',
-                region_name=region or os.environ.get('AWS_REGION', 'us-west-2')
+                region_name=region or os.environ.get('AWS_REGION', 'us-west-2'),
+                config=config
             )
         return cls._instances[key]
     

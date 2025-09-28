@@ -102,7 +102,7 @@ export default function IndexesPage() {
             </div>
 
             {/* Card grid (3D pin style) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-4 mb-8">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-12 md:gap-16 mb-8">
               {/* Create card (3D pin) */}
               <PinContainer title="Create an index" href="#" onClick={(e) => { e.preventDefault(); setOpenCreate(true); }} containerClassName="h-72 relative z-10">
                 <div className="flex flex-col p-4 tracking-tight text-slate-100/80 w-[18rem] h-[18rem] bg-gradient-to-b from-slate-800/50 to-slate-800/0 backdrop-blur-sm border border-slate-700/50 rounded-2xl items-center justify-center">

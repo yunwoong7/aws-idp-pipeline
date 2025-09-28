@@ -211,10 +211,10 @@ function DocumentItemComponent({
                             </div>
                             <div className="flex-1 min-w-0">
                                 <h3 className="text-sm font-medium text-white leading-tight mb-1 break-all" title={document.file_name}>
-                                    <span className="hidden xl:inline">{truncateFilename(document.file_name, 35)}</span>
-                                    <span className="hidden lg:inline xl:hidden">{truncateFilename(document.file_name, 25)}</span>
-                                    <span className="hidden md:inline lg:hidden">{truncateFilename(document.file_name, 20)}</span>
-                                    <span className="inline md:hidden">{truncateFilename(document.file_name, 15)}</span>
+                                    <span className="hidden xl:inline">{truncateFilename(document.file_name, 60)}</span>
+                                    <span className="hidden lg:inline xl:hidden">{truncateFilename(document.file_name, 45)}</span>
+                                    <span className="hidden md:inline lg:hidden">{truncateFilename(document.file_name, 35)}</span>
+                                    <span className="inline md:hidden">{truncateFilename(document.file_name, 25)}</span>
                                 </h3>
                                 <div className="flex items-center gap-2 mb-1">
                                     {getStatusBadge(document)}

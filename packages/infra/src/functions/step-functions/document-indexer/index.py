@@ -668,21 +668,40 @@ def index_pages_to_opensearch(
         from boto3.dynamodb.conditions import Key
         # Prefer segments table; normalize to segment-like dict
         try:
-            seg_response = db_service.query_items(
-                table_name='segments',
-                key_condition_expression=Key('document_id').eq(document_id),
-                index_name='DocumentIdIndex'
-            )
-            seg_items = seg_response.get('Items', [])
-            all_segments = [
-                {
-                    'segment_id': item.get('segment_id'),
-                    'segment_index': item.get('segment_index', 0),
-                    'image_uri': item.get('image_uri', ''),
-                }
-                for item in seg_items
-            ]
-        except Exception:
+            # Get all segments with pagination support
+            all_segments = []
+            last_evaluated_key = None
+
+            while True:
+                seg_response = db_service.query_items(
+                    table_name='segments',
+                    key_condition_expression=Key('document_id').eq(document_id),
+                    index_name='DocumentIdIndex',
+                    exclusive_start_key=last_evaluated_key
+                )
+                seg_items = seg_response.get('Items', [])
+
+                # Process items for the simplified format
+                processed_items = [
+                    {
+                        'segment_id': item.get('segment_id'),
+                        'segment_index': item.get('segment_index', 0),
+                        'image_uri': item.get('image_uri', ''),
+                    }
+                    for item in seg_items
+                ]
+                all_segments.extend(processed_items)
+
+                # Check if there are more pages
+                last_evaluated_key = seg_response.get('LastEvaluatedKey')
+                if not last_evaluated_key:
+                    break
+
+            logger.info(f"Retrieved {len(all_segments)} segments with pagination")
+
+        except Exception as e:
+            logger.warning(f"Failed to get segments with pagination: {str(e)}")
+            # Fallback to single page query
             segments_response = db_service.query_items(
                 table_name='segments',
                 key_condition_expression=Key('document_id').eq(document_id),

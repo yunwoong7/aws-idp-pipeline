@@ -412,21 +412,50 @@ def handle_get_document_detail(event: Dict[str, Any]) -> Dict[str, Any]:
             logger.error(f"Failed to retrieve document from Documents table: {str(e)}")
             return handle_lambda_error(e)
         
-        # Retrieve pages for the document
+        # Retrieve pages for the document (with pagination to get all segments)
         try:
             from boto3.dynamodb.conditions import Key
-            segments_response = db_service.query_items(
-                table_name='segments',
-                key_condition_expression=Key('document_id').eq(document_id),
-                index_name='DocumentIdIndex'
-            )
-            segments = segments_response.get('Items', [])
+            segments = []
+            last_evaluated_key = None
+
+            while True:
+                segments_response = db_service.query_items(
+                    table_name='segments',
+                    key_condition_expression=Key('document_id').eq(document_id),
+                    index_name='DocumentIdIndex',
+                    exclusive_start_key=last_evaluated_key
+                )
+
+                page_segments = segments_response.get('Items', [])
+                segments.extend(page_segments)
+
+                last_evaluated_key = segments_response.get('LastEvaluatedKey')
+                if not last_evaluated_key:
+                    break
+
             segments.sort(key=lambda x: x.get('segment_index', 0))
-            
+            logger.info(f"Retrieved {len(segments)} segments for document {document_id}")
+
         except Exception as e:
             logger.error(f"Failed to retrieve segments from Segments table: {str(e)}")
             segments = []
         
+        # Process segments to include segment_id and status
+        processed_segments = []
+        for segment in segments:
+            processed_segment = {
+                'segment_id': segment.get('segment_id'),
+                'segment_index': segment.get('segment_index', 0),
+                'status': segment.get('status', 'pending'),
+                'document_id': segment.get('document_id'),
+                'index_id': segment.get('index_id'),
+                'image_uri': segment.get('image_uri', ''),
+                'file_uri': segment.get('file_uri', ''),
+                'created_at': segment.get('created_at', ''),
+                'updated_at': segment.get('updated_at', '')
+            }
+            processed_segments.append(processed_segment)
+
         # Construct response data
         response_document = {
             'document_id': document.get('document_id'),
@@ -442,7 +471,8 @@ def handle_get_document_detail(event: Dict[str, Any]) -> Dict[str, Any]:
             'created_at': document.get('created_at'),
             'updated_at': document.get('updated_at'),
             'file_presigned_url': s3_service.generate_presigned_url(document['file_uri']),
-            'segments': []
+            'segments': processed_segments,
+            'total_segments': len(processed_segments)
         }
         
         return create_success_response(response_document)

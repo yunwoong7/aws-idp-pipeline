@@ -277,31 +277,91 @@ export function DocumentDetailDialog({
   canAddPage = false,
   segmentStartTimecodes
 }: DocumentDetailDialogProps) {
-  const [segmentStatusMap, setSegmentStatusMap] = useState<Record<number, string>>({});
-  const [segmentStatusLoadedAt, setSegmentStatusLoadedAt] = useState<number | null>(null);
+  // 세그먼트 메타데이터 상태
+  const [segmentMetadata, setSegmentMetadata] = useState<any[]>([]);
+  const [segmentMetadataLoading, setSegmentMetadataLoading] = useState(false);
 
+  // 개별 세그먼트 상세 데이터 캐시
+  const [segmentDetailsCache, setSegmentDetailsCache] = useState<Record<number, any>>({});
+  const [currentSegmentDetail, setCurrentSegmentDetail] = useState<any>(null);
+  const [segmentDetailLoading, setSegmentDetailLoading] = useState(false);
+
+  // 초기 로딩 시 document detail과 segment 리스트 가져오기
   useEffect(() => {
     const shouldLoad = open && indexId && document?.document_id;
     if (!shouldLoad) return;
+
     (async () => {
+      setSegmentMetadataLoading(true);
       try {
-        const resp = await documentApi.getAnalysisData(indexId as string, document!.document_id);
-        const segs = resp?.data?.segments || resp?.segments || [];
-        const map: Record<number, string> = {};
-        segs.forEach((s: any) => {
-          const idx = typeof s?.segment_index === 'number' ? s.segment_index : (typeof s?.page_index === 'number' ? s.page_index : undefined);
-          if (typeof idx === 'number') {
-            const st = String(s?.status || s?.page_status || '').toLowerCase();
-            if (st) map[idx] = st;
-          }
-        });
-        setSegmentStatusMap(map);
-        setSegmentStatusLoadedAt(Date.now());
-      } catch (_e) {
-        // ignore fetch errors; fallback logic will handle
+        const docDetail = await documentApi.getDocumentDetail(
+          document!.document_id,
+          indexId as string
+        );
+        const segments = docDetail?.segments || [];
+        setSegmentMetadata(segments);
+      } catch (error) {
+        console.error('Failed to fetch document detail and segments:', error);
+        setSegmentMetadata([]);
+      } finally {
+        setSegmentMetadataLoading(false);
       }
     })();
-  }, [open, indexId, document, document?.document_id]);
+  }, [open, indexId, document?.document_id]);
+
+  // 선택된 세그먼트 변경 시 상세 데이터 로딩
+  useEffect(() => {
+    const shouldLoad = open && indexId && document?.document_id && typeof selectedSegment === 'number';
+    if (!shouldLoad) return;
+
+    // 캐시에 이미 있는지 확인
+    if (segmentDetailsCache[selectedSegment]) {
+      setCurrentSegmentDetail(segmentDetailsCache[selectedSegment]);
+      return;
+    }
+
+    // 선택된 segment의 segment_id 찾기
+    const selectedSegmentData = segmentMetadata.find(
+      (seg: any) => (seg?.segment_index ?? seg?.page_index) === selectedSegment
+    );
+
+    if (!selectedSegmentData?.segment_id) {
+      console.warn(`No segment_id found for segment index ${selectedSegment}`);
+      setCurrentSegmentDetail(null);
+      return;
+    }
+
+    (async () => {
+      setSegmentDetailLoading(true);
+      try {
+        const segmentDetail = await documentApi.getSegmentDetail(
+          indexId as string,
+          document!.document_id,
+          selectedSegmentData.segment_id
+        );
+
+        console.log('📊 Segment detail fetched:', {
+          segment_id: selectedSegmentData.segment_id,
+          analysis_results_count: segmentDetail?.analysis_results?.length || 0,
+          total_analysis_results: segmentDetail?.total_analysis_results,
+          first_result: segmentDetail?.analysis_results?.[0]
+        });
+
+        // 캐시에 저장
+        setSegmentDetailsCache(prev => ({
+          ...prev,
+          [selectedSegment]: segmentDetail
+        }));
+
+        setCurrentSegmentDetail(segmentDetail);
+      } catch (error) {
+        console.error(`Failed to fetch segment ${selectedSegment} detail:`, error);
+        setCurrentSegmentDetail(null);
+      } finally {
+        setSegmentDetailLoading(false);
+      }
+    })();
+  }, [open, indexId, document?.document_id, selectedSegment, segmentMetadata]);
   
   // Analysis popup state
   const [analysisPopup, setAnalysisPopup] = useState<{ type: 'bda' | 'pdf' | 'ai' | null; isOpen: boolean }>({
@@ -366,42 +426,39 @@ export function DocumentDetailDialog({
     return typeMap[fileType.toLowerCase()] || fileType.split('/').pop()?.toUpperCase() || fileType.toUpperCase();
   };
 
-  // Get analysis counts for current segment
-  const getAllCounts = (data: any[]) => {
-    if (!Array.isArray(data) || data.length === 0) {
+  // Get analysis counts from current segment detail
+  const getCurrentSegmentCounts = (segmentDetail: any) => {
+    if (!segmentDetail?.analysis_results) {
       return { bda: 0, pdf: 0, ai: 0 };
     }
-    
+
+    const analysisResults = segmentDetail.analysis_results || [];
     let counts = { bda: 0, pdf: 0, ai: 0 };
-    data.forEach((item: any) => {
-      if (item.tool_name === 'bda_indexer') counts.bda++;
-      else if (item.tool_name === 'pdf_text_extractor') counts.pdf++;
-      else if (item.tool_name === 'ai_analysis') counts.ai++;
+
+    analysisResults.forEach((result: any) => {
+      const toolName = result.tool_name;
+      if (toolName === 'bda_indexer') counts.bda++;
+      else if (toolName === 'pdf_text_extractor') counts.pdf++;
+      else if (toolName === 'ai_analysis') counts.ai++;
     });
+
     return counts;
   };
 
-  const getSegmentCounts = (data: any[], segmentIndex: number) => {
-    if (!Array.isArray(data) || data.length === 0) {
-      return { bda: 0, pdf: 0, ai: 0 };
-    }
-    
-    let counts = { bda: 0, pdf: 0, ai: 0 };
-    data.forEach((item: any) => {
-      const itemSegmentIndex = (typeof item.segment_index === 'number' ? item.segment_index : undefined) ??
-                             (typeof item.page_index === 'number' ? item.page_index : undefined);
-      
-      if (itemSegmentIndex === segmentIndex) {
-        if (item.tool_name === 'bda_indexer') counts.bda++;
-        else if (item.tool_name === 'pdf_text_extractor') counts.pdf++;
-        else if (item.tool_name === 'ai_analysis') counts.ai++;
-      }
+  // Get total counts from segment metadata
+  const getTotalCounts = (metadata: any[]) => {
+    let totalCounts = { bda: 0, pdf: 0, ai: 0 };
+    metadata.forEach((segment: any) => {
+      const toolsCount = segment.tools_count || {};
+      totalCounts.bda += toolsCount.bda_indexer || 0;
+      totalCounts.pdf += toolsCount.pdf_text_extractor || 0;
+      totalCounts.ai += toolsCount.ai_analysis || 0;
     });
-    return counts;
+    return totalCounts;
   };
 
-  const allCounts = getAllCounts(analysisData);
-  const currentSegmentCounts = getSegmentCounts(analysisData, selectedSegment);
+  const allCounts = getTotalCounts(segmentMetadata);
+  const currentSegmentCounts = getCurrentSegmentCounts(currentSegmentDetail);
 
   // Debug: 세그먼트 네비게이션 표시 조건 확인
   // console.log('🔍 [DocumentDetailDialog] Segment navigation debug:', {
@@ -577,94 +634,111 @@ export function DocumentDetailDialog({
             <Separator className="border-white/10" />
 
             {/* Analysis Results Summary */}
-            {analysisData.length > 0 && (
+            {segmentMetadata.length > 0 && (
               <div className="space-y-3">
                 <h3 className="text-white font-medium text-base">Analysis Summary</h3>
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-white/60">Total Results:</span>
-                    <span className="text-white">{allCounts.bda + allCounts.pdf + allCounts.ai}</span>
-                  </div>
-                  
-                  <div className="grid grid-cols-3 gap-2">
-                    <button
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        console.log('BDA analysis clicked', { currentSegmentCounts, bda: currentSegmentCounts.bda });
-                        if (currentSegmentCounts.bda > 0) {
-                          setAnalysisPopup({ type: 'bda', isOpen: true });
-                        }
-                      }}
-                      disabled={currentSegmentCounts.bda === 0}
-                      className={`flex items-center justify-between px-2 py-1.5 rounded border transition-all duration-200 group ${
-                        currentSegmentCounts.bda > 0
-                          ? 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20 cursor-pointer'
-                          : 'bg-white/2 border-white/5 opacity-50 cursor-not-allowed'
-                      }`}
-                    >
-                      <span className={`text-xs font-medium ${
-                        currentSegmentCounts.bda > 0 ? 'text-white/80' : 'text-white/40'
-                      }`}>BDA</span>
-                      <span className={`text-sm font-bold ${
-                        currentSegmentCounts.bda > 0 ? 'text-white' : 'text-white/40'
-                      }`}>
-                        {currentSegmentCounts.bda}
-                      </span>
-                    </button>
-                    
-                    <button
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        console.log('PDF analysis clicked', { currentSegmentCounts, pdf: currentSegmentCounts.pdf });
-                        if (currentSegmentCounts.pdf > 0) {
-                          setAnalysisPopup({ type: 'pdf', isOpen: true });
-                        }
-                      }}
-                      disabled={currentSegmentCounts.pdf === 0}
-                      className={`flex items-center justify-between px-2 py-1.5 rounded border transition-all duration-200 group ${
-                        currentSegmentCounts.pdf > 0
-                          ? 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20 cursor-pointer'
-                          : 'bg-white/2 border-white/5 opacity-50 cursor-not-allowed'
-                      }`}
-                    >
-                      <span className={`text-xs font-medium ${
-                        currentSegmentCounts.pdf > 0 ? 'text-white/80' : 'text-white/40'
-                      }`}>PDF</span>
-                      <span className={`text-sm font-bold ${
-                        currentSegmentCounts.pdf > 0 ? 'text-white' : 'text-white/40'
-                      }`}>
-                        {currentSegmentCounts.pdf}
-                      </span>
-                    </button>
-                    
-                    <button
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        console.log('AI analysis clicked', { currentSegmentCounts, ai: currentSegmentCounts.ai });
-                        if (currentSegmentCounts.ai > 0) {
-                          setAnalysisPopup({ type: 'ai', isOpen: true });
-                        }
-                      }}
-                      disabled={currentSegmentCounts.ai === 0}
-                      className={`flex items-center justify-between px-2 py-1.5 rounded border transition-all duration-200 group ${
-                        currentSegmentCounts.ai > 0
-                          ? 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20 cursor-pointer'
-                          : 'bg-white/2 border-white/5 opacity-50 cursor-not-allowed'
-                      }`}
-                    >
-                      <span className={`text-xs font-medium ${
-                        currentSegmentCounts.ai > 0 ? 'text-white/80' : 'text-white/40'
-                      }`}>AI</span>
-                      <span className={`text-sm font-bold ${
-                        currentSegmentCounts.ai > 0 ? 'text-white' : 'text-white/40'
-                      }`}>
-                        {currentSegmentCounts.ai}
-                      </span>
-                    </button>
-                  </div>
+                  {segmentDetailLoading ? (
+                    <div className="text-center py-4">
+                      <Loader2 className="h-4 w-4 animate-spin text-purple-400 mx-auto" />
+                      <p className="text-white/60 text-xs mt-1">Loading segment details...</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          console.log('BDA analysis clicked', {
+                            currentSegmentCounts,
+                            bda: currentSegmentCounts.bda,
+                            currentSegmentDetail,
+                            analysis_results: currentSegmentDetail?.analysis_results
+                          });
+                          if (currentSegmentCounts.bda > 0) {
+                            setAnalysisPopup({ type: 'bda', isOpen: true });
+                          }
+                        }}
+                        disabled={currentSegmentCounts.bda === 0}
+                        className={`flex items-center justify-between px-2 py-1.5 rounded border transition-all duration-200 group ${
+                          currentSegmentCounts.bda > 0
+                            ? 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20 cursor-pointer'
+                            : 'bg-white/2 border-white/5 opacity-50 cursor-not-allowed'
+                        }`}
+                      >
+                        <span className={`text-xs font-medium ${
+                          currentSegmentCounts.bda > 0 ? 'text-white/80' : 'text-white/40'
+                        }`}>BDA</span>
+                        <span className={`text-sm font-bold ${
+                          currentSegmentCounts.bda > 0 ? 'text-white' : 'text-white/40'
+                        }`}>
+                          {currentSegmentCounts.bda}
+                        </span>
+                      </button>
+
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          console.log('PDF analysis clicked', {
+                            currentSegmentCounts,
+                            pdf: currentSegmentCounts.pdf,
+                            currentSegmentDetail,
+                            analysis_results: currentSegmentDetail?.analysis_results
+                          });
+                          if (currentSegmentCounts.pdf > 0) {
+                            setAnalysisPopup({ type: 'pdf', isOpen: true });
+                          }
+                        }}
+                        disabled={currentSegmentCounts.pdf === 0}
+                        className={`flex items-center justify-between px-2 py-1.5 rounded border transition-all duration-200 group ${
+                          currentSegmentCounts.pdf > 0
+                            ? 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20 cursor-pointer'
+                            : 'bg-white/2 border-white/5 opacity-50 cursor-not-allowed'
+                        }`}
+                      >
+                        <span className={`text-xs font-medium ${
+                          currentSegmentCounts.pdf > 0 ? 'text-white/80' : 'text-white/40'
+                        }`}>PDF</span>
+                        <span className={`text-sm font-bold ${
+                          currentSegmentCounts.pdf > 0 ? 'text-white' : 'text-white/40'
+                        }`}>
+                          {currentSegmentCounts.pdf}
+                        </span>
+                      </button>
+
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          console.log('AI analysis clicked', {
+                            currentSegmentCounts,
+                            ai: currentSegmentCounts.ai,
+                            currentSegmentDetail,
+                            analysis_results: currentSegmentDetail?.analysis_results
+                          });
+                          if (currentSegmentCounts.ai > 0) {
+                            setAnalysisPopup({ type: 'ai', isOpen: true });
+                          }
+                        }}
+                        disabled={currentSegmentCounts.ai === 0}
+                        className={`flex items-center justify-between px-2 py-1.5 rounded border transition-all duration-200 group ${
+                          currentSegmentCounts.ai > 0
+                            ? 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20 cursor-pointer'
+                            : 'bg-white/2 border-white/5 opacity-50 cursor-not-allowed'
+                        }`}
+                      >
+                        <span className={`text-xs font-medium ${
+                          currentSegmentCounts.ai > 0 ? 'text-white/80' : 'text-white/40'
+                        }`}>AI</span>
+                        <span className={`text-sm font-bold ${
+                          currentSegmentCounts.ai > 0 ? 'text-white' : 'text-white/40'
+                        }`}>
+                          {currentSegmentCounts.ai}
+                        </span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -712,65 +786,40 @@ export function DocumentDetailDialog({
                   className="bg-white/10 border border-white/10 rounded px-3 py-1 text-white text-sm focus:outline-none focus:border-white/40"
                 >
                   {(() => {
-                    const statusByIndex: Record<number, string> = {};
-                    
-                    // Primary source: page_images with page_status from segments API
-                    const segs: any[] = (document as any)?.page_images || (document as any)?.segment_images || [];
-                    
-                    // Fallback: use analysisData to infer segments structure if page_images is empty
-                    if (segs.length === 0 && Array.isArray(analysisData) && analysisData.length > 0) {
-                      // Create temporary segments from analysisData
-                      const segmentMap = new Map();
-                      analysisData.forEach((item: any) => {
-                        const segmentIndex = item?.segment_index ?? item?.page_index;
-                        if (typeof segmentIndex === 'number' && !segmentMap.has(segmentIndex)) {
-                          segmentMap.set(segmentIndex, {
-                            page_index: segmentIndex,
-                            segment_index: segmentIndex,
-                            page_status: 'completed', // Infer completed if analysis data exists
-                            status: 'completed'
-                          });
-                        }
-                      });
-                      
-                      // Add to segs array
-                      segmentMap.forEach((segment) => segs.push(segment));
+                    if (segmentMetadataLoading) {
+                      return (
+                        <option value={selectedSegment || 0} className="bg-gray-800">
+                          Loading segments...
+                        </option>
+                      );
                     }
-                    
-                    segs.forEach((s) => {
-                      const segmentIndex = s?.page_index ?? s?.segment_index;
+
+                    const statusByIndex: Record<number, string> = {};
+
+                    // Get status from segment metadata
+                    segmentMetadata.forEach((segment: any) => {
+                      const segmentIndex = segment?.segment_index ?? segment?.page_index;
                       if (typeof segmentIndex === 'number') {
-                        const status = String(s.page_status || s.status || '').toLowerCase();
+                        const status = String(segment?.status || '').toLowerCase();
                         statusByIndex[segmentIndex] = status;
                       }
                     });
-                    // Override with server segments status if available
-                    Object.entries(segmentStatusMap).forEach(([k, v]) => {
-                      const idx = Number(k);
-                      if (!Number.isNaN(idx)) statusByIndex[idx] = v;
+
+                    // Also check document's page_images for compatibility
+                    const docSegs: any[] = (document as any)?.page_images || (document as any)?.segment_images || [];
+                    docSegs.forEach((s) => {
+                      const segmentIndex = s?.page_index ?? s?.segment_index;
+                      if (typeof segmentIndex === 'number') {
+                        const status = String(s.page_status || s.status || '').toLowerCase();
+                        if (status) statusByIndex[segmentIndex] = status;
+                      }
                     });
-                    
-                    // Secondary source: infer from analysisData presence (only if no status from segments)
-                    // DISABLED for debugging - we should rely on segments API status
-                    // if (Array.isArray(analysisData)) {
-                    //   analysisData.forEach((item: any) => {
-                    //     const segmentIndex = item?.segment_index ?? item?.page_index;
-                    //     if (typeof segmentIndex === 'number') {
-                    //       // Only override if we don't already have status from segments API
-                    //       if (!statusByIndex[segmentIndex]) {
-                    //         // If analysisData exists for this segment, consider it completed
-                    //         statusByIndex[segmentIndex] = 'completed';
-                    //       }
-                    //     }
-                    //   });
-                    // }
-                    
+
                     const indices = Array.from({ length: totalSegments }, (_, i) => i);
                     const isCompleted = (st: string) => st === 'completed';
                     const isFailed = (st: string) => st.includes('failed') || st === 'error';
                     const isAnalyzing = (st: string) => st.includes('analyz') || st.includes('process') || st.includes('extract');
-                    
-                    
+
                     const completed = indices.filter(i => isCompleted(statusByIndex[i] || ''));
                     const failed = indices.filter(i => isFailed(statusByIndex[i] || ''));
                     const analyzing = indices.filter(i => isAnalyzing(statusByIndex[i] || ''));
@@ -782,7 +831,7 @@ export function DocumentDetailDialog({
 
                     // Combine analyzing, inprogress, and pending into a single "In progress" group
                     const allInProgress = [...analyzing, ...inprogress, ...pending];
-                    
+
                     return (
                       <>
                         {allInProgress.length > 0 && (
@@ -832,37 +881,36 @@ export function DocumentDetailDialog({
                 {(() => {
                   const currentSegmentIndex = selectedSegment || 0;
                   let segStatus = '';
-                  
-                  // Primary: Get status from page_images (from segments API)
-                  const segs = (document as any)?.page_images || (document as any)?.segment_images || [];
-                  let currentSegment = segs.find((s: any) => 
+
+                  // Get status from segment metadata
+                  const currentSegmentMeta = segmentMetadata.find((s: any) =>
+                    (s?.segment_index ?? s?.page_index) === currentSegmentIndex
+                  );
+
+                  // Fallback to document page_images
+                  const docSegs = (document as any)?.page_images || (document as any)?.segment_images || [];
+                  const currentDocSegment = docSegs.find((s: any) =>
                     (s?.page_index ?? s?.segment_index) === currentSegmentIndex
                   );
-                  
-                  // Fallback: if no segments data but analysisData exists, infer completed status
-                  if (!currentSegment && Array.isArray(analysisData) && analysisData.length > 0) {
-                    const analysisItem = analysisData.find((item: any) => 
-                      (item?.segment_index ?? item?.page_index) === currentSegmentIndex
-                    );
-                    if (analysisItem) {
-                      currentSegment = {
-                        page_index: currentSegmentIndex,
-                        segment_index: currentSegmentIndex,
-                        page_status: 'completed',
-                        status: 'completed'
-                      };
-                    }
-                  }
-                  
+
                   segStatus = String(
-                    segmentStatusMap[currentSegmentIndex] ||
-                    currentSegment?.page_status ||
-                    currentSegment?.status ||
+                    currentSegmentMeta?.status ||
+                    currentDocSegment?.page_status ||
+                    currentDocSegment?.status ||
                     ''
                   ).toLowerCase();
-                  
+
+                  if (!segStatus && segmentMetadataLoading) {
+                    return (
+                      <Badge className="text-xs border bg-white/10 text-white/70 border-white/20 flex items-center gap-1">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Loading
+                      </Badge>
+                    );
+                  }
+
                   if (!segStatus) return null;
-                  
+
                   // Status-specific styling
                   const getStatusInfo = (status: string) => {
                     if (status === 'completed') {
@@ -903,9 +951,9 @@ export function DocumentDetailDialog({
                       };
                     }
                   };
-                  
+
                   const statusInfo = getStatusInfo(segStatus);
-                  
+
                   return (
                     <Badge className={`text-xs border ${statusInfo.badgeClass} flex items-center gap-1`}>
                       {statusInfo.icon}
@@ -1062,7 +1110,7 @@ export function DocumentDetailDialog({
         isOpen={analysisPopup.isOpen}
         type={analysisPopup.type}
         selectedSegment={selectedSegment}
-        analysisData={analysisData}
+        analysisData={currentSegmentDetail ? currentSegmentDetail.analysis_results || [] : []}
         onClose={() => setAnalysisPopup({ type: null, isOpen: false })}
       />
     </div>,

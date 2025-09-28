@@ -371,24 +371,48 @@ export const documentApi = {
     });
   },
 
-  // 분석 데이터 조회 (index-based)
-  async getAnalysisData(indexId: string, documentId: string): Promise<any> {
+  // 분석 데이터 조회 (index-based) - 메타데이터만 또는 전체 데이터
+  async getAnalysisData(indexId: string, documentId: string, options?: {
+    metadataOnly?: boolean,
+    size?: number
+  }): Promise<any> {
     const params = new URLSearchParams();
     if (indexId) {
       params.append('index_id', indexId);
     }
-    // Request maximum 1000 segments
-    params.append('size', '1000');
+
+    // 메타데이터만 요청하는 경우 더 많은 세그먼트를 가져오고 크기 최적화
+    if (options?.metadataOnly) {
+      params.append('metadata_only', 'true');
+      params.append('size', String(options.size || 5000)); // 기본 5000개
+    } else {
+      params.append('size', String(options?.size || 100)); // 전체 데이터는 기본 100개
+    }
+
     const queryString = params.toString() ? `?${params.toString()}` : '';
-    
+
     const baseUrl = await getApiBaseUrl();
     const response = await fetch(`${baseUrl}/api/opensearch/documents/${documentId}${queryString}`);
-    
+
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(`Failed to fetch analysis data. (${response.status}): ${errorText}`);
     }
-    
+
+    return response.json();
+  },
+
+  // 개별 세그먼트 상세 조회
+  async getSegmentDetail(indexId: string, documentId: string, segmentId: string): Promise<any> {
+    const baseUrl = await getApiBaseUrl();
+    // 백엔드 API 경로: /api/documents/{document_id}/segments/{segment_id}?index_id={index_id}&filter_final=false
+    const response = await fetch(`${baseUrl}/api/documents/${documentId}/segments/${segmentId}?index_id=${indexId}&filter_final=false`);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to fetch segment detail. (${response.status}): ${errorText}`);
+    }
+
     return response.json();
   },
 

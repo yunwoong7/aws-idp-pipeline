@@ -117,31 +117,45 @@ def lambda_handler(event: Dict[str, Any], context=None) -> Dict[str, Any]:
                 'pages_processed': 0
             }
         
-        # Retrieve segment info from Segments table
-        segments_response = db_service.query_items(
-            table_name='segments',
-            key_condition_expression=Key('document_id').eq(document_id),
-            index_name='DocumentIdIndex'
-        )
-        segments = segments_response.get('Items', [])
+        # Retrieve segment info from Segments table with pagination support
+        segments = []
+        last_evaluated_key = None
+
+        while True:
+            segments_response = db_service.query_items(
+                table_name='segments',
+                key_condition_expression=Key('document_id').eq(document_id),
+                index_name='DocumentIdIndex',
+                exclusive_start_key=last_evaluated_key
+            )
+            page_segments = segments_response.get('Items', [])
+            segments.extend(page_segments)
+
+            # Check if there are more pages
+            last_evaluated_key = segments_response.get('LastEvaluatedKey')
+            if not last_evaluated_key:
+                break
+
+        logger.info(f"Retrieved {len(segments)} segments with pagination for PDF text extraction")
         segment_map = {segment['segment_index']: segment for segment in segments}
         
         processed_pages = 0
         
         # Process each segment's text and index into OpenSearch
         for segment_index, text_content in enumerate(page_texts):
-            if not text_content.strip():
-                logger.debug(f"Segment {segment_index} has no text, skipping")
-                continue
-            
             # Check page info
             segment_info = segment_map.get(segment_index)
             if not segment_info:
                 logger.warning(f"Segment info not found: segment_index={segment_index}")
                 continue
-            
+
             segment_id = segment_info['segment_id']
-            
+
+            # Handle empty pages - still process them with empty content
+            if not text_content.strip():
+                logger.debug(f"Segment {segment_index} has no text, processing with empty content")
+                text_content = ""  # Use empty string instead of skipping
+
             # Add PDF text to OpenSearch using new page-unit storage method
             indexing_success = opensearch_service.add_pdf_text_extractor_tool(
                 index_id=index_id,
@@ -151,7 +165,7 @@ def lambda_handler(event: Dict[str, Any], context=None) -> Dict[str, Any]:
                 content=text_content,
                 media_type=media_type
             )
-            
+
             if indexing_success:
                 processed_pages += 1
                 logger.debug(f"📝 PDF text segment processed: {segment_id} (index: {segment_index})")
