@@ -1798,6 +1798,25 @@ export class WorkflowStack extends cdk.Stack {
           true,
         );
       }
+
+      // Distributed Map Policy suppressions
+      const distributedMapPolicy = this.node.tryFindChild('BdaDocumentProcessingWorkflow')?.node.tryFindChild('DistributedMapPolicy');
+      if (distributedMapPolicy) {
+        NagSuppressions.addResourceSuppressions(
+          distributedMapPolicy,
+          [
+            {
+              id: 'AwsSolutions-IAM5',
+              reason: [
+                'Distributed Map requires wildcard permissions for child executions.',
+                'Child execution ARNs are dynamically generated and cannot be predicted.',
+                'This is required for Distributed Map to create and manage child workflows.',
+              ].join(' ')
+            },
+          ],
+          true,
+        );
+      }
     }
   }
 }
