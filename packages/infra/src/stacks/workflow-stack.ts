@@ -1438,12 +1438,12 @@ export class WorkflowStack extends cdk.Stack {
       },
     );
 
-    // 7. Map state for parallel ReAct analysis
+    // 7. Distributed Map for parallel ReAct analysis (handles unlimited segments)
     const stepFunctionsConfig = getStepFunctionsConfig();
-    const reactAnalysisParallelMap = new sfn.Map(this, 'ReactAnalysisParallelMap', {
-      comment: 'Process each segment in parallel using ReAct analysis',
-      maxConcurrency: stepFunctionsConfig.maxConcurrency,
-      itemsPath: '$.Payload.segment_ids',  // Changed to use minimal segment_ids array
+    const reactAnalysisParallelMap = new sfn.DistributedMap(this, 'ReactAnalysisParallelMap', {
+      comment: 'Process each segment in parallel using ReAct analysis with Distributed Map',
+      maxConcurrency: stepFunctionsConfig.maxConcurrency,  // Use config value (30)
+      itemsPath: '$.Payload.segment_ids',  // Use segment_ids array from GetDocumentPagesTask
       parameters: {
         'document_id.$': '$.Payload.document_id',  // Get from parent payload
         'index_id.$': '$$.Execution.Input.index_id',  // Get from execution input
@@ -1453,6 +1453,8 @@ export class WorkflowStack extends cdk.Stack {
         'segment_index.$': '$$.Map.Item.Value.segment_index',  // Get current item from Map iteration
       },
       resultPath: sfn.JsonPath.DISCARD,  // Discard Map results to avoid size limit issues with large documents
+      toleratedFailurePercentage: 5,  // Allow 5% of segments to fail without failing the entire workflow
+      mapExecutionType: sfn.StateMachineType.STANDARD,  // Use STANDARD for child executions (supports longer running tasks)
     });
 
     // 8. Single segment ReAct analysis task
@@ -1494,9 +1496,9 @@ export class WorkflowStack extends cdk.Stack {
       },
     );
 
-    // Connect tasks in Map state: AI analysis → segment finalizer
+    // Connect tasks in Distributed Map: AI analysis → segment finalizer
     const segmentChain = singlePageReactAnalysisTask.next(singleSegmentFinalizerTask);
-    reactAnalysisParallelMap.iterator(segmentChain);
+    reactAnalysisParallelMap.itemProcessor(segmentChain);
 
     // 10. Document Summarizer task (final task after all segment processing)
     const documentSummarizerTask = new sfnTasks.LambdaInvoke(
