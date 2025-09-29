@@ -465,7 +465,7 @@ export class WorkflowStack extends cdk.Stack {
       deadLetterQueueEnabled: false,
       commonLayer: commonLayer,
       timeout: cdk.Duration.minutes(10),
-      memorySize: 8192,
+      memorySize: 2048,
       // VPC setup (deployed in the same VPC as the OpenSearch domain)
       vpc: (vpc && opensearchDomain) ? vpc : undefined,
       stage: stage,

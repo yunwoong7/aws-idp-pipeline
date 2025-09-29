@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { PlusCircle, CheckCircle, Loader2 } from "lucide-react";
 import { indicesApi } from "@/lib/api";
+import { useAlert } from "@/components/ui/alert";
 
 export interface CreateIndexDialogProps {
   isOpen: boolean;
@@ -22,13 +23,14 @@ interface CreateIndexForm {
 
 export function CreateIndexDialog({ isOpen, onClose, onSuccess }: CreateIndexDialogProps) {
   const [creating, setCreating] = useState(false);
-  const [createForm, setCreateForm] = useState<CreateIndexForm>({ 
-    index_id: "", 
-    description: "", 
-    owner_name: "" 
+  const [createForm, setCreateForm] = useState<CreateIndexForm>({
+    index_id: "",
+    description: "",
+    owner_name: ""
   });
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string>("");
+  const { showWarning, AlertComponent } = useAlert();
 
   const handleClose = () => {
     setCreateForm({ index_id: "", description: "", owner_name: "" });
@@ -66,13 +68,15 @@ export function CreateIndexDialog({ isOpen, onClose, onSuccess }: CreateIndexDia
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="!w-[50vw] !max-w-none !sm:max-w-none max-h-[75vh] p-0 border-0 bg-transparent overflow-hidden">
-        <DialogHeader className="sr-only">
-          <DialogTitle>Create Index</DialogTitle>
-          <DialogDescription>Create a new index (workspace)</DialogDescription>
-        </DialogHeader>
-        <div className="flex h-[70vh]">
+    <>
+      {AlertComponent}
+      <Dialog open={isOpen} onOpenChange={handleClose}>
+        <DialogContent className="!w-[50vw] !max-w-none !sm:max-w-none max-h-[75vh] p-0 border-0 bg-transparent overflow-hidden">
+          <DialogHeader className="sr-only">
+            <DialogTitle>Create Index</DialogTitle>
+            <DialogDescription>Create a new index (workspace)</DialogDescription>
+          </DialogHeader>
+          <div className="flex h-[70vh]">
           {/* Left panel (visual tone) */}
           <div className="w-1/3 bg-gradient-to-br from-violet-900/95 via-purple-900/95 to-indigo-900/95 backdrop-blur-xl p-8 flex flex-col justify-center relative overflow-hidden">
             <div className="absolute inset-0 opacity-10">
@@ -116,12 +120,25 @@ export function CreateIndexDialog({ isOpen, onClose, onSuccess }: CreateIndexDia
                   <div className="space-y-6">
                     <div className="space-y-3">
                       <Label htmlFor="index_id" className="text-gray-200 text-sm font-medium">Index ID *</Label>
-                      <Input 
-                        id="index_id" 
-                        value={createForm.index_id} 
-                        onChange={(e) => setCreateForm({ ...createForm, index_id: e.target.value })} 
-                        placeholder="e.g. my-first-index" 
-                        className="bg-white/5 border-gray-600 text-white placeholder:text-gray-400 focus:border-violet-400 focus:ring-violet-400/20 h-12 rounded-xl" 
+                      <Input
+                        id="index_id"
+                        value={createForm.index_id}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          // Check for uppercase letters
+                          if (/[A-Z]/.test(value)) {
+                            showWarning(
+                              "Invalid Index Name",
+                              "Index names must be lowercase only. Please use lowercase letters."
+                            );
+                            // Convert to lowercase automatically
+                            setCreateForm({ ...createForm, index_id: value.toLowerCase() });
+                          } else {
+                            setCreateForm({ ...createForm, index_id: value });
+                          }
+                        }}
+                        placeholder="e.g. my-first-index"
+                        className="bg-white/5 border-gray-600 text-white placeholder:text-gray-400 focus:border-violet-400 focus:ring-violet-400/20 h-12 rounded-xl"
                       />
                       <p className="text-xs text-white/50">- lowercase only; cannot start with '_' or '-'<br />- no spaces or , : &quot; * + / \\ | ? # &gt; &lt;</p>
                     </div>
@@ -178,5 +195,6 @@ export function CreateIndexDialog({ isOpen, onClose, onSuccess }: CreateIndexDia
         </div>
       </DialogContent>
     </Dialog>
+    </>
   );
 }
