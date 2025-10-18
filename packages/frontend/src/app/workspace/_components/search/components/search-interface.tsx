@@ -818,7 +818,7 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenc
         <div className="mb-2 flex items-center justify-between">
           <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/5 border border-white/10 backdrop-blur-md text-[10px] text-white/80">
             <FileText className="w-3 h-3 text-cyan-300" />
-            <span>참조</span>
+            <span>References</span>
             <span className="text-cyan-300">({references.length})</span>
           </div>
           {references.length > 3 && (
@@ -862,7 +862,7 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenc
                   )}
                   {ref.document_id && onReferenceClick && (
                     <div className="text-xs text-purple-300/70 group-hover:text-purple-300 transition-colors">
-                      상세보기
+                      Details
                     </div>
                   )}
                 </div>
@@ -924,7 +924,9 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenc
               message.sender === "user" ? (
                 <div key={message.id} className="mb-4 flex justify-end">
                   <div className="max-w-[80%] bg-white/[0.08] backdrop-blur-xl rounded-2xl border border-white/[0.1] p-4">
-                    <div className="text-white/90 text-sm">{message.content}</div>
+                    <div className="text-white/90 text-sm">
+                      <MarkdownRenderer content={message.content} />
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -1060,7 +1062,7 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenc
           <div className="bg-gray-900/95 border border-white/10 rounded-xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-hidden shadow-2xl">
             <div className="flex items-center justify-between p-4 border-b border-white/10">
               <h3 className="text-lg font-semibold text-white">
-                {sourceDialogData.title || '참고 자료'}
+                {sourceDialogData.title || 'References'}
               </h3>
               <button
                 onClick={() => setSourceDialogOpen(false)}
@@ -1121,7 +1123,7 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenc
                               }}
                               className="px-3 py-1 bg-purple-500/20 text-purple-300 border border-purple-500/30 rounded text-sm hover:bg-purple-500/30 transition"
                             >
-                              문서 상세보기
+                              Document Details
                             </button>
                           )}
                           {ref.file_uri && (
@@ -1129,7 +1131,7 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenc
                               onClick={() => window.open(ref.file_uri, '_blank')}
                               className="px-3 py-1 bg-blue-500/20 text-blue-300 border border-blue-500/30 rounded text-sm hover:bg-blue-500/30 transition"
                             >
-                              PDF 보기
+                              View PDF
                             </button>
                           )}
                           {onAttachToChat && ref.document_id && ref.page_index !== undefined && (
@@ -1142,7 +1144,7 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenc
                               })}
                               className="px-3 py-1 bg-green-500/20 text-green-300 border border-green-500/30 rounded text-sm hover:bg-green-500/30 transition"
                             >
-                              채팅에 첨부
+                              Attach to Chat
                             </button>
                           )}
                         </div>
@@ -1152,7 +1154,7 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenc
                 </div>
               ) : (
                 <div className="text-white/60 text-center py-4">
-                  참조할 소스가 없습니다.
+                  No references available.
                 </div>
               )}
             </div>
@@ -1179,8 +1181,8 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenc
             <div className="flex items-center space-x-4">
               <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
               <div>
-                <h3 className="text-white text-lg font-medium">채팅을 초기화하고 있습니다...</h3>
-                <p className="text-white/60 text-sm mt-1">잠시만 기다려주세요</p>
+                <h3 className="text-white text-lg font-medium">Resetting chat...</h3>
+                <p className="text-white/60 text-sm mt-1">Please wait a moment</p>
               </div>
             </div>
           </div>

@@ -159,7 +159,7 @@ export class CognitoStack extends cdk.Stack {
         },
         scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE],
         callbackUrls: [this.callbackUrl, baseUrl],
-        logoutUrls: [baseUrl],
+        logoutUrls: [baseUrl, `${baseUrl}/logged-out`],
       },
       supportedIdentityProviders: [cognito.UserPoolClientIdentityProvider.COGNITO],
       preventUserExistenceErrors: true,

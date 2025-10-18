@@ -29,6 +29,9 @@ export interface DocumentManagementStackProps extends cdk.StackProps {
     memorySize?: number;
     retryAttempts?: number;
   };
+  // Cognito configuration for logout
+  readonly cognitoUserPoolDomain?: string;
+  readonly cognitoClientId?: string;
 }
 
 /**
@@ -118,6 +121,9 @@ export class DocumentManagementStack extends cdk.Stack {
         EMBEDDINGS_DIMENSIONS: bedrockConfig.embeddingsDimensions?.toString() || '1024',
         STAGE: props.stage || 'dev',
         AUTH_DISABLED: 'false',  // 배포 환경에서는 실제 Cognito 인증 사용
+        // Cognito configuration for logout
+        ...(props.cognitoUserPoolDomain && { COGNITO_USER_POOL_DOMAIN: props.cognitoUserPoolDomain }),
+        ...(props.cognitoClientId && { COGNITO_CLIENT_ID: props.cognitoClientId }),
       },
       deadLetterQueueEnabled: false,
       vpc: props.vpc,

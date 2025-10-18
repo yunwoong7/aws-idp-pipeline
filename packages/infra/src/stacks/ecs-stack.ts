@@ -268,6 +268,11 @@ export class EcsStack extends cdk.Stack {
         // Document upload related environment variables
         DOCUMENTS_BUCKET_NAME: s3BucketName,
         DOCUMENTS_TABLE_NAME: documentsTableName,
+        // Cognito configuration for logout (will be added dynamically if Cognito is configured)
+        ...(userPool && userPoolClient && userPoolDomain && {
+          COGNITO_USER_POOL_DOMAIN: userPoolDomain.domainName,
+          COGNITO_CLIENT_ID: userPoolClient.userPoolClientId,
+        }),
       },
       portMappings: [
         {
@@ -329,7 +334,7 @@ export class EcsStack extends cdk.Stack {
             userPoolDomain: userPoolDomain.domainName,
             sessionCookieName: 'AWSELBAuthSessionCookie',
             scope: 'openid email profile',
-            sessionTimeout: '604800',
+            sessionTimeout: '86400', // 1 day (86400 seconds)
             onUnauthenticatedRequest: 'authenticate',
           },
           order: 1,
@@ -340,6 +345,15 @@ export class EcsStack extends cdk.Stack {
           order: 2,
         },
       ];
+
+      // Add logged-out page routing (no authentication required)
+      listener.addAction('LoggedOutPageAction', {
+        priority: 10,
+        conditions: [
+          elbv2.ListenerCondition.pathPatterns(['/logged-out', '/logged-out/*']),
+        ],
+        action: elbv2.ListenerAction.forward([this.frontendService.targetGroup]),
+      });
 
       // Add backend routing with Cognito auth
       listener.addAction('BackendApiAction', {
@@ -566,20 +580,22 @@ export class EcsStack extends cdk.Stack {
             const describeResponse = await client.send(describeCommand);
             const userPoolClient = describeResponse.UserPoolClient;
             
-            // Update with new callback URL
+            // Update with new callback URL and logout URL
+            const logoutUrl = \`\${baseUrl}/logged-out\`;
             const updateCommand = new UpdateUserPoolClientCommand({
               UserPoolId,
               ClientId: UserPoolClientId,
               ...userPoolClient,
               CallbackURLs: [callbackUrl, baseUrl],
-              LogoutURLs: [baseUrl],
+              LogoutURLs: [baseUrl, logoutUrl],
             });
             await client.send(updateCommand);
-            
+
             console.log('Successfully updated callback URLs to:', callbackUrl);
+            console.log('Successfully updated logout URLs to:', [baseUrl, logoutUrl]);
             return {
               PhysicalResourceId: 'UpdateCallbackResource',
-              Data: { CallbackUrl: callbackUrl, BaseUrl: baseUrl }
+              Data: { CallbackUrl: callbackUrl, BaseUrl: baseUrl, LogoutUrl: logoutUrl }
             };
           } catch (error) {
             console.error('Error updating callback URL:', error);

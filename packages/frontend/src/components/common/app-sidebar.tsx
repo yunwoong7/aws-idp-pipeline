@@ -64,14 +64,15 @@ export function AppSidebar() {
   const router = useRouter();
   const pathname = usePathname();
   const { settings, loading } = useBranding();
-  const { user, isLoading: authLoading, isLocalDev } = useAuth();
+  const { user, isLoading: authLoading, isLocalDev, logout } = useAuth();
   const { showInfo, AlertComponent } = useAlert();
-  
+
   console.log('📋 AppSidebar branding data:', { settings, loading });
   console.log('👤 AppSidebar auth data:', { user, authLoading, isLocalDev });
 
   const handleLogout = () => {
-    showInfo("Feature Not Implemented", "Logout functionality is not yet implemented. Please contact your administrator for assistance.");
+    console.log('🚪 Logout button clicked');
+    logout();
   };
 
   const navigationItems = [
@@ -185,7 +186,7 @@ export function AppSidebar() {
           </div>
         ) : (
           <div className="text-center text-gray-400">
-            <p className="text-sm">로그인 정보를 불러올 수 없습니다</p>
+            <p className="text-sm">Login information could not be loaded</p>
           </div>
         )}
       </SidebarFooter>

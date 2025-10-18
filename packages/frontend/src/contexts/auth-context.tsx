@@ -24,7 +24,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   
   const isLocalDev = process.env.NEXT_PUBLIC_AUTH_DISABLED === 'true';
 
-  const fetchUserInfo = async () => {
+  const fetchUserInfo = React.useCallback(async () => {
     setIsLoading(true);
     try {
       if (isLocalDev) {
@@ -72,41 +72,71 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [isLocalDev]);
 
-  const logout = () => {
+  const logout = async () => {
     console.log('🚪 Logout attempt started');
     console.log('🔍 isLocalDev:', isLocalDev);
     console.log('🔍 hostname:', typeof window !== 'undefined' ? window.location.hostname : 'N/A');
-    
+
     if (isLocalDev) {
-      console.log('로컬 개발 환경에서는 로그아웃이 시뮬레이션됩니다.');
+      console.log('⚠️ 로컬 개발 환경에서는 로그아웃이 시뮬레이션됩니다.');
+      setUser(null);
       return;
     }
-    
-    // ECS 환경 체크
-    const isEcsEnvironment = typeof window !== 'undefined' && 
-                             window.location.hostname.includes('elb.amazonaws.com');
-    
+
+    // ECS 환경 체크 (ALB DNS 이름 감지)
+    const isEcsEnvironment = typeof window !== 'undefined' &&
+                             (window.location.hostname.includes('elb.amazonaws.com') ||
+                              window.location.hostname.includes('cloudfront.net'));
+
     console.log('🔍 isEcsEnvironment:', isEcsEnvironment);
-    
-    if (isEcsEnvironment) {
-      console.log('🔧 ECS environment detected - clearing ALB session cookies');
-      // ALB + Cognito 환경에서는 세션 쿠키 삭제 후 홈으로 리다이렉트
-      // ALB 세션 쿠키 삭제
-      document.cookie = 'AWSELBAuthSessionCookie=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=' + window.location.hostname + ';';
-      document.cookie = 'AWSELBAuthSessionCookie-0=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=' + window.location.hostname + ';';
-      document.cookie = 'AWSELBAuthSessionCookie-1=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=' + window.location.hostname + ';';
-      
-      console.log('🔄 Redirecting to home page for re-authentication');
-      // 쿠키 삭제 후 홈으로 리다이렉트 (ALB가 다시 인증 요구)
-      setTimeout(() => {
+
+    try {
+      if (isEcsEnvironment) {
+        console.log('🔧 ECS environment detected - calling backend logout API');
+
+        // 백엔드 로그아웃 API 호출 (ALB를 통해)
+        const logoutEndpoint = `${window.location.protocol}//${window.location.host}/api/auth/logout`;
+        console.log('📡 Calling logout endpoint:', logoutEndpoint);
+
+        const response = await fetch(logoutEndpoint, {
+          method: 'POST',
+          credentials: 'include', // 쿠키 포함
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          console.log('✅ Logout API response:', data);
+
+          // Backend에서 Set-Cookie 헤더로 ALB 세션 쿠키를 이미 삭제했습니다
+          // (HttpOnly 쿠키는 서버에서만 삭제 가능)
+
+          // Cognito logout URL이 있으면 리다이렉트
+          if (data.logout_url) {
+            console.log('🔄 Redirecting to Cognito logout:', data.logout_url);
+            window.location.href = data.logout_url;
+            return;
+          } else {
+            console.log('⚠️ No logout_url, redirecting home');
+            window.location.href = data.redirect_url || '/';
+            return;
+          }
+        } else {
+          console.error('❌ Logout API failed:', response.status);
+          const errorText = await response.text();
+          console.error('❌ Error response:', errorText);
+          // fallback: 홈으로
+          window.location.href = '/';
+        }
+      } else {
+        console.log('🔧 Non-ECS environment - redirecting to home');
         window.location.href = '/';
-      }, 100);
-    } else {
-      console.log('🔧 Non-ECS environment - trying OAuth2 logout');
-      // 다른 환경에서는 기본 OAuth2 로그아웃 경로 시도
-      window.location.href = '/oauth2/sign_out';
+      }
+    } catch (error) {
+      console.error('❌ Logout error:', error);
+      // fallback: 홈으로
+      window.location.href = '/';
     }
   };
 
@@ -116,7 +146,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     fetchUserInfo();
-  }, [isLocalDev]);
+  }, [fetchUserInfo]);
 
   return (
     <AuthContext.Provider

@@ -253,7 +253,7 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
         setSegmentDetailLoading(false);
       }
     })();
-  }, [selectedDocument?.document_id, selectedSegmentId, indexId, selectedSegment]);
+  }, [selectedDocument, selectedSegmentId, indexId, selectedSegment]);
 
   // Reset image state when document changes
   useEffect(() => {

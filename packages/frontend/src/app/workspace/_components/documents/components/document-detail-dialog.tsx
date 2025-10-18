@@ -293,28 +293,26 @@ export function DocumentDetailDialog({
     setCurrentSegmentDetail(null);
   }, [document?.document_id, open]);
 
-  // 초기 로딩 시 document detail과 segment 리스트 가져오기
+  // 초기 로딩 시 analysisData에서 segment 메타데이터 추출
   useEffect(() => {
-    const shouldLoad = open && indexId && document?.document_id;
-    if (!shouldLoad) return;
+    if (!open || !analysisData || analysisData.length === 0) {
+      setSegmentMetadata([]);
+      return;
+    }
 
-    (async () => {
-      setSegmentMetadataLoading(true);
-      try {
-        const docDetail = await documentApi.getDocumentDetail(
-          document!.document_id,
-          indexId as string
-        );
-        const segments = docDetail?.segments || [];
-        setSegmentMetadata(segments);
-      } catch (error) {
-        console.error('Failed to fetch document detail and segments:', error);
-        setSegmentMetadata([]);
-      } finally {
-        setSegmentMetadataLoading(false);
-      }
-    })();
-  }, [open, indexId, document?.document_id]);
+    // analysisData를 segment metadata 형식으로 변환
+    const segments = analysisData.map((item: any) => ({
+      segment_id: item.segment_id,
+      segment_index: item.segment_index ?? item.page_index,
+      status: item.status || 'completed',
+      image_uri: item.image_file_uri || item.image_path,
+      file_uri: item.file_uri || item.file_path,
+      start_timecode_smpte: item.start_timecode_smpte,
+    }));
+
+    setSegmentMetadata(segments);
+    setSegmentMetadataLoading(false);
+  }, [open, analysisData]);
 
   // 선택된 세그먼트 변경 시 상세 데이터 로딩
   useEffect(() => {

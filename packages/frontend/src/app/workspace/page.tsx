@@ -261,15 +261,16 @@ function WorkspacePageContent() {
     // Handle reference click from Search tab - open document detail dialog
     const handleReferenceClick = useCallback(async (reference: any) => {
         try {
-            console.log('🔍 Reference clicked:', reference);
+            // Determine the target segment - prioritize segment_index over page_index
+            const targetSegment = reference.segment_index ?? reference.page_index ?? 0;
 
-            // Create a document object from reference data
+            // Create a minimal document object from reference data
             const documentForDetail: Document = {
                 document_id: reference.document_id || reference.id || 'unknown',
                 upload_id: reference.document_id || reference.id || 'unknown',
                 index_id: selectedIndexId,
-                file_name: reference.display_name || reference.title || reference.value || 'Unknown Document',
-                file_type: reference.type === 'image' ? 'image' : 'document',
+                file_name: reference.display_name || reference.title || reference.file_name || 'Unknown Document',
+                file_type: reference.file_type || 'document',
                 file_size: 0,
                 status: 'completed',
                 processing_status: 'completed',
@@ -288,25 +289,15 @@ function WorkspacePageContent() {
                 },
                 bda_metadata_uri: '',
                 representation: { markdown: '' },
-                page_images: reference.image_uri ? [{
-                    page_number: reference.page_index || 0,
-                    page_index: reference.page_index || 0,
-                    image_uri: reference.image_uri,
-                    image_s3_path: reference.image_uri
-                }] : undefined
             };
 
-            // Use useDocumentDetail hook to open the document
-            documentDetailHook.viewDocument(documentForDetail);
-            
-            // Set the segment if page_index is available
-            if (typeof reference.page_index === 'number') {
-                documentDetailHook.handleSegmentChange(reference.page_index);
-            }
+            // Open document detail dialog with the target segment (this will call fetchAnalysisData internally)
+            documentDetailHook.viewDocument(documentForDetail, undefined, targetSegment);
         } catch (error) {
-            console.error('❌ Failed to open document detail:', error);
+            console.error('❌ Failed to load document:', error);
+            showInfo('Error', 'Failed to load document. Please try again.');
         }
-    }, [selectedIndexId, documentDetailHook]);
+    }, [selectedIndexId, showInfo, documentDetailHook]);
 
     // Handle browser back button - navigate to indexes page
     useEffect(() => {

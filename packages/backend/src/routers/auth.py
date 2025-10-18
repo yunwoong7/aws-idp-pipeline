@@ -2,13 +2,14 @@
 Authentication router for user information from Cognito/ALB headers
 """
 
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Request, HTTPException, Response
 from pydantic import BaseModel
 from typing import List, Optional
 import json
 import base64
 import os
 import logging
+from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 
@@ -96,9 +97,109 @@ async def get_current_user(request: Request):
         logger.error(f"Failed to process user authentication: {e}")
         raise HTTPException(status_code=401, detail="Authentication processing failed")
 
+@router.get("/debug-env")
+async def debug_env():
+    """Debug endpoint to check environment variables"""
+    return {
+        "COGNITO_USER_POOL_DOMAIN": os.getenv("COGNITO_USER_POOL_DOMAIN", "NOT_SET"),
+        "COGNITO_CLIENT_ID": os.getenv("COGNITO_CLIENT_ID", "NOT_SET"),
+        "AWS_REGION": os.getenv("AWS_REGION", "NOT_SET"),
+        "AUTH_DISABLED": os.getenv("AUTH_DISABLED", "NOT_SET"),
+    }
+
 @router.post("/logout")
-async def logout():
+async def logout(request: Request, response: Response):
     """
-    Logout endpoint (for local development simulation)
+    Logout endpoint - clears ALB session cookies and generates Cognito logout URL
+
+    For Cognito + ALB authentication, we need to:
+    1. Clear ALB HttpOnly session cookies server-side
+    2. Logout from Cognito to clear Cognito session
+    3. Redirect to /logged-out page
+
+    The ALB session cookies are HttpOnly, so they cannot be deleted by JavaScript.
+    We must delete them server-side using Set-Cookie headers.
     """
-    return {"message": "Logout successful"}
+    # 로컬 개발 환경 체크
+    auth_disabled = os.getenv("AUTH_DISABLED")
+
+    if auth_disabled == "true":
+        logger.info("Local development mode - logout simulation")
+        return {"message": "Logout successful (local dev)"}
+
+    # 요청 헤더에서 현재 호스트 정보 추출
+    host = request.headers.get("host")
+    x_forwarded_proto = request.headers.get("x-forwarded-proto", "https")
+
+    # ALB 세션 쿠키 삭제 (HttpOnly 쿠키는 서버에서만 삭제 가능)
+    # ALB가 생성하는 쿠키들: AWSELBAuthSessionCookie, AWSELBAuthSessionCookie-0, -1, -2
+    cookie_names = [
+        'AWSELBAuthSessionCookie',
+        'AWSELBAuthSessionCookie-0',
+        'AWSELBAuthSessionCookie-1',
+        'AWSELBAuthSessionCookie-2',
+    ]
+
+    logger.info(f"🧹 Clearing ALB session cookies: {cookie_names}")
+
+    for cookie_name in cookie_names:
+        # Set-Cookie 헤더로 쿠키 삭제
+        # 쿠키를 삭제하려면 과거 날짜로 expires를 설정
+        response.set_cookie(
+            key=cookie_name,
+            value="",
+            max_age=0,
+            expires=0,
+            path="/",
+            secure=True,  # HTTPS only
+            httponly=True,  # JavaScript 접근 불가
+            samesite="lax"
+        )
+        logger.info(f"   ✅ Cleared cookie: {cookie_name}")
+
+    # Cognito 로그아웃 URL 생성
+    user_pool_domain = os.getenv("COGNITO_USER_POOL_DOMAIN")
+    client_id = os.getenv("COGNITO_CLIENT_ID")
+    region = os.getenv("AWS_REGION", "us-west-2")
+
+    # 디버깅을 위한 로그
+    logger.info(f"🔍 Logout attempt - user_pool_domain: {user_pool_domain}, client_id: {client_id}, region: {region}")
+
+    # 로그아웃 후 리다이렉트할 URL (로그아웃 완료 페이지)
+    # Cognito 허용된 로그아웃 URL과 정확히 일치해야 함
+    logout_uri = f"{x_forwarded_proto}://{host}/logged-out"
+
+    logger.info(f"Generating logout URL - domain: {user_pool_domain}, client_id: {client_id}, logout_uri: {logout_uri}")
+
+    # ALB + Cognito 로그아웃 - Cognito logout endpoint 사용
+    if user_pool_domain and client_id:
+        # URL 인코딩
+        encoded_logout_uri = quote(logout_uri, safe='')
+
+        # Cognito logout endpoint
+        # https://docs.aws.amazon.com/cognito/latest/developerguide/logout-endpoint.html
+        #
+        # IMPORTANT: For ALB + Cognito integration:
+        # 1. Clear ALB session cookies (done above with Set-Cookie headers)
+        # 2. Cognito session is cleared by calling Cognito logout endpoint
+        # 3. User is redirected to /logged-out page (no auth required)
+        # 4. When user clicks "Log In Again", they'll be redirected to / which requires fresh auth
+        logout_url = f"https://{user_pool_domain}.auth.{region}.amazoncognito.com/logout"
+        logout_url += f"?client_id={client_id}"
+        logout_url += f"&logout_uri={encoded_logout_uri}"
+
+        logger.info(f"✅ Generated Cognito logout URL: {logout_url}")
+        logger.info(f"🔍 Encoded logout_uri: {encoded_logout_uri}")
+
+        return {
+            "message": "Logout URL generated",
+            "logout_url": logout_url
+        }
+    else:
+        # Cognito 설정이 없으면 홈으로
+        logger.warning(f"⚠️ Cognito configuration missing - redirecting to home")
+        return {
+            "message": "Logout successful",
+            "action": "clear_cookies",
+            "redirect_url": logout_uri
+        }

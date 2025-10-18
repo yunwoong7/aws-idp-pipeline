@@ -256,6 +256,18 @@ if (adminUserEmail) {
     domainName,
     hostedZoneName,
   });
+
+  // Add Cognito configuration to Document Management Lambda for logout functionality
+  if (cognitoStack && documentManagementStack.documentManagementLambda) {
+    documentManagementStack.documentManagementLambda.addEnvironment(
+      'COGNITO_USER_POOL_DOMAIN',
+      cognitoStack.userPoolDomain.domainName
+    );
+    documentManagementStack.documentManagementLambda.addEnvironment(
+      'COGNITO_CLIENT_ID',
+      cognitoStack.userPoolClient.userPoolClientId
+    );
+  }
 }
 
 // Certificate Stack - Only deploy if custom domain is provided

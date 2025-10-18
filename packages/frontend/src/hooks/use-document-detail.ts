@@ -76,7 +76,7 @@ export interface UseDocumentDetailReturn {
     setShowPdfViewer: (show: boolean) => void;
     
     // Actions
-    viewDocument: (document: Document) => void;
+    viewDocument: (document: Document, updateExternalDocument?: (updates: any) => void, initialSegment?: number) => void;
     closeDetail: () => void;
     handleSegmentChange: (newSegmentIndex: number) => void;
     
@@ -247,27 +247,27 @@ export const useDocumentDetail = (indexId: string, externalSelectedDocument?: Do
             return;
         }
         
-        console.log('🔍 [useDocumentDetail] fetchAnalysisData started:', { 
-            indexId, 
-            docId,
-            timestamp: new Date().toISOString()
-        });
+        // console.log('🔍 [useDocumentDetail] fetchAnalysisData started:', {
+        //     indexId,
+        //     docId,
+        //     timestamp: new Date().toISOString()
+        // });
 
         try {
             setAnalysisLoading(true);
             const data = await documentApi.getDocumentDetail(docId, indexId);
-            console.log('Document detail fetch success:', data);
-            console.log('API response structure check (segments expected):', {
-                hasSegments: !!(data?.segments),
-                segmentCount: (data?.segments || []).length,
-            });
+            // console.log('Document detail fetch success:', data);
+            // console.log('API response structure check (segments expected):', {
+            //     hasSegments: !!(data?.segments),
+            //     segmentCount: (data?.segments || []).length,
+            // });
 
             // 새 segment 기반 구조로 변환
             const convertedAnalysisData: AnalysisDocument[] = [];
             const segments = data?.segments || [];
 
-            console.log('🔍 [DEBUG] Segments data from API:', segments);
-            console.log('🔍 [DEBUG] First segment status:', segments?.[0]?.status);
+            // console.log('🔍 [DEBUG] Segments data from API:', segments);
+            // console.log('🔍 [DEBUG] First segment status:', segments?.[0]?.status);
 
             if (Array.isArray(segments)) {
                 // Extract start_timecode_smpte list for seeking
@@ -306,7 +306,7 @@ export const useDocumentDetail = (indexId: string, externalSelectedDocument?: Do
                 });
             }
 
-            console.log('Converted analysis data (segments):', convertedAnalysisData);
+            // console.log('Converted analysis data (segments):', convertedAnalysisData);
             setAnalysisData(convertedAnalysisData);
 
             // Auto polling if no analysis data yet
@@ -316,6 +316,40 @@ export const useDocumentDetail = (indexId: string, externalSelectedDocument?: Do
                 // Data available, reset retry state
                 retryCountRef.current = 0;
                 clearRetryTimer();
+            }
+
+            // Update document with API response data
+            if (data) {
+                const updatedDocumentFields = {
+                    file_size: data.file_size,
+                    file_name: data.file_name,
+                    file_type: data.file_type,
+                    status: data.status,
+                    processing_status: data.processing_status,
+                    created_at: data.created_at,
+                    updated_at: data.updated_at,
+                    total_pages: data.total_pages,
+                    summary: data.summary,
+                    description: data.description,
+                    file_uri: data.file_uri,
+                    download_url: data.file_presigned_url || data.download_url,
+                };
+
+                // console.log('📝 [useDocumentDetail] Updating document with API data:', {
+                //     file_size: updatedDocumentFields.file_size,
+                //     file_name: updatedDocumentFields.file_name,
+                //     selectedDocument: selectedDocument?.document_id,
+                // });
+
+                // Always update internal document state (even if selectedDocument is still null from timing)
+                setSelectedDocument(prev => prev ? { ...prev, ...updatedDocumentFields } : prev);
+
+                // Update external document state if callback is provided
+                if (updateExternalDocument && externalSelectedDocument) {
+                    updateExternalDocument({
+                        selectedDocument: { ...externalSelectedDocument, ...updatedDocumentFields }
+                    });
+                }
             }
 
             // Update page images for both internal and external document state
@@ -330,21 +364,21 @@ export const useDocumentDetail = (indexId: string, externalSelectedDocument?: Do
                     page_status: segment.status,
                 }));
 
-                console.log('🔍 [DEBUG] Raw segments from API:', segments.slice(0, 3).map(s => ({
-                    segment_index: s.segment_index,
-                    status: s.status
-                })));
-                console.log('🔍 [DEBUG] Generated pageImages with status:', pageImages.slice(0, 3).map(p => ({
-                    page_index: p.page_index,
-                    page_status: p.page_status
-                })));
+                // console.log('🔍 [DEBUG] Raw segments from API:', segments.slice(0, 3).map(s => ({
+                //     segment_index: s.segment_index,
+                //     status: s.status
+                // })));
+                // console.log('🔍 [DEBUG] Generated pageImages with status:', pageImages.slice(0, 3).map(p => ({
+                //     page_index: p.page_index,
+                //     page_status: p.page_status
+                // })));
 
-                // Update internal document state
+                // Update internal document state with page images
                 if (selectedDocument) {
                     setSelectedDocument(prev => prev ? { ...prev, page_images: pageImages } : prev);
                 }
 
-                // Update external document state if callback is provided
+                // Update external document state with page images if callback is provided
                 if (updateExternalDocument && externalSelectedDocument) {
                     updateExternalDocument({
                         selectedDocument: { ...externalSelectedDocument, page_images: pageImages }
@@ -377,11 +411,11 @@ export const useDocumentDetail = (indexId: string, externalSelectedDocument?: Do
         };
     }, [fetchAnalysisData]);
 
-    // 문서 상세 보기 - accepts external update callback
-    const viewDocument = useCallback((document: Document, updateExternalDocument?: (updates: any) => void) => {
+    // 문서 상세 보기 - accepts external update callback and optional initial segment
+    const viewDocument = useCallback((document: Document, updateExternalDocument?: (updates: any) => void, initialSegment?: number) => {
         const currentDocId = effectiveSelectedDocument?.document_id;
         const documentId = document.document_id;
-        
+
         if (currentDocId === documentId && showDetail) {
             // 같은 문서의 상세 보기를 다시 클릭하면 닫기
             setShowDetail(false);
@@ -392,26 +426,27 @@ export const useDocumentDetail = (indexId: string, externalSelectedDocument?: Do
             }
         } else {
             // 새 문서 선택 또는 상세 보기 열기
+            const targetSegment = initialSegment ?? 0;
             setSelectedDocument(document);
             setShowDetail(true);
-            setSelectedSegment(0); // 세그먼트 초기화
+            setSelectedSegment(targetSegment); // Use provided segment or default to 0
             setImageZoom(1); // 확대/축소 초기화
             setImagePosition({ x: 0, y: 0 }); // 이미지 위치 초기화
             // reset polling for new document
             retryCountRef.current = 0;
             clearRetryTimer();
-            
+
             // Update external state if callback provided
             if (updateExternalDocument) {
                 updateExternalDocument({
                     selectedDocument: document,
-                    selectedSegment: 0,
+                    selectedSegment: targetSegment,
                     imageZoom: 1,
                     imageRotation: 0,
                     imagePosition: { x: 0, y: 0 }
                 });
             }
-            
+
             // 분석 데이터 조회 (getDocumentDetail이 segment 정보도 함께 반환)
             if (documentId) {
                 fetchAnalysisData(documentId, updateExternalDocument);

@@ -6,6 +6,7 @@ import rehypeHighlight from 'rehype-highlight';
 import { Copy, Check } from 'lucide-react';
 import { useState } from 'react';
 import React from 'react';
+import Image from 'next/image';
 import { cn } from '@/lib/utils';
 import { SecureImage } from '@/components/ui/secure-image';
 
@@ -282,13 +283,15 @@ export function MarkdownRenderer({ content, className = "", onDocumentClick, ind
               );
             }
             
-            // 일반 이미지는 기본 img 태그 사용
+            // 일반 이미지는 Next.js Image 컴포넌트 사용
             return (
-              <img
+              <Image
                 src={src}
-                alt={alt}
+                alt={alt || 'image'}
+                width={800}
+                height={600}
                 className="max-w-full h-auto rounded-lg border border-gray-600 my-4"
-                {...(props as any)}
+                unoptimized
               />
             );
           },

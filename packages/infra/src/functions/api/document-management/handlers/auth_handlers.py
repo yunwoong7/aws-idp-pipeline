@@ -141,19 +141,83 @@ def handle_get_current_user(event: Dict[str, Any], context: Any) -> Dict[str, An
 
 def handle_logout(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
-    Logout endpoint (for local development simulation)
+    Logout endpoint - generates Cognito logout URL
+
+    For Cognito + ALB authentication, this endpoint returns the Cognito logout URL
+    that the frontend should redirect to.
+
+    The logout URL format:
+    https://<domain>.auth.<region>.amazoncognito.com/logout?client_id=<client_id>&logout_uri=<logout_uri>
     """
     try:
-        return {
-            "statusCode": 200,
-            "headers": {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-                "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Amz-Date, X-Api-Key, X-Amz-Security-Token"
-            },
-            "body": json.dumps({"message": "Logout successful"})
-        }
+        # 로컬 개발 환경 체크
+        auth_disabled = os.getenv("AUTH_DISABLED")
+
+        if auth_disabled == "true":
+            logger.info("Local development mode - logout simulation")
+            return {
+                "statusCode": 200,
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                    "Access-Control-Allow-Headers": "Content-Type, Authorization"
+                },
+                "body": json.dumps({"message": "Logout successful (local dev)"})
+            }
+
+        # Cognito 로그아웃 URL 생성
+        # 환경 변수에서 Cognito 설정 가져오기
+        user_pool_domain = os.getenv("COGNITO_USER_POOL_DOMAIN")
+        client_id = os.getenv("COGNITO_CLIENT_ID")
+        region = os.getenv("AWS_REGION", "us-east-1")
+
+        # 요청 헤더에서 현재 호스트 정보 추출
+        headers = event.get("headers", {})
+        host = headers.get("host") or headers.get("Host")
+
+        # 로그아웃 후 리다이렉트할 URL (프론트엔드 홈)
+        protocol = "https" if headers.get("x-forwarded-proto") == "https" else "http"
+        logout_uri = f"{protocol}://{host}/"
+
+        logger.info(f"Generating logout URL - domain: {user_pool_domain}, client_id: {client_id}, logout_uri: {logout_uri}")
+
+        # Cognito 로그아웃 URL 생성
+        if user_pool_domain and client_id:
+            # Cognito hosted UI logout endpoint
+            logout_url = f"https://{user_pool_domain}.auth.{region}.amazoncognito.com/logout"
+            logout_url += f"?client_id={client_id}"
+            logout_url += f"&logout_uri={logout_uri}"
+
+            logger.info(f"Generated Cognito logout URL: {logout_url}")
+
+            return {
+                "statusCode": 200,
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                    "Access-Control-Allow-Headers": "Content-Type, Authorization"
+                },
+                "body": json.dumps({
+                    "message": "Logout URL generated",
+                    "logout_url": logout_url
+                })
+            }
+        else:
+            # 환경 변수가 없으면 기본 로그아웃 (쿠키 클리어만)
+            logger.warning("Cognito configuration not found, returning basic logout")
+            return {
+                "statusCode": 200,
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                },
+                "body": json.dumps({
+                    "message": "Logout successful (cookie clear only)"
+                })
+            }
+
     except Exception as e:
         logger.error(f"Logout error: {e}", exc_info=True)
         return {
@@ -162,5 +226,5 @@ def handle_logout(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 "Content-Type": "application/json",
                 "Access-Control-Allow-Origin": "*",
             },
-            "body": json.dumps({"error": "Internal server error"})
+            "body": json.dumps({"error": "Internal server error during logout"})
         }
