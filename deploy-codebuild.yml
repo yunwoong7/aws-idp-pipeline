@@ -279,7 +279,11 @@ Resources:
                 # Deploy ECR stack first (needed for container images)
                 - echo "Deploying ECR stack..."
                 - npx cdk deploy aws-idp-ai-ecr --require-approval never
-                
+
+                # Deploy Lambda Layer stack (needed for Lambda functions)
+                - echo "Deploying Lambda Layer stack..."
+                - npx cdk deploy aws-idp-ai-lambda-layer --require-approval never
+
                 # Deploy infrastructure stacks
                 - echo "Pre-cleaning existing VPC log groups..."
                 - aws logs delete-log-group --log-group-name "/aws-idp-ai/vpc/flowlogs" 2>/dev/null || echo "VPC flow logs group does not exist or already deleted"
@@ -425,10 +429,10 @@ Resources:
                 # Deploy service stacks
                 - echo "Deploying Workflow stack..."
                 - npx cdk deploy aws-idp-ai-workflow --require-approval never
-                
+
                 - echo "Deploying Document Management stack..."
                 - npx cdk deploy aws-idp-ai-document-management --require-approval never
-                
+
                 - echo "Deploying Indices Management stack..."
                 - npx cdk deploy aws-idp-ai-indices-management --require-approval never
 
@@ -523,24 +527,16 @@ Resources:
                         --context useCustomDomain="false"
                     fi
                   fi
-                
-                # Force ECS service update to use new Docker images
+
+                # Deploy User Management stack (requires ECS Cognito info)
+                - echo "Deploying User Management stack..."
+                - npx cdk deploy aws-idp-ai-user-management --require-approval never
+
+                # Force ECS service update to use new Docker images (after all infrastructure is ready)
                 - echo "Forcing ECS service update to use new Docker images..."
                 - aws ecs update-service --cluster aws-idp-cluster-${STAGE} --service aws-idp-frontend-${STAGE} --force-new-deployment || echo "Frontend service update failed or not found"
                 - aws ecs update-service --cluster aws-idp-cluster-${STAGE} --service aws-idp-backend-${STAGE} --force-new-deployment || echo "Backend service update failed or not found"
                 - echo "ECS service updates initiated"
-
-                # Deploy User Management stack after ECS (requires Cognito info from ECS)
-                - echo "Deploying User Management stack with Cognito integration..."
-                - |
-                  if [ "$ENABLE_COGNITO" = "true" ]; then
-                    npx cdk deploy aws-idp-ai-user-management --require-approval never \
-                      --context adminUserEmail="$ADMIN_USER_EMAIL" \
-                      --context useCustomDomain="$USE_CUSTOM_DOMAIN" \
-                      --context existingCertificateArn="$CERT_ARN"
-                  else
-                    npx cdk deploy aws-idp-ai-user-management --require-approval never
-                  fi
 
                 # Get outputs
                 - |
