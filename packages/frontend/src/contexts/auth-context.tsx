@@ -1,11 +1,21 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { usersApi } from '@/lib/api';
 
 export interface User {
   email: string;
   name?: string;
   groups?: string[];
+}
+
+export interface UserPermissions {
+  can_create_index: boolean;
+  can_delete_index: boolean;
+  can_upload_documents: boolean;
+  can_delete_documents: boolean;
+  accessible_indexes: string[] | "*";
+  available_tabs: string[];
 }
 
 interface AuthContextType {
@@ -14,6 +24,19 @@ interface AuthContextType {
   isLocalDev: boolean;
   logout: () => void;
   refreshUser: () => Promise<void>;
+
+  // Permission-related fields
+  permissions: UserPermissions | null;
+  userRole: string | null;
+  isAdmin: boolean;
+  isUser: boolean;
+  canCreateIndex: boolean;
+  canDeleteIndex: boolean;
+  canUploadDocuments: boolean;
+  canDeleteDocument: (indexId: string) => boolean;
+  canAccessIndex: (indexId: string) => boolean;
+  hasTabAccess: (tabName: string) => boolean;
+  accessibleIndexes: string[] | "*";
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -21,7 +44,10 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  
+  const [permissions, setPermissions] = useState<UserPermissions | null>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [permissionsLoading, setPermissionsLoading] = useState(false);
+
   const isLocalDev = process.env.NEXT_PUBLIC_AUTH_DISABLED === 'true';
 
   const fetchUserInfo = React.useCallback(async () => {
@@ -144,18 +170,98 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await fetchUserInfo();
   };
 
+  // Fetch permissions when user changes
+  useEffect(() => {
+    const fetchPermissions = async () => {
+      if (!user || isLoading) {
+        return;
+      }
+
+      // Local dev mode - give admin permissions automatically
+      if (isLocalDev) {
+        console.log('🔧 Local dev mode: Setting admin permissions');
+        setPermissions({
+          can_create_index: true,
+          can_delete_index: true,
+          can_upload_documents: true,
+          can_delete_documents: true,
+          accessible_indexes: "*",
+          available_tabs: ["documents", "analysis", "search", "verification"]
+        });
+        setUserRole("admin");
+        setPermissionsLoading(false);
+        return;
+      }
+
+      try {
+        setPermissionsLoading(true);
+        const userData = await usersApi.getCurrentUser();
+        console.log('📋 User permissions loaded:', userData);
+        setPermissions(userData.permissions);
+        setUserRole(userData.role);
+      } catch (err) {
+        console.error('Failed to fetch permissions:', err);
+        // Set default permissions on error
+        setPermissions({
+          can_create_index: false,
+          can_delete_index: false,
+          can_upload_documents: false,
+          can_delete_documents: false,
+          accessible_indexes: [],
+          available_tabs: ["search"]
+        });
+        setUserRole("user");
+      } finally {
+        setPermissionsLoading(false);
+      }
+    };
+
+    fetchPermissions();
+  }, [user, isLoading, isLocalDev]);
+
   useEffect(() => {
     fetchUserInfo();
   }, [fetchUserInfo]);
+
+  // Permission helper functions
+  const canAccessIndex = (indexId: string) => {
+    if (!permissions) return false;
+    const accessible = permissions.accessible_indexes;
+    return accessible === "*" || (Array.isArray(accessible) && accessible.includes(indexId));
+  };
+
+  const hasTabAccess = (tabName: string) => {
+    if (!permissions) return false;
+    return permissions.available_tabs.includes(tabName);
+  };
+
+  const canDeleteDocument = (indexId: string) => {
+    if (!permissions) return false;
+    // Must have delete permission AND access to the index
+    return permissions.can_delete_documents && canAccessIndex(indexId);
+  };
 
   return (
     <AuthContext.Provider
       value={{
         user,
-        isLoading,
+        isLoading: isLoading || permissionsLoading,
         isLocalDev,
         logout,
         refreshUser,
+
+        // Permission-related values
+        permissions,
+        userRole,
+        isAdmin: userRole === "admin",
+        isUser: userRole === "user",
+        canCreateIndex: permissions?.can_create_index ?? false,
+        canDeleteIndex: permissions?.can_delete_index ?? false,
+        canUploadDocuments: permissions?.can_upload_documents ?? false,
+        canDeleteDocument,
+        canAccessIndex,
+        hasTabAccess,
+        accessibleIndexes: permissions?.accessible_indexes ?? [],
       }}
     >
       {children}

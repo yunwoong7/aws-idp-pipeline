@@ -44,7 +44,7 @@ This document explains how to use the backend agents and how to extend them (pro
 ### 3) Prompt Structure
 - Prompts are managed as YAML files.
 - Paths:
-  - `packages/backend/src/agent/strands_analysis_agent/prompt/agent_profile.yaml`
+  - `packages/backend/src/agent/analysis_agent/prompt/agent_profile.yaml`
   - `packages/backend/src/agent/search_agent/prompt/planner.yaml`
   - `packages/backend/src/agent/search_agent/prompt/responder.yaml`
   - `packages/backend/src/agent/verification_agent/prompt/verification_prompts.yaml`
@@ -58,7 +58,7 @@ This document explains how to use the backend agents and how to extend them (pro
 - **Verification Agent**: Not intended for external tool additions (uses internal verification pipeline logic)
 
 - **Analysis Agent (Strands-based tools)**
-  - Path: `packages/backend/src/agent/strands_analysis_agent/tools/`
+  - Path: `packages/backend/src/agent/analysis_agent/tools/`
   - Example file: `analysis_tools.py`
   - How to add:
     1. Implement a function decorated with `@tool` (see `hybrid_search`, `get_document_info`, etc.)

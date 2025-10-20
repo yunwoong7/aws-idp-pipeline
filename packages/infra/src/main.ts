@@ -31,6 +31,7 @@ import { S3Stack } from './stacks/s3-stack.js';
 import { DynamoDBStack } from './stacks/dynamodb-stack.js';
 import { OpensearchStack } from './stacks/opensearch-stack.js';
 import { DocumentManagementStack } from './stacks/document-management-stack.js';
+import { UserManagementStack } from './stacks/user-management-stack.js';
 import { WorkflowStack } from './stacks/workflow-stack.js';
 import { WebSocketApiStack } from './stacks/websocket-api-stack.js';
 import { DynamoDBStreamsStack } from './stacks/dynamodb-streams-stack.js';
@@ -299,7 +300,7 @@ const ecrStack = new EcrStack(app, getFullStackName('ecr'), {
 });
 
 // ECS Stack - Container services
-new EcsStack(app, getFullStackName('ecs'), {
+const ecsStack = new EcsStack(app, getFullStackName('ecs'), {
   env,
   crossRegionReferences: true,
   description: 'AWS IDP AI ECS Container Services Stack',
@@ -310,6 +311,7 @@ new EcsStack(app, getFullStackName('ecs'), {
   apiGatewayUrl: apiGatewayStack.apiUrl,
   s3BucketName: s3Stack.documentsBucket.bucketName,
   documentsTableName: dynamoDBStack.documentsTable.tableName,
+  usersTableName: dynamoDBStack.usersTable.tableName,
   // Cognito integration - use existing stack if available, otherwise use provided stack
   userPool: cognitoStack?.userPool || (adminUserEmail ? cognito.UserPool.fromUserPoolId(app, 'ExistingUserPool', 'us-west-2_8168J9lr5') : undefined),
   userPoolClient: cognitoStack?.userPoolClient || (adminUserEmail ? cognito.UserPoolClient.fromUserPoolClientId(app, 'ExistingUserPoolClient', 'a5ka4aaqivdqdgj1f5ds9e6m9') : undefined),
@@ -321,6 +323,22 @@ new EcsStack(app, getFullStackName('ecs'), {
   domainName,
   hostedZoneId,
   hostedZoneName,
+});
+
+// User Management Stack - User management API for RBAC
+// Must be created after ECS stack to access Cognito properties
+new UserManagementStack(app, getFullStackName('user-management'), {
+  env,
+  crossRegionReferences: true,
+  description: 'AWS IDP AI User Management API Stack',
+  stage: Config.app.stage,
+  httpApi: apiGatewayStack.httpApi,
+  usersTable: dynamoDBStack.usersTable,
+  vpc: vpcStack.vpc,
+  commonLayer: lambdaLayerStack.commonLayer,
+  cognitoUserPoolDomain: ecsStack.cognitoUserPoolDomain,
+  cognitoClientId: ecsStack.cognitoClientId,
+  lambdaConfig: transformLambdaConfig(),
 });
 
 app.synth();

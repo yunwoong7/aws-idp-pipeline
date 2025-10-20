@@ -5,6 +5,9 @@ import json
 import logging
 import os
 import yaml
+import time
+from collections import OrderedDict
+from threading import Lock
 from typing import Dict, Any, Optional, List, Union, Annotated
 
 from fastapi import APIRouter, HTTPException, Request, Form, File, UploadFile, Depends
@@ -13,6 +16,7 @@ from pydantic import BaseModel, Field
 from pathlib import Path
 
 from src.agent.search_agent import SearchAgent
+from src.dependencies.permissions import get_current_user_from_request
 
 # logging configuration
 logger = logging.getLogger(__name__)
@@ -40,8 +44,13 @@ USER_MODEL_FILE = os.path.join(USER_SETTINGS_DIR, "aws_idp_mcp_client.json")
 # Global agent
 search_agent = None
 
-# Conversation histories (in production, use Redis or database)
-conversation_histories = {}
+# Conversation history management with LRU + TTL
+MAX_THREADS = 500  # Maximum number of threads to keep in memory (~10MB)
+CONVERSATION_TTL = 3600  # Time to live: 1 hour (3600 seconds)
+
+conversation_histories = OrderedDict()  # LRU-enabled dict
+conversation_timestamps = {}  # Track last access time for TTL
+cleanup_lock = Lock()  # Thread safety for cleanup operations
 
 class SearchRequest(BaseModel):
     """search request model"""
@@ -101,32 +110,101 @@ def load_model_config(model_id: str) -> Dict[str, Any]:
 async def initialize_search_agent(model_id: str, max_tokens: int) -> SearchAgent:
     """Initialize SearchAgent"""
     global search_agent
-    
+
+    # Check if we need to create a new agent or restart existing one
+    needs_init = False
+
     if not search_agent or search_agent.model_id != model_id:
         logger.info(f"Initializing SearchAgent: model={model_id}, max_tokens={max_tokens}")
-        
+        needs_init = True
+
         if search_agent:
             await search_agent.shutdown()
-        
+
         search_agent = SearchAgent(
             model_id=model_id,
             max_tokens=max_tokens,
-            mcp_config_path=MCP_CONFIG_PATH,
-            verbose=True
+            mcp_config_path=MCP_CONFIG_PATH
         )
-        
+    elif not hasattr(search_agent, 'image_analyzer_agent') or search_agent.image_analyzer_agent is None:
+        # Agent exists but image_analyzer_agent is not initialized
+        logger.warning("SearchAgent exists but image_analyzer_agent is None - calling startup()")
+        needs_init = True
+
+    if needs_init:
         await search_agent.startup()
         logger.info("SearchAgent initialization completed")
-    
+
     return search_agent
 
+def cleanup_old_conversations():
+    """
+    Clean up conversations older than TTL
+    Removes threads that haven't been accessed for CONVERSATION_TTL seconds
+    """
+    with cleanup_lock:
+        current_time = time.time()
+        to_delete = []
+
+        # Find threads to delete
+        for thread_id, timestamp in list(conversation_timestamps.items()):
+            if current_time - timestamp > CONVERSATION_TTL:
+                to_delete.append(thread_id)
+
+        # Delete old threads
+        for thread_id in to_delete:
+            if thread_id in conversation_histories:
+                del conversation_histories[thread_id]
+            if thread_id in conversation_timestamps:
+                del conversation_timestamps[thread_id]
+
+        if to_delete:
+            logger.info(f"TTL cleanup: removed {len(to_delete)} old conversations (total: {len(conversation_histories)})")
+
 def get_conversation_history(thread_id: str) -> List[Dict[str, str]]:
-    """Get conversation history for thread"""
+    """
+    Get conversation history for thread with LRU and periodic TTL cleanup
+
+    Args:
+        thread_id: Thread identifier
+
+    Returns:
+        Conversation history (list of messages)
+    """
+    # Periodic cleanup (every 10 accesses)
+    if len(conversation_histories) > 0 and len(conversation_histories) % 10 == 0:
+        cleanup_old_conversations()
+
+    # LRU: Move accessed thread to end (most recently used)
+    if thread_id in conversation_histories:
+        conversation_histories.move_to_end(thread_id)
+        conversation_timestamps[thread_id] = time.time()
+
     return conversation_histories.get(thread_id, [])
 
 def update_conversation_history(thread_id: str, history: List[Dict[str, str]]):
-    """Update conversation history for thread"""
-    conversation_histories[thread_id] = history[-20:]  # Keep last 20 messages
+    """
+    Update conversation history with LRU eviction
+
+    Args:
+        thread_id: Thread identifier
+        history: Complete conversation history
+    """
+    with cleanup_lock:
+        # Keep only last 20 messages
+        conversation_histories[thread_id] = history[-20:]
+        conversation_timestamps[thread_id] = time.time()
+
+        # LRU: Move to end (most recently used)
+        conversation_histories.move_to_end(thread_id)
+
+        # LRU eviction: Remove oldest threads if exceeding MAX_THREADS
+        while len(conversation_histories) > MAX_THREADS:
+            oldest_thread = next(iter(conversation_histories))
+            logger.info(f"LRU eviction: removing {oldest_thread} (total: {len(conversation_histories)})")
+            del conversation_histories[oldest_thread]
+            if oldest_thread in conversation_timestamps:
+                del conversation_timestamps[oldest_thread]
 
 @router.post("/search")
 async def search(
@@ -176,42 +254,80 @@ async def search(
         
         # Initialize SearchAgent
         agent = await initialize_search_agent(model_id, max_tokens)
-        
-        # Handle thread ID
+
+        # Get user information for thread isolation
+        try:
+            user_info = get_current_user_from_request(request)
+            user_id = user_info.get("sub", user_info.get("email", "anonymous"))
+            logger.info(f"User authenticated: {user_id}")
+        except Exception as e:
+            logger.warning(f"Failed to get user info, using anonymous: {e}")
+            user_id = "anonymous"
+
+        # Handle thread ID with user isolation
         if not thread_id:
             if index_id:
-                thread_id = f"thread_{index_id}"
-                logger.info(f"Using index-based thread: {thread_id}")
+                thread_id = f"thread_{user_id}_{index_id}"
+                logger.info(f"Using user+index thread: {thread_id}")
             else:
-                thread_id = f"thread_default_{id(request)}"
-                logger.info(f"Using default thread: {thread_id}")
+                thread_id = f"thread_{user_id}_default"
+                logger.info(f"Using user default thread: {thread_id}")
         
         # Get conversation history
         message_history = get_conversation_history(thread_id)
         logger.info(f"Loaded {len(message_history)} previous messages")
-        
+
+        # Handle file uploads if present
+        processed_files = []
+        if files and len(files) > 0:
+            logger.info(f"File upload detected: {len(files)} files")
+            for file in files:
+                if file and file.filename:
+                    try:
+                        file_data = await file.read()
+                        file_size = len(file_data)
+                        file_info = {
+                            "name": file.filename,
+                            "type": file.content_type or "",
+                            "data": file_data,
+                            "size": file_size
+                        }
+                        processed_files.append(file_info)
+                        logger.info(f"File added: {file.filename} ({file_size / 1024:.2f} KB)")
+                    except Exception as e:
+                        logger.error(f"File processing error: {e}")
+                        raise HTTPException(status_code=400, detail=f"File upload error: {str(e)}")
+
         # Handle streaming response
         if stream:
             logger.info("Starting streaming response")
-            
+
             async def stream_search_response():
                 """Stream search response with plan visualization"""
                 try:
                     updated_history = None
                     final_references = []
                     final_plan = None
-                    
+
                     async for event in agent.astream(
                         message=message,
                         message_history=message_history,
                         index_id=index_id,
                         document_id=document_id,
-                        segment_id=segment_id
+                        segment_id=segment_id,
+                        files=processed_files if processed_files else None
                     ):
                         event_type = event.get("type", "unknown")
-                        
+
+                        # Image analysis events
+                        if event_type == "image_analysis_complete":
+                            yield f"data: {json.dumps({'type': 'image_analysis_complete', 'analysis': event.get('analysis'), 'message': event['message']})}\n\n"
+
+                        elif event_type == "image_analysis_skip":
+                            yield f"data: {json.dumps({'type': 'image_analysis_skip', 'message': event['message']})}\n\n"
+
                         # Planning events
-                        if event_type == "planning_start":
+                        elif event_type == "planning_start":
                             yield f"data: {json.dumps({'type': 'planning_start', 'message': event['message']})}\n\n"
                             
                         elif event_type == "planning_token":

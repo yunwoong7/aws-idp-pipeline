@@ -58,9 +58,13 @@ const nextConfig: NextConfig = {
     return config;
   },
 
-  // rewrites 제거 - API 호출은 코드에서 직접 환경변수 사용
+  // API rewrites - 로컬 개발 시 backend로 프록시
   async rewrites() {
     return [
+      {
+        source: '/api/:path*',
+        destination: `${API_BASE_URL}/api/:path*`,
+      },
       {
         source: '/proxy/s3/:path*',
         destination: 'https://aws-idp-ai-documents-057336397075-us-west-2-dev.s3.amazonaws.com/:path*',

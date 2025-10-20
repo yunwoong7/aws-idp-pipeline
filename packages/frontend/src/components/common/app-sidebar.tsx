@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
-import { Home, Bot, Settings, Layers, ImageIcon, LogOut, User } from "lucide-react";
+import { Home, Bot, Settings, Layers, ImageIcon, LogOut, User, Shield } from "lucide-react";
 import { useBranding } from "@/contexts/branding-context";
 import { useAuth } from "@/contexts/auth-context";
 import { useAlert } from "@/components/ui/alert";
@@ -64,7 +64,7 @@ export function AppSidebar() {
   const router = useRouter();
   const pathname = usePathname();
   const { settings, loading } = useBranding();
-  const { user, isLoading: authLoading, isLocalDev, logout } = useAuth();
+  const { user, isLoading: authLoading, isLocalDev, logout, isAdmin, hasTabAccess } = useAuth();
   const { showInfo, AlertComponent } = useAlert();
 
   console.log('📋 AppSidebar branding data:', { settings, loading });
@@ -82,18 +82,33 @@ export function AppSidebar() {
       href: "/studio",
       isActive: pathname === "/" || pathname === "/studio",
     },
-    {
-      label: "Indexes",
-      icon: Layers,
-      href: "/indexes",
-      isActive: pathname === "/indexes",
-    },
-    {
-      label: "Settings",
-      icon: Settings,
-      href: "/settings",
-      isActive: pathname === "/settings",
-    },
+    // Indexes menu - show if user has any tab access
+    ...((hasTabAccess('documents') || hasTabAccess('analysis') || hasTabAccess('search') || hasTabAccess('verification'))
+      ? [
+          {
+            label: "Indexes",
+            icon: Layers,
+            href: "/indexes",
+            isActive: pathname === "/indexes",
+          },
+        ]
+      : []),
+    ...(isAdmin
+      ? [
+          {
+            label: "Users",
+            icon: Shield,
+            href: "/users",
+            isActive: pathname === "/users",
+          },
+          {
+            label: "Settings",
+            icon: Settings,
+            href: "/settings",
+            isActive: pathname === "/settings",
+          },
+        ]
+      : []),
   ];
 
   return (

@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useBranding } from "@/contexts/branding-context";
+import { useAuth } from "@/contexts/auth-context";
 import {
   SidebarProvider,
   SidebarInset,
@@ -24,6 +25,7 @@ type IndexItem = { index_id: string; index_name: string; description?: string; o
 export default function StudioPage() {
   const router = useRouter();
   const { settings, loading } = useBranding();
+  const { canCreateIndex, canUploadDocuments, accessibleIndexes, canAccessIndex } = useAuth();
   const [indexes, setIndexes] = useState<IndexItem[]>([]);
   const [selectedIndexId, setSelectedIndexId] = useState<string>("");
   const [openCreate, setOpenCreate] = useState(false);
@@ -88,7 +90,18 @@ export default function StudioPage() {
     return () => { mounted = false; };
   }, []);
 
-  const selectedIndex = useMemo(() => indexes.find(i => i.index_id === selectedIndexId) || null, [indexes, selectedIndexId]);
+  // Filter indexes based on user permissions
+  const filteredIndexes = useMemo(() => {
+    if (accessibleIndexes === "*") {
+      return indexes;
+    }
+    if (Array.isArray(accessibleIndexes)) {
+      return indexes.filter(idx => accessibleIndexes.includes(idx.index_id));
+    }
+    return [];
+  }, [indexes, accessibleIndexes]);
+
+  const selectedIndex = useMemo(() => filteredIndexes.find(i => i.index_id === selectedIndexId) || null, [filteredIndexes, selectedIndexId]);
 
   // Simple toast function
   const showToast = (text: string, type: 'success' | 'error') => {
@@ -333,7 +346,7 @@ export default function StudioPage() {
                   </div>
                 </div>
               ) : (
-                <div className="text-center bg-white/5 border border-white/10 rounded-2xl px-6 py-6 backdrop-blur-md group" data-disabled={indexes.length === 0 ? true : undefined}>
+                <div className="text-center bg-white/5 border border-white/10 rounded-2xl px-6 py-6 backdrop-blur-md group" data-disabled={filteredIndexes.length === 0 ? true : undefined}>
                   {/* Row 1: Label alone */}
                   <div className="w-full mb-3">
                     <Label className="flex items-center gap-2 font-medium select-none group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50 text-white/80 text-sm">Select index</Label>
@@ -352,14 +365,14 @@ export default function StudioPage() {
                             "peer appearance-none h-12 rounded-2xl bg-transparent text-white pl-9 pr-10 min-w-[26rem] text-base",
                             "focus-visible:outline-none focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/30",
                             "hover:bg-white/5 transition-all",
-                            indexes.length === 0 && "opacity-60 cursor-not-allowed"
+                            filteredIndexes.length === 0 && "opacity-60 cursor-not-allowed"
                           )}
                           value={selectedIndexId}
                           onChange={(e) => setSelectedIndexId(e.target.value)}
-                          disabled={indexes.length === 0}
+                          disabled={filteredIndexes.length === 0}
                         >
-                          <option value="">{indexes.length ? "Choose an index" : "No index yet"}</option>
-                          {indexes.map((idx) => (
+                          <option value="">{filteredIndexes.length ? "Choose an index" : "No accessible index"}</option>
+                          {filteredIndexes.map((idx) => (
                             <option key={idx.index_id} value={idx.index_id}>{idx.index_id}</option>
                           ))}
                         </select>
@@ -374,24 +387,38 @@ export default function StudioPage() {
                       >
                         <ArrowRight className="h-4 w-4" /> Go to Workspace
                       </Button>
-                      <Button
-                        onClick={() => setOpenCreate(true)}
-                        className="inline-flex items-center justify-center whitespace-nowrap text-sm font-medium disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive border shadow-xs dark:bg-input/30 dark:border-input dark:hover:bg-input/50 h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5 bg-transparent border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/20 hover:border-emerald-400 hover:text-emerald-300 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <PlusCircle className="h-4 w-4" /> Create an index
-                      </Button>
+                      {canCreateIndex && (
+                        <Button
+                          onClick={() => setOpenCreate(true)}
+                          className="inline-flex items-center justify-center whitespace-nowrap text-sm font-medium disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive border shadow-xs dark:bg-input/30 dark:border-input dark:hover:bg-input/50 h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5 bg-transparent border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/20 hover:border-emerald-400 hover:text-emerald-300 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <PlusCircle className="h-4 w-4" /> Create an index
+                        </Button>
+                      )}
                     </div>
                   </div>
-                  {indexes.length === 0 && (
+                  {filteredIndexes.length === 0 && (
                     <p className="text-emerald-300/80 text-sm mt-3">
-                      No index yet — Create your first index to get started.
+                      {indexes.length === 0
+                        ? "No index yet — Create your first index to get started."
+                        : "No accessible indexes — Contact your administrator for access."}
                     </p>
                   )}
                 </div>
               )}
 
               {/* Upload zone below controls */}
-              {loadingIndexes ? (
+              {!canUploadDocuments ? (
+                <div className="relative rounded-2xl border-2 border-dashed p-10 text-center min-h-[240px] mt-6 bg-black/30 border-amber-500/30 overflow-hidden">
+                  <div className="relative flex flex-col items-center justify-center py-12 space-y-4">
+                    <Upload className="h-12 w-12 text-amber-300/50" />
+                    <div className="space-y-2">
+                      <p className="text-amber-300/80 font-medium">Upload Permission Required</p>
+                      <p className="text-white/50 text-sm">Contact your administrator to enable document upload</p>
+                    </div>
+                  </div>
+                </div>
+              ) : loadingIndexes ? (
                 <div className="relative rounded-2xl border-2 border-dashed p-10 text-center min-h-[240px] mt-6 bg-black/30 border-white/20 overflow-hidden">
                   {/* Floating particles effect */}
                   <div className="absolute inset-0">

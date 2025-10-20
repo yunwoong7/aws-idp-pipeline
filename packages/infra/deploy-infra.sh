@@ -308,7 +308,7 @@ deploy_infrastructure() {
     }
   elif $PRESERVE_VPC; then
     print_vpc "Excluding VPC stack from deployment"
-    # Deploy in dependency order to avoid issues
+    # Deploy in dependency order to avoid issues (exclude User-Management)
     local stacks=(
       aws-idp-ai-vpc
       aws-idp-ai-lambda-layer
@@ -323,7 +323,7 @@ deploy_infrastructure() {
       aws-idp-ai-api-gateway
     )
     local filtered=( )
-    for s in "${stacks[@]}"; do 
+    for s in "${stacks[@]}"; do
       [[ "$s" != "aws-idp-ai-vpc" ]] && filtered+=("$s")
     done
     
@@ -333,7 +333,7 @@ deploy_infrastructure() {
       return 1
     }
   else
-    # Deploy only base infrastructure stacks (exclude ECR/ECS)
+    # Deploy only base infrastructure stacks (exclude ECR/ECS/User-Management)
     local stacks=(
       aws-idp-ai-vpc
       aws-idp-ai-lambda-layer

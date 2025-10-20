@@ -3,11 +3,12 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import Image from "next/image";
 import ReactDOM from "react-dom";
-import { BarChart3, FileText, Loader2, X, Search, Hash, MessageCircle, Users, SendIcon, Sparkles, RotateCcw, Image as ImageIcon } from "lucide-react";
+import { BarChart3, FileText, Loader2, X, Search, Hash, MessageCircle, Users, SendIcon, Sparkles, RotateCcw, Paperclip } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useDocuments } from "@/hooks/use-documents";
 import { useDocumentDetail } from "@/hooks/use-document-detail";
+import { useAuth } from "@/contexts/auth-context";
 
 import { Document } from "@/types/document.types";
 import { AnalysisPopup } from "@/components/common/analysis-popup";
@@ -59,6 +60,9 @@ interface AnalysisTabProps {
 }
 
 export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persistentState, onStateUpdate }: AnalysisTabProps) {
+  // Auth hook for user information
+  const { user } = useAuth();
+
   // Alert hook for status warnings
   const { showWarning, AlertComponent } = useAlert();
   
@@ -279,14 +283,23 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
     // Initialize with persistent messages if available
     return messages.length > 0 ? messages : [];
   });
+
+  // Prevent duplicate API calls
+  const sendingRef = useRef(false);
   
-  // Sync local messages with persistent state only when initially loading
+  // Force clear localMessages when persistent messages are cleared
+  useEffect(() => {
+    if (messages.length === 0) {
+      setLocalMessages([]);
+    }
+  }, [messages.length]);
+
+  // Sync local messages with persistent state on initial load
   useEffect(() => {
     if (!isStreaming && messages.length > 0 && localMessages.length === 0) {
-      // Only sync when localMessages is empty (initial load)
       setLocalMessages(messages);
     }
-  }, [messages, messages.length, isStreaming, localMessages.length]);
+  }, [messages, isStreaming, localMessages.length]);
   
   // Sync persistent state when streaming ends
   useEffect(() => {
@@ -309,11 +322,12 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
   const handleChatReset = useCallback(async () => {
     try {
       console.log('🔄 Chat reset initiated');
-      await systemApi.reinitialize();
-      
-      // Clear local messages
+
+      // Clear local messages first
       setLocalMessages([]);
-      
+
+      await systemApi.reinitialize();
+
       // Update persistent state to clear messages, input, and reset chat started state
       onStateUpdate?.({
         messages: [],
@@ -322,10 +336,18 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
         attachedContent: [],
         isChatStarted: false // Reset to show welcome screen again
       });
-      
+
       console.log('✅ Chat reset completed');
     } catch (error) {
       console.error('❌ Failed to reset chat:', error);
+      // Still reset UI even if API call fails
+      onStateUpdate?.({
+        messages: [],
+        input: "",
+        attachments: [],
+        attachedContent: [],
+        isChatStarted: false
+      });
     }
   }, [onStateUpdate]);
 
@@ -335,8 +357,9 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
       // If there was a chat, call reinit API
       if (selectedDocument && selectedDocument.document_id !== document.document_id && (localMessages.length > 0 || messages.length > 0)) {
         console.log('🔄 Reinitializing chat for document change');
-        const newThreadId = `thread_doc_${document.document_id}_${Date.now()}`;
-        
+        const userId = user?.email || 'anonymous';
+        const newThreadId = `thread_${userId}_${indexId}`;
+
         await systemApi.reinitialize({
           force: true,
           reload_prompt: true,
@@ -367,7 +390,7 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
       // Use simple alert instead of ConfirmDialog (error is simple)
       alert('Chat reinit failed. Please try again.');
     }
-  }, [selectedDocument, localMessages, messages, onStateUpdate, hookViewDocument]);
+  }, [selectedDocument, localMessages, messages, onStateUpdate, hookViewDocument, user, indexId]);
 
   // Document selection handler
   const handleDocumentSelect = useCallback((document: Document) => {
@@ -661,15 +684,51 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
 
   // Send message handler (from page-backup.tsx)
   const handleSendMessage = useCallback(async (message?: string) => {
+    // Prevent duplicate calls
+    if (sendingRef.current) {
+      console.log('⚠️ Duplicate send attempt blocked');
+      return;
+    }
+
     // Check if selected document is ready for analysis
     if (selectedDocument && selectedDocument.status !== 'completed') {
       showWarning('Document Not Ready', 'This document is not ready for analysis. Only completed documents can be analyzed.');
       return;
     }
-    
-    const inputText = String(message || input || "");
-    
+
+    let inputText = String(message || input || "");
+
     if (!inputText.trim() && attachedContent.length === 0 && attachments.length === 0) return;
+
+    // Set sending flag
+    sendingRef.current = true;
+
+    // Check for reset or if chat hasn't started yet (hero screen)
+    if (!isChatStarted) {
+      console.log('🔄 Hero screen detected, reinitializing chat');
+
+      // Reinitialize with thread_id
+      try {
+        const userId = user?.email || 'anonymous';
+        const threadId = `thread_${userId}_${indexId}`;
+
+        await systemApi.reinitialize({
+          force: true,
+          reload_prompt: true,
+          thread_id: threadId
+        });
+        console.log('✅ Chat reinitialized successfully');
+      } catch (error) {
+        console.error('❌ Failed to reinitialize chat:', error);
+      }
+
+      // Clear local and persistent messages
+      setLocalMessages([]);
+      onStateUpdate?.({
+        messages: [],
+        isChatStarted: true
+      });
+    }
 
     const attachmentStrings = attachedContent.map((item: any) => {
       if (item.type === 'document') {
@@ -682,11 +741,13 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
     }).filter(Boolean).join('\n');
 
     const finalMessageToSend = `${attachmentStrings}\n\n${inputText}`.trim();
-    
+
+    const wasNotStarted = !isChatStarted;
+
     if (!isChatStarted) {
       onStateUpdate?.({ isChatStarted: true });
     }
-    
+
     const userMessage: Message = {
       id: uuidv4(),
       sender: "user",
@@ -701,8 +762,14 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
       attachedFiles: [...attachments],
       timestamp: Date.now()
     };
-    
-    setLocalMessages(prev => [...prev, userMessage]);
+
+    // Update local messages for real-time display
+    // If this is the first message after reset, start with a new array
+    if (wasNotStarted) {
+      setLocalMessages([userMessage]);
+    } else {
+      setLocalMessages(prev => [...prev, userMessage]);
+    }
     onStateUpdate?.({ 
       input: "",
       attachedContent: [],
@@ -1198,10 +1265,10 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
       } finally {
         setIsStreaming(false);
       }
-      
+
     } catch (error) {
       console.error('Chat error:', error);
-      
+
       const errorMessage: Message = {
         id: uuidv4(),
         sender: "ai",
@@ -1219,8 +1286,9 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
       setLocalMessages(prev => [...prev, errorMessage]);
     } finally {
       setIsStreaming(false);
+      sendingRef.current = false;
       onStateUpdate?.({ attachments: [] });
-      
+
       // 스트리밍 종료 후 입력 필드에 포커스
       setTimeout(() => {
         if (inputRef.current) {
@@ -1228,7 +1296,7 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
         }
       }, 200);
     }
-  }, [input, attachedContent, isChatStarted, attachments, indexId, onStateUpdate, selectedDocument, selectedSegmentId, showWarning]);
+  }, [input, attachedContent, isChatStarted, attachments, indexId, onStateUpdate, selectedDocument, selectedSegmentId, showWarning, user]);
 
   // Remove attached content handler
   const handleRemoveAttachedContent = (id: string) => {
@@ -1255,16 +1323,21 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
               <h2 className="text-xl font-bold text-white bg-gradient-to-r from-blue-300 to-purple-300 bg-clip-text text-transparent">
                 Document Analysis
               </h2>
-              {indexId && (
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="text-sm text-white/60">Index:</span>
-                  <span className="px-2 py-1 bg-blue-500/20 border border-blue-400/30 rounded-lg text-blue-300 text-sm font-medium">
-                    {indexId}
-                  </span>
-                </div>
-              )}
             </div>
           </div>
+
+          {/* Reset Button */}
+          {isChatStarted && (
+            <button
+              type="button"
+              onClick={handleChatReset}
+              className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all duration-200 backdrop-blur-sm group"
+              title="Reset Chat"
+            >
+              <RotateCcw className="w-4 h-4 text-orange-400 group-hover:text-orange-300 transition-colors" />
+              <span className="text-sm text-white/60 group-hover:text-white/80">Reset</span>
+            </button>
+          )}
         </div>
       </div>
       
@@ -1388,20 +1461,19 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
                       <div className="relative bg-gradient-to-r from-gray-900/90 to-gray-800/90 border border-white/20 rounded-full backdrop-blur-xl shadow-2xl">
                         <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/10 via-purple-500/10 to-pink-500/10 rounded-full animate-pulse" />
                         <div className="relative p-4 flex items-center flex-nowrap gap-2">
-                          <div className="flex-shrink-0 mr-3">
+                          <div className="flex-shrink-0">
                             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-500/20 to-purple-500/20 flex items-center justify-center">
                               <Sparkles className="w-5 h-5 text-cyan-400 animate-pulse" />
                             </div>
                           </div>
-                          {/* Attach image button inside hero search bar */
-                          /* Keep button but avoid any extra layout blocks above */}
+                          {/* Attach file button inside hero search bar */}
                           <button
                             onClick={handleAttachButtonClick}
-                            className="mr-2 p-3 rounded-full bg-white/10 hover:bg-white/20 transition-all"
-                            title="Attach image"
-                            aria-label="Attach image"
+                            className="p-2 rounded-full hover:bg-white/5 transition-all group"
+                            title="Attach file"
+                            aria-label="Attach file"
                           >
-                            <ImageIcon className="w-5 h-5 text-white" />
+                            <Paperclip className="w-5 h-5 text-green-400 group-hover:text-green-300 transition-colors" />
                           </button>
 
                           {/* keep inputs from wrapping: */}
@@ -1431,24 +1503,6 @@ export function AnalysisTab({ indexId, onSelectDocument, onAttachToChat, persist
                       </div>
                     </motion.div>
                     
-                    {/* Reset Button - Only show if there are messages */}
-                    {messages.length > 0 && (
-                      <motion.div
-                        initial={{ opacity: 0, scale: 0.8 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        transition={{ delay: 1, duration: 0.5 }}
-                        className="mt-6 text-center"
-                      >
-                        <button
-                          onClick={handleChatReset}
-                          className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all duration-200 backdrop-blur-sm group"
-                          title="Reset Chat"
-                        >
-                          <RotateCcw className="w-4 h-4 text-orange-400 group-hover:text-orange-300 transition-colors" />
-                          <span className="text-sm text-white/60 group-hover:text-white/80">Reset Chat</span>
-                        </button>
-                      </motion.div>
-                    )}
                   </div>
                 </motion.div>
               ) : null}

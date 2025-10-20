@@ -2,7 +2,7 @@
 Document Upload Router
 Handles direct file uploads to S3 through backend
 """
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Request, Depends
 from fastapi.responses import JSONResponse
 import boto3
 from botocore.exceptions import ClientError
@@ -63,6 +63,7 @@ def infer_media_type(file_type: str, file_name: str) -> str:
 
 @router.post("/backend-upload")
 async def upload_document(
+    request: Request,
     file: UploadFile = File(...),
     index_id: str = Form(...),
     description: Optional[str] = Form(None)
@@ -70,7 +71,21 @@ async def upload_document(
     """
     Upload document directly through backend
     No CORS issues, no size limits (within ECS limits)
-    """    
+    Requires can_upload_documents permission
+    """
+    # Permission check
+    from src.dependencies.permissions import get_user_permissions
+    permissions = await get_user_permissions(request)
+
+    if not permissions.get("can_upload_documents", False):
+        logger.warning(f"Upload permission denied for user")
+        raise HTTPException(status_code=403, detail="Permission denied: can_upload_documents required")
+
+    # Index access check
+    accessible = permissions.get("accessible_indexes", [])
+    if accessible != "*" and (not isinstance(accessible, list) or index_id not in accessible):
+        logger.warning(f"Index access denied: {index_id}")
+        raise HTTPException(status_code=403, detail=f"Access denied to index: {index_id}")    
     if not s3_client or not BUCKET_NAME:
         logger.error("S3 client or bucket name not initialized")
         raise HTTPException(status_code=500, detail="S3 client not properly configured")

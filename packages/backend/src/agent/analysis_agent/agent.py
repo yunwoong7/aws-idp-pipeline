@@ -28,7 +28,7 @@ from tools.analysis_tools import (
 
 logger = logging.getLogger(__name__)
 
-class StrandsAnalysisAgent:
+class AnalysisAgent:
     """
     Strands SDK based Analysis Agent
     """
@@ -41,7 +41,7 @@ class StrandsAnalysisAgent:
         reload_prompt: bool = False
     ):
         """
-        Initialize Strands Analysis Agent
+        Initialize Analysis Agent
         
         Args:
             model_id: Model ID to use
@@ -81,7 +81,7 @@ class StrandsAnalysisAgent:
         self.agent = None
         self.graph = None
         
-        logger.info(f"Initialized StrandsAnalysisAgent with model: {self.model_id}")
+        logger.info(f"Initialized AnalysisAgent with model: {self.model_id}")
     
     
     async def startup(self):
@@ -97,7 +97,7 @@ class StrandsAnalysisAgent:
             
             # Create main Strands agent with tools
             self.agent = Agent(
-                name="strands_analysis_agent",
+                name="analysis_agent",
                 system_prompt=system_prompt,
                 tools=self.tools,
                 model=self.model_id,
@@ -109,7 +109,7 @@ class StrandsAnalysisAgent:
             # Build graph structure for complex workflows
             self._build_graph()
             
-            logger.info("StrandsAnalysisAgent startup completed")
+            logger.info("AnalysisAgent startup completed")
             return True
             
         except Exception as e:
@@ -135,7 +135,7 @@ class StrandsAnalysisAgent:
         """Shutdown the agent and cleanup resources"""
         try:
             # MCP client cleanup is handled by context manager
-            logger.info("StrandsAnalysisAgent shutdown completed")
+            logger.info("AnalysisAgent shutdown completed")
         except Exception as e:
             logger.error(f"Error during shutdown: {e}")
     

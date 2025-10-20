@@ -1,5 +1,5 @@
 """
-Strands Agent API router
+Analysis Agent API router
 """
 import json
 import logging
@@ -10,14 +10,15 @@ from fastapi import APIRouter, HTTPException, Request, Form, File, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from pathlib import Path
-from src.agent.strands_analysis_agent import StrandsAnalysisAgent
+from src.agent.analysis_agent import AnalysisAgent
 from langchain_core.messages import HumanMessage
+from src.dependencies.permissions import get_current_user_from_request
 
 # Logging configuration
 logger = logging.getLogger(__name__)
 
 # Create router
-router = APIRouter(prefix="/api/strands", tags=["strands-agent"])
+router = APIRouter(prefix="/api/analysis", tags=["analysis-agent"])
 
 # Configuration paths
 try:
@@ -41,10 +42,10 @@ async def initialize_agent_on_startup():
     try:
         if not agent:
             model_id = "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
-            logger.info(f"Pre-initializing Strands agent on startup: model={model_id}")
-            agent = StrandsAnalysisAgent(model_id=model_id, mcp_json_path=MCP_CONFIG_PATH)
+            logger.info(f"Pre-initializing Analysis agent on startup: model={model_id}")
+            agent = AnalysisAgent(model_id=model_id, mcp_json_path=MCP_CONFIG_PATH)
             await agent.startup()
-            logger.info("Strands agent pre-initialization completed successfully")
+            logger.info("Analysis agent pre-initialization completed successfully")
     except Exception as e:
         logger.error(f"Failed to pre-initialize agent on startup: {e}")
         # Don't fail the server startup if agent initialization fails
@@ -160,21 +161,33 @@ async def chat(
         # Initialize agent if needed
         global agent
         if not agent:
-            logger.info(f"Initializing Strands agent: model={model_id}")
-            agent = StrandsAnalysisAgent(model_id=model_id, mcp_json_path=MCP_CONFIG_PATH)
+            logger.info(f"Initializing Analysis agent: model={model_id}")
+            agent = AnalysisAgent(model_id=model_id, mcp_json_path=MCP_CONFIG_PATH)
             await agent.startup()
-            logger.info("Strands agent startup completed")
+            logger.info("Analysis agent startup completed")
         
+        # Get user information for thread isolation
+        try:
+            user_info = get_current_user_from_request(request)
+            user_id = user_info.get("sub", user_info.get("email", "anonymous"))
+            logger.info(f"User authenticated: {user_id}")
+        except Exception as e:
+            logger.warning(f"Failed to get user info, using anonymous: {e}")
+            user_id = "anonymous"
+
         # Create messages
         messages = [HumanMessage(content=message)]
-        
-        # Use provided thread_id or create one
+
+        # Handle thread ID with user isolation
         if not thread_id:
             if index_id:
-                thread_id = f"thread_{index_id}"
+                thread_id = f"thread_{user_id}_{index_id}"
+                logger.info(f"Using user+index thread: {thread_id}")
             else:
-                thread_id = f"thread_default_{id(request)}"
-        logger.info(f"Using thread_id: {thread_id}")
+                thread_id = f"thread_{user_id}_default"
+                logger.info(f"Using user default thread: {thread_id}")
+        else:
+            logger.info(f"Using provided thread_id: {thread_id}")
         
         # Create config
         config = {
@@ -346,21 +359,21 @@ async def reinit_agent(request: ReinitRequest = None):
                 logger.warning(f"Failed to shutdown agent: {e}")
         
         # Create new agent
-        agent = StrandsAnalysisAgent(
+        agent = AnalysisAgent(
             model_id=model_id or "",
             reload_prompt=True if request and request.reload_prompt else False
         )
         await agent.startup()
         
-        # Clear history if requested
-        if request:
-            if request.index_id:
-                thread_id = f"thread_{request.index_id}"
-                agent.clear_conversation_history(thread_id)
-            elif request.thread_id:
-                agent.clear_conversation_history(request.thread_id)
-            else:
-                agent.clear_conversation_history()
+        # Clear conversation histories - critical for memory cleanup
+        if request and request.thread_id:
+            # Clear specific thread
+            agent.clear_conversation_history(request.thread_id)
+            logger.info(f"Cleared conversation history for thread: {request.thread_id}")
+        else:
+            # Clear all conversation histories
+            agent.clear_conversation_history()
+            logger.info("All conversation histories cleared")
         
         return ReinitResponse(
             success=True,

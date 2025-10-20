@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { GlowingEffect } from "@/components/ui/glowing-effect";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useAlert } from "@/components/ui/alert";
+import { useAuth } from "@/contexts/auth-context";
 import {
     Trash2,
     Eye,
@@ -38,6 +39,7 @@ function DocumentItemComponent({
 }: DocumentItemProps) {
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const { showWarning, AlertComponent } = useAlert();
+    const { canDeleteDocument, hasTabAccess } = useAuth();
 
     const handleDeleteClick = () => {
         setShowDeleteConfirm(true);
@@ -282,30 +284,34 @@ function DocumentItemComponent({
                             View
                         </Button>
                         
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                                if (document.status !== 'completed') {
-                                    showWarning('Document Not Ready', 'This document is not ready for analysis. Only completed documents can be analyzed.');
-                                    return;
-                                }
-                                onAnalyze?.(document);
-                            }}
-                            className="bg-transparent border-purple-500/30 text-purple-400 hover:bg-purple-500/20 hover:border-purple-400 hover:text-purple-300 transition-all duration-200 h-8 text-xs px-3"
-                        >
-                            <BarChart3 className="w-3 h-3 mr-1" />
-                            Analyze
-                        </Button>
+                        {hasTabAccess('analysis') && (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                    if (document.status !== 'completed') {
+                                        showWarning('Document Not Ready', 'This document is not ready for analysis. Only completed documents can be analyzed.');
+                                        return;
+                                    }
+                                    onAnalyze?.(document);
+                                }}
+                                className="bg-transparent border-purple-500/30 text-purple-400 hover:bg-purple-500/20 hover:border-purple-400 hover:text-purple-300 transition-all duration-200 h-8 text-xs px-3"
+                            >
+                                <BarChart3 className="w-3 h-3 mr-1" />
+                                Analyze
+                            </Button>
+                        )}
 
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={handleDeleteClick}
-                            className="h-8 w-8 p-0 opacity-60 group-hover:opacity-100 transition-opacity hover:bg-red-500/20 hover:text-red-400"
-                        >
-                            <Trash2 className="w-3 h-3" />
-                        </Button>
+                        {canDeleteDocument(indexId) && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={handleDeleteClick}
+                                className="h-8 w-8 p-0 opacity-60 group-hover:opacity-100 transition-opacity hover:bg-red-500/20 hover:text-red-400"
+                            >
+                                <Trash2 className="w-3 h-3" />
+                            </Button>
+                        )}
                     </div>
                 </div>
             </CardContent>

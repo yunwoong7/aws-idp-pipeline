@@ -52,16 +52,6 @@ export function VerificationTab({
               <h2 className="text-xl font-bold text-white bg-gradient-to-r from-indigo-300 to-purple-300 bg-clip-text text-transparent">
                 Content Verification
               </h2>
-              <div className="flex items-center gap-2 mt-1">
-                {indexId && (
-                  <>
-                    <span className="text-sm text-white/60">Index:</span>
-                    <span className="px-2 py-1 bg-indigo-500/20 border border-indigo-400/30 rounded-lg text-indigo-300 text-sm font-medium">
-                      {indexId}
-                    </span>
-                  </>
-                )}
-              </div>
             </div>
           </div>
         </div>

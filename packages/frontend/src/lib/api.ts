@@ -744,18 +744,18 @@ export const systemApi = {
   // 시스템 재초기화 - 로컬 Python 백엔드로 직접 호출
   async reinitialize(request: ReinitRequest = {}): Promise<ReinitResponse> {
     const backendUrl = await getBackendUrl();
-    const response = await fetch(`${backendUrl}/api/strands/reinit`, {
+    const response = await fetch(`${backendUrl}/api/analysis/reinit`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(request),
     });
-    
+
     if (!response.ok) {
       throw new Error('재초기화에 실패했습니다');
     }
-    
+
     return response.json();
   },
 
@@ -781,11 +781,11 @@ export const systemApi = {
 }; 
 
 export const analysisAgentApi = {
-  // 채팅 스트림 (FormData 또는 JSON) - Strands Analysis Agent 호출
+  // 채팅 스트림 (FormData 또는 JSON) - Analysis Agent 호출
   async sendMessage(request: ChatRequest): Promise<Response> {
     const backendUrl = await getBackendUrl();
     const hasFiles = request.files && request.files.length > 0;
-    
+
     if (hasFiles) {
       // FormData로 전송 (파일 포함)
       const formData = new FormData();
@@ -802,19 +802,19 @@ export const analysisAgentApi = {
       if (request.segment_id) {
         formData.append('segment_id', request.segment_id);
       }
-      
+
       request.files!.forEach(file => {
         formData.append('files', file);
       });
-      
-      // Strands agent 엔드포인트 사용
-      return fetch(`${backendUrl}/api/strands/chat`, {
+
+      // Analysis agent 엔드포인트 사용
+      return fetch(`${backendUrl}/api/analysis/chat`, {
         method: 'POST',
         body: formData,
       });
     } else {
       // JSON으로 전송
-      return fetch(`${backendUrl}/api/strands/chat`, {
+      return fetch(`${backendUrl}/api/analysis/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -830,11 +830,11 @@ export const analysisAgentApi = {
     }
   },
 
-  // Strands agent 재초기화
+  // Analysis agent 재초기화
   async reinitialize(model_id?: string): Promise<any> {
     const backendUrl = await getBackendUrl();
-    
-    const response = await fetch(`${backendUrl}/api/strands/reinit`, {
+
+    const response = await fetch(`${backendUrl}/api/analysis/reinit`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -844,11 +844,11 @@ export const analysisAgentApi = {
         reload_prompt: true
       }),
     });
-    
+
     if (!response.ok) {
-      throw new Error('Strands agent 재초기화에 실패했습니다');
+      throw new Error('Analysis agent 재초기화에 실패했습니다');
     }
-    
+
     return response.json();
   },
 };
@@ -1025,6 +1025,7 @@ export interface SearchRequest {
   document_id?: string;
   segment_id?: string;
   thread_id?: string;
+  files?: File[];
 }
 
 export interface SearchHealthResponse {
@@ -1061,7 +1062,7 @@ export const searchApi = {
   // Search 채팅 스트림
   async chatStream(request: SearchRequest): Promise<Response> {
     const backendUrl = await getBackendUrl();
-    
+
     // FormData로 전송
     const formData = new FormData();
     formData.append('message', request.message);
@@ -1081,7 +1082,14 @@ export const searchApi = {
     if (request.thread_id) {
       formData.append('thread_id', request.thread_id);
     }
-    
+
+    // Append files if present
+    if (request.files && request.files.length > 0) {
+      request.files.forEach((file) => {
+        formData.append('files', file);
+      });
+    }
+
     return fetch(`${backendUrl}/api/search`, {
       method: 'POST',
       body: formData,
@@ -1291,16 +1299,107 @@ export const strandsSearchApi = {
     if (model_id) {
       formData.append('model_id', model_id);
     }
-    
+
     const response = await fetch(`${backendUrl}/api/strands-search/reinit`, {
       method: 'POST',
       body: formData,
     });
-    
+
     if (!response.ok) {
       throw new Error('Strands search system 재초기화에 실패했습니다');
     }
-    
+
     return response.json();
+  },
+};
+
+// Users API (RBAC)
+export interface UserPermissions {
+  can_create_index: boolean;
+  can_delete_index: boolean;
+  can_upload_documents: boolean;
+  can_delete_documents: boolean;
+  accessible_indexes: string[] | "*";
+  available_tabs: string[];
+}
+
+export interface UserData {
+  user_id: string;
+  email: string;
+  name?: string;
+  role: "admin" | "user";
+  permissions: UserPermissions;
+  status: string;
+  created_at?: string;
+  updated_at?: string;
+  last_login_at?: string;
+}
+
+export const usersApi = {
+  // 현재 사용자 정보 조회
+  async getCurrentUser(): Promise<UserData> {
+    // Step 1: Get user info from ALB (via backend FastAPI)
+    const backendUrl = await getBackendUrl();
+    const authResponse = await fetch(`${backendUrl}/api/auth/user`, {
+      credentials: 'include', // Include ALB Cognito cookies
+    });
+
+    if (!authResponse.ok) {
+      throw new Error('Failed to get user from auth endpoint');
+    }
+
+    const authUser = await authResponse.json();
+    console.log('Auth user from ALB:', authUser);
+
+    // Step 2: Call user management API with user info as parameters
+    const apiBaseUrl = await getApiBaseUrl();
+    const params = new URLSearchParams({
+      user_id: authUser.email, // Use email as user_id
+      email: authUser.email,
+      name: authUser.name || '',
+      groups: authUser.groups?.join(',') || '',
+    });
+
+    const response = await fetch(`${apiBaseUrl}/api/users/me?${params}`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch current user permissions');
+    }
+    return response.json();
+  },
+
+  // 모든 사용자 조회 (admin only)
+  async listUsers(): Promise<UserData[]> {
+    const apiBaseUrl = await getApiBaseUrl();
+    const response = await fetch(`${apiBaseUrl}/api/users`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch users');
+    }
+    return response.json();
+  },
+
+  // 사용자 권한 업데이트 (admin only)
+  async updatePermissions(userId: string, permissions: UserPermissions, role?: string): Promise<void> {
+    const apiBaseUrl = await getApiBaseUrl();
+    const response = await fetch(`${apiBaseUrl}/api/users/${userId}/permissions`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ permissions, role }),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to update permissions');
+    }
+  },
+
+  // 사용자 상태 업데이트 (admin only)
+  async updateStatus(userId: string, status: string): Promise<void> {
+    const apiBaseUrl = await getApiBaseUrl();
+    const response = await fetch(`${apiBaseUrl}/api/users/${userId}/status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to update status');
+    }
   },
 };

@@ -431,7 +431,7 @@ Resources:
                 
                 - echo "Deploying Indices Management stack..."
                 - npx cdk deploy aws-idp-ai-indices-management --require-approval never
-                
+
                 - echo "Deploying API Gateway stack..."
                 - npx cdk deploy aws-idp-ai-api-gateway --require-approval never
                 
@@ -529,7 +529,19 @@ Resources:
                 - aws ecs update-service --cluster aws-idp-cluster-${STAGE} --service aws-idp-frontend-${STAGE} --force-new-deployment || echo "Frontend service update failed or not found"
                 - aws ecs update-service --cluster aws-idp-cluster-${STAGE} --service aws-idp-backend-${STAGE} --force-new-deployment || echo "Backend service update failed or not found"
                 - echo "ECS service updates initiated"
-                
+
+                # Deploy User Management stack after ECS (requires Cognito info from ECS)
+                - echo "Deploying User Management stack with Cognito integration..."
+                - |
+                  if [ "$ENABLE_COGNITO" = "true" ]; then
+                    npx cdk deploy aws-idp-ai-user-management --require-approval never \
+                      --context adminUserEmail="$ADMIN_USER_EMAIL" \
+                      --context useCustomDomain="$USE_CUSTOM_DOMAIN" \
+                      --context existingCertificateArn="$CERT_ARN"
+                  else
+                    npx cdk deploy aws-idp-ai-user-management --require-approval never
+                  fi
+
                 # Get outputs
                 - |
                   echo "Getting stack outputs..."

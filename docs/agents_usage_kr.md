@@ -42,7 +42,7 @@
 ### 3) 프롬프트 구조
 - 프롬프트는 YAML 파일로 관리됩니다.
 - 경로:
-  - `packages/backend/src/agent/strands_analysis_agent/prompt/agent_profile.yaml`
+  - `packages/backend/src/agent/analysis_agent/prompt/agent_profile.yaml`
   - `packages/backend/src/agent/search_agent/prompt/planner.yaml`
   - `packages/backend/src/agent/search_agent/prompt/responder.yaml`
   - `packages/backend/src/agent/verification_agent/prompt/verification_prompts.yaml`
@@ -55,7 +55,7 @@
 ### 4) 도구(Tool) 추가/변경
 - **Verification Agent**: 별도 도구 추가 대상 아님(검증 파이프라인 내부 로직 사용)
 - **Analysis Agent (Strands 기반 툴)**
-  - 경로: `packages/backend/src/agent/strands_analysis_agent/tools/`
+  - 경로: `packages/backend/src/agent/analysis_agent/tools/`
   - 대표 파일: `analysis_tools.py`
   - 추가 방법:
     1. `@tool` 데코레이터를 사용해 함수 추가(예: `hybrid_search`, `get_document_info` 등과 동일 패턴)

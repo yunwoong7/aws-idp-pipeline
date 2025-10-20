@@ -2,6 +2,7 @@
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
 import rehypeHighlight from 'rehype-highlight';
 import { Copy, Check } from 'lucide-react';
 import { useState } from 'react';
@@ -89,28 +90,79 @@ export function MarkdownRenderer({ content, className = "", onDocumentClick, ind
         /* 모든 요소의 기본 여백 정규화 */
         .markdown-content p {
           margin-top: 0;
-          margin-bottom: 0.75rem;
+          margin-bottom: 1rem;
+          line-height: 1.7;
         }
-        
+
         .markdown-content p:last-child {
           margin-bottom: 0;
         }
-        
+
+        /* br 태그 줄바꿈 보장 */
+        .markdown-content br {
+          display: block;
+          content: "";
+          margin-top: 0.5rem;
+        }
+
         /* 리스트 여백 조정 */
         .markdown-content ol,
         .markdown-content ul {
-          margin-top: 0.5rem;
-          margin-bottom: 0.5rem;
+          margin-top: 0.75rem;
+          margin-bottom: 0.75rem;
+          padding-left: 1.5rem;
         }
-        
+
         .markdown-content ol:first-child,
         .markdown-content ul:first-child {
           margin-top: 0;
         }
-        
+
         .markdown-content ol:last-child,
         .markdown-content ul:last-child {
           margin-bottom: 0;
+        }
+
+        /* 리스트 아이템 내부 단락 처리 */
+        .markdown-content li > p {
+          margin: 0;
+          display: inline;
+        }
+
+        .markdown-content li > p:only-child {
+          margin: 0;
+        }
+
+        /* 리스트 아이템 내부의 중첩 리스트 처리 */
+        .markdown-content li > ul,
+        .markdown-content li > ol {
+          margin-top: 0.5rem;
+          margin-bottom: 0;
+        }
+
+        /* 제목과 단락 사이 간격 */
+        .markdown-content h1,
+        .markdown-content h2,
+        .markdown-content h3,
+        .markdown-content h4,
+        .markdown-content h5,
+        .markdown-content h6 {
+          margin-top: 1.5rem;
+          margin-bottom: 0.75rem;
+          line-height: 1.3;
+        }
+
+        .markdown-content h1:first-child,
+        .markdown-content h2:first-child,
+        .markdown-content h3:first-child {
+          margin-top: 0;
+        }
+
+        /* 연속된 제목 처리 */
+        .markdown-content h1 + h2,
+        .markdown-content h2 + h3,
+        .markdown-content h3 + h4 {
+          margin-top: 0.5rem;
         }
         
         /* 문서 링크 스타일 오버라이드 */
@@ -135,7 +187,7 @@ export function MarkdownRenderer({ content, className = "", onDocumentClick, ind
         }
       `}</style>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkBreaks]}
         rehypePlugins={[rehypeHighlight]}
         components={{
           // 코드 블록 처리 - rehype-highlight 사용
@@ -334,7 +386,7 @@ export function MarkdownRenderer({ content, className = "", onDocumentClick, ind
           },
           li({ children, ...props }) {
             return (
-              <li className="text-white/90 leading-relaxed break-words overflow-wrap-anywhere text-base font-medium" {...(props as any)}>
+              <li className="text-white/90 leading-relaxed break-words overflow-wrap-anywhere text-base font-medium [&>p]:inline [&>p]:m-0" {...(props as any)}>
                 {children}
               </li>
             );
@@ -404,10 +456,14 @@ export function MarkdownRenderer({ content, className = "", onDocumentClick, ind
           // 단락 처리 - prose 스타일과 조화
           p({ children, ...props }) {
             return (
-              <p className="text-white/90 mb-2 leading-relaxed break-words overflow-wrap-anywhere" {...(props as any)}>
+              <p className="text-white/90 mb-4 leading-[1.7] break-words overflow-wrap-anywhere whitespace-pre-wrap" {...(props as any)}>
                 {children}
               </p>
             );
+          },
+          // 줄바꿈 처리
+          br({ ...props }) {
+            return <br className="block my-2" {...(props as any)} />;
           }
         }}
       >

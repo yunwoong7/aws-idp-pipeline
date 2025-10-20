@@ -15,9 +15,9 @@ import {
     Cog,
     CheckCircle,
     FileText,
-    RotateCcw,
     Send,
     Sparkles,
+    Paperclip,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import * as React from "react";
@@ -25,7 +25,6 @@ import { MessageLoading } from "@/components/ui/message-loading";
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
 import { AttachedContent } from "@/types/chat.types";
 import { SecureImage } from "@/components/ui/secure-image";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ToolDetailPopup } from "./tool-detail-popup";
 
 import { documentApi } from "@/lib/api";
@@ -310,7 +309,6 @@ export function AnalysisInterface({
     const [isComposing, setIsComposing] = useState(false);
     const [userHasScrolled, setUserHasScrolled] = useState(false);
     const [internalShowScrollButton, setInternalShowScrollButton] = useState(false);
-    const [showResetConfirm, setShowResetConfirm] = useState(false);
     const isNearBottomRef = useRef(true);
     // Tool popup state
     const [selectedTool, setSelectedTool] = useState<{
@@ -1501,31 +1499,21 @@ export function AnalysisInterface({
                             </AnimatePresence>
 
                             <div className="relative p-4 flex items-center flex-nowrap gap-2">
-                                <div className="flex-shrink-0 mr-3">
+                                <div className="flex-shrink-0">
                                     <div className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-500/20 to-purple-500/20 flex items-center justify-center">
                                         <Sparkles className="w-5 h-5 text-cyan-400 animate-pulse" />
                                     </div>
                                 </div>
-                                {/* Reset Button - Only show if there are messages */}
-                                {messages.length > 0 && onChatReset && (
-                                    <button 
-                                        type="button"
-                                        onClick={() => setShowResetConfirm(true)}
-                                        className="p-2 rounded-full hover:bg-white/5 transition-all group"
-                                        title="Reset Chat"
-                                    >
-                                        <RotateCcw className="w-5 h-5 text-orange-400 group-hover:text-orange-300 transition-colors" />
-                                    </button>
-                                )}
-                                {/* Attach Image Button */}
+
+                                {/* Attach File Button */}
                                 <button
                                     type="button"
                                     onClick={onAttachButtonClick}
                                     className="p-2 rounded-full hover:bg-white/5 transition-all group"
-                                    title="Attach image"
-                                    aria-label="Attach image"
+                                    title="Attach file"
+                                    aria-label="Attach file"
                                 >
-                                    <ImageIcon className="w-5 h-5 text-cyan-300 group-hover:text-cyan-200 transition-colors" />
+                                    <Paperclip className="w-5 h-5 text-green-400 group-hover:text-green-300 transition-colors" />
                                 </button>
                                 {/* Inline attachment strip (no height change) */}
                                 {attachments && attachments.length > 0 && (
@@ -1763,21 +1751,6 @@ export function AnalysisInterface({
                     </div>
                 </div>
             )}
-            
-            {/* Reset Confirmation Dialog */}
-            <ConfirmDialog
-                isOpen={showResetConfirm}
-                onClose={() => setShowResetConfirm(false)}
-                onConfirm={() => {
-                    onChatReset?.();
-                    setShowResetConfirm(false);
-                }}
-                title="Reset Chat"
-                message="Are you sure you want to reset the chat? This will clear all messages and start over."
-                confirmText="Reset"
-                cancelText="Cancel"
-                variant="destructive"
-            />
 
             {/* Tool Detail Popup */}
             {selectedTool && (

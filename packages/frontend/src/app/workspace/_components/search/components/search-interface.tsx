@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { 
-  MessageCircle, 
-  Loader2, 
-  CheckCircle, 
-  Clock, 
-  AlertCircle, 
+import {
+  MessageCircle,
+  Loader2,
+  CheckCircle,
+  Clock,
+  AlertCircle,
   Send,
   Sparkles,
   FileText,
@@ -20,16 +20,18 @@ import {
   ChevronDown,
   ChevronRight,
   Wrench,
-  Cog
+  Cog,
+  Paperclip
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MarkdownRenderer } from "@/components/ui/markdown-renderer";
-import React from 'react';
 import Image from 'next/image';
 import { MessageLoading } from "@/components/ui/message-loading";
 import { searchApi, documentApi } from "@/lib/api";
 import { SearchHero } from "./search-hero";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import type { FileAttachment } from "@/types/chat.types";
+import { v4 as uuidv4 } from 'uuid';
 
 // Types for SearchAgent workflow
 interface PlanStep {
@@ -75,7 +77,16 @@ interface Message {
   plan?: Plan;
   references?: Reference[];
   isStreaming?: boolean;
-  planningThought?: string;  // Planning 과정 표시용
+  isPlanning?: boolean;  // Planning in progress
+  planningStep?: number;  // Current planning step (0-4)
+  planningBuffer?: string;  // Accumulated planning tokens
+  planningPreview?: {
+    overview?: string;
+    tasks?: string[];
+  };
+  isAnalyzingImage?: boolean;  // Image analysis in progress
+  imageAnalysisResult?: string;  // Image analysis result
+  attachedImages?: FileAttachment[];  // Attached images for user messages
 }
 
 // Types for persistent state across tabs
@@ -85,6 +96,7 @@ interface PersistentSearchState {
   currentPhase: "idle" | "planning" | "executing" | "responding";
   toolCollapsed: Record<string, boolean>;
   isChatStarted: boolean;
+  attachments?: FileAttachment[];
 }
 
 interface SearchInterfaceProps {
@@ -99,30 +111,40 @@ interface SearchInterfaceProps {
   onReferenceClick?: (reference: any) => void;
   persistentState?: PersistentSearchState;
   onStateUpdate?: (updates: Partial<PersistentSearchState>) => void;
+  onChatReset?: () => void;
 }
 
-export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenceClick, persistentState, onStateUpdate }: SearchInterfaceProps) {
+export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenceClick, persistentState, onStateUpdate, onChatReset: externalChatReset }: SearchInterfaceProps) {
   // Use persistent state as primary source of truth with memoization
   const messages = useMemo(() => persistentState?.messages ?? [], [persistentState?.messages]);
   const input = persistentState?.input ?? "";
   const currentPhase = persistentState?.currentPhase ?? "idle";
   const toolCollapsed = useMemo(() => persistentState?.toolCollapsed ?? {}, [persistentState?.toolCollapsed]);
   const isChatStarted = persistentState?.isChatStarted ?? false;
+  const attachments = useMemo(() => persistentState?.attachments ?? [], [persistentState?.attachments]);
 
   // Local state for UI-only concerns
   const [isStreaming, setIsStreaming] = useState(false);
   const [showScrollButton, setShowScrollButton] = useState(false);
+  const [isNearBottom, setIsNearBottom] = useState(true); // Track if user is near bottom
   const [isComposing, setIsComposing] = useState(false);
   const [sourceDialogOpen, setSourceDialogOpen] = useState(false);
   const [sourceDialogData, setSourceDialogData] = useState<{ title?: string; references?: Reference[] }>({});
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const [imageAnalysisCollapsed, setImageAnalysisCollapsed] = useState<Record<string, boolean>>({});
+
+  // File input ref for file attachments
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Local messages state for real-time updates during streaming
   const [localMessages, setLocalMessages] = useState<Message[]>(() => {
     // Initialize with persistent messages if available
     return messages.length > 0 ? messages : [];
   });
+
+  // Prevent duplicate API calls
+  const sendingRef = useRef(false);
 
   // Safe input setter to ensure string type
   const handleSetInput = useCallback((value: string | any) => {
@@ -136,13 +158,19 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenc
     onStateUpdate?.({ toolCollapsed: newToolCollapsed });
   }, [persistentState?.toolCollapsed, onStateUpdate]);
 
-  // Sync local messages with persistent state only when initially loading
+  // Force clear localMessages when persistent messages are cleared
+  useEffect(() => {
+    if (messages.length === 0) {
+      setLocalMessages([]);
+    }
+  }, [messages.length]);
+
+  // Sync local messages with persistent state on initial load
   useEffect(() => {
     if (!isStreaming && messages.length > 0 && localMessages.length === 0) {
-      // Only sync when localMessages is empty (initial load)
       setLocalMessages(messages);
     }
-  }, [messages, messages.length, isStreaming, localMessages.length]);
+  }, [messages, isStreaming, localMessages.length]);
   
   // Sync persistent state when streaming ends
   useEffect(() => {
@@ -184,23 +212,29 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenc
   const scrollToBottom = useCallback((smooth = true) => {
     const el = messagesEndRef.current;
     if (!el) return;
-    
+
     const doScroll = () => {
       el.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'end' });
+      // After scrolling to bottom, mark user as near bottom
+      setIsNearBottom(true);
     };
-    
+
     requestAnimationFrame(() => requestAnimationFrame(doScroll));
   }, []);
 
   // Handle scroll position
   const handleScroll = useCallback(() => {
     if (!scrollContainerRef.current) return;
-    
+
     const container = scrollContainerRef.current;
     const { scrollTop, scrollHeight, clientHeight } = container;
     const scrollDifference = scrollHeight - (scrollTop + clientHeight);
-    
+
+    // Show scroll button if user is not near bottom
     setShowScrollButton(scrollDifference > 150);
+
+    // Track if user is near bottom (within 150px)
+    setIsNearBottom(scrollDifference < 150);
   }, []);
 
   // Register scroll event listener
@@ -212,38 +246,73 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenc
     }
   }, [handleScroll]);
 
-  // Auto scroll on new messages
+  // Auto scroll on new messages - only if user is near bottom
   useEffect(() => {
     const displayMessages = localMessages.length > 0 ? localMessages : messages;
-    if (isStreaming || displayMessages.length > 0) {
+    if ((isStreaming || displayMessages.length > 0) && isNearBottom) {
       setTimeout(() => scrollToBottom(false), 100);
     }
-  }, [localMessages, messages, isStreaming, scrollToBottom]);
+  }, [localMessages, messages, isStreaming, scrollToBottom, isNearBottom]);
 
   // Helper functions for processing different event types
   const handlePlanningEvents = useCallback((currentMessage: Message, event: any) => {
     const updatedMessage = { ...currentMessage };
-    
+
     switch (event.type) {
       case 'planning_start':
+        // Set planning flag to show animation
+        updatedMessage.isPlanning = true;
+        updatedMessage.planningStep = 0;
+        updatedMessage.planningBuffer = '';
+        updatedMessage.planningPreview = {};
         setTimeout(() => onStateUpdate?.({ currentPhase: 'planning' }), 0);
         break;
-      
+
       case 'planning_token':
-        console.log('🧠 Planning token received:', event.token);
-        if (event.token && typeof event.token === 'string') {
-          updatedMessage.planningThought = (updatedMessage.planningThought || '') + event.token;
+        // Accumulate planning tokens
+        const buffer = (updatedMessage.planningBuffer || '') + (event.token || '');
+        updatedMessage.planningBuffer = buffer;
+
+        // Update planning step
+        const currentStep = updatedMessage.planningStep ?? 0;
+        updatedMessage.planningStep = Math.min(currentStep + 1, 4);
+
+        // Try to extract preview information from buffer
+        try {
+          // Extract overview
+          const overviewMatch = buffer.match(/"overview"\s*:\s*"([^"]+)"/);
+          if (overviewMatch) {
+            updatedMessage.planningPreview = {
+              ...updatedMessage.planningPreview,
+              overview: overviewMatch[1]
+            };
+          }
+
+          // Extract task titles
+          const taskMatches = [...buffer.matchAll(/"title"\s*:\s*"([^"]+)"/g)];
+          if (taskMatches.length > 0) {
+            updatedMessage.planningPreview = {
+              ...updatedMessage.planningPreview,
+              tasks: taskMatches.map(m => m[1])
+            };
+          }
+        } catch (e) {
+          // Ignore parsing errors during streaming
         }
         break;
-      
+
       case 'plan':
       case 'plan_complete':
+        // Clear planning flag and set the final plan
+        updatedMessage.isPlanning = false;
+        updatedMessage.planningStep = undefined;
+        updatedMessage.planningBuffer = undefined;
+        updatedMessage.planningPreview = undefined;
         updatedMessage.plan = event.plan;
-        updatedMessage.planningThought = undefined;
         setTimeout(() => onStateUpdate?.({ currentPhase: event.plan?.requires_tool ? 'executing' : 'responding' }), 0);
         break;
     }
-    
+
     return updatedMessage;
   }, [onStateUpdate]);
   
@@ -358,38 +427,83 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenc
     return updatedMessage;
   }, []);
   
+  const handleImageAnalysisEvents = useCallback((currentMessage: Message, event: any) => {
+    const updatedMessage = { ...currentMessage };
+
+    switch (event.type) {
+      case 'phase_start':
+        if (event.phase === 'image_analysis') {
+          updatedMessage.isAnalyzingImage = true;
+          setTimeout(() => onStateUpdate?.({ currentPhase: 'planning' }), 0);
+        }
+        break;
+
+      case 'image_analysis_complete':
+        console.log('📸 Image analysis completed:', event.analysis);
+        updatedMessage.isAnalyzingImage = false;
+
+        // Extract text from analysis result if it's a string representation of dict
+        let analysisText = event.analysis;
+        if (typeof analysisText === 'string') {
+          try {
+            // Try to parse if it looks like a stringified dict
+            const parsed = JSON.parse(analysisText);
+            if (parsed && parsed.content && Array.isArray(parsed.content)) {
+              analysisText = parsed.content[0]?.text || analysisText;
+            }
+          } catch (e) {
+            // If not JSON, check if it's a Python dict string representation
+            const textMatch = analysisText.match(/'text':\s*'([^']+)'/);
+            if (textMatch) {
+              analysisText = textMatch[1];
+            }
+          }
+        }
+
+        updatedMessage.imageAnalysisResult = analysisText;
+        break;
+
+      case 'image_analysis_skip':
+        console.log('📸 Image analysis skipped:', event.message);
+        updatedMessage.isAnalyzingImage = false;
+        break;
+    }
+
+    return updatedMessage;
+  }, [onStateUpdate]);
+
   const handleResponseEvents = useCallback((currentMessage: Message, event: any) => {
     const updatedMessage = { ...currentMessage };
-    
+
     switch (event.type) {
       case 'response_start':
         setTimeout(() => onStateUpdate?.({ currentPhase: 'responding' }), 0);
         break;
-      
+
       case 'token':
         if (event.token && typeof event.token === 'string') {
           updatedMessage.content += event.token;
         }
         break;
-      
+
       case 'references':
         if (event.references && Array.isArray(event.references)) {
           updatedMessage.references = event.references;
         }
         break;
-      
+
       case 'complete':
         setTimeout(() => onStateUpdate?.({ currentPhase: 'idle' }), 0);
         updatedMessage.isStreaming = false;
         break;
-      
+
       case 'error':
         updatedMessage.content = `Error: ${event.error || 'Unknown error'}`;
         updatedMessage.isStreaming = false;
         setTimeout(() => onStateUpdate?.({ currentPhase: 'idle' }), 0);
         break;
     }
-    
+
     return updatedMessage;
   }, [onStateUpdate]);
 
@@ -406,28 +520,36 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenc
 
       // Route to appropriate handler based on event type
       switch (eventType) {
+        case 'phase_start':
+          // Handle phase transitions
+          if (event.phase === 'image_analysis') {
+            currentMessage = handleImageAnalysisEvents(currentMessage, event);
+          } else if (event.phase === 'execution') {
+            setTimeout(() => onStateUpdate?.({ currentPhase: 'executing' }), 0);
+          } else if (event.phase === 'response') {
+            setTimeout(() => onStateUpdate?.({ currentPhase: 'responding' }), 0);
+          }
+          break;
+
+        case 'image_analysis_complete':
+        case 'image_analysis_skip':
+          currentMessage = handleImageAnalysisEvents(currentMessage, event);
+          break;
+
         case 'planning_start':
         case 'planning_token':
         case 'plan':
         case 'plan_complete':
           currentMessage = handlePlanningEvents(currentMessage, event);
           break;
-        
-        case 'phase_start':
-          if (event.phase === 'execution') {
-            setTimeout(() => onStateUpdate?.({ currentPhase: 'executing' }), 0);
-          } else if (event.phase === 'response') {
-            setTimeout(() => onStateUpdate?.({ currentPhase: 'responding' }), 0);
-          }
-          break;
-        
+
         case 'task_start':
         case 'task_complete':
         case 'task_failed':
         case 'execution_complete':
           currentMessage = handleTaskEvents(currentMessage, event);
           break;
-        
+
         case 'response_start':
         case 'token':
         case 'references':
@@ -440,20 +562,25 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenc
       newMessages[messageIndex] = currentMessage;
       return newMessages;
     });
-  }, [onStateUpdate, handlePlanningEvents, handleTaskEvents, handleResponseEvents]);
+  }, [onStateUpdate, handleImageAnalysisEvents, handlePlanningEvents, handleTaskEvents, handleResponseEvents]);
 
   // Chat reset function
   const handleChatReset = useCallback(async () => {
+    // Clear local messages first
+    setLocalMessages([]);
+
+    if (externalChatReset) {
+      externalChatReset();
+      return;
+    }
+
     console.log('🔄 Chat reset initiated');
     setIsResetting(true);
-    
+
     try {
       // Reinitialize search API
       await searchApi.reinitialize();
-      
-      // Clear local messages
-      setLocalMessages([]);
-      
+
       // Update persistent state to clear messages, input, and reset chat started state
       onStateUpdate?.({
         messages: [],
@@ -462,12 +589,11 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenc
         currentPhase: 'idle',
         toolCollapsed: {} // Reset tool collapse states too
       });
-      
+
       console.log('✅ Chat reset completed');
     } catch (error) {
       console.error('❌ Chat reset failed:', error);
       // Still reset UI even if API call fails
-      setLocalMessages([]);
       onStateUpdate?.({
         messages: [],
         input: "",
@@ -479,23 +605,93 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenc
       setIsResetting(false);
       setShowResetConfirm(false);
     }
-  }, [onStateUpdate]);
+  }, [onStateUpdate, externalChatReset]);
 
   // Handle reset button click
   const handleResetClick = useCallback(() => {
     setShowResetConfirm(true);
   }, []);
 
+  // Handle file upload
+  const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const newAttachments: FileAttachment[] = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+
+      // Check file type
+      if (!file.type.startsWith('image/')) {
+        console.warn('Only image files are supported for search');
+        continue;
+      }
+
+      // Check file size (max 10MB)
+      if (file.size > 10 * 1024 * 1024) {
+        console.warn(`File ${file.name} is too large (max 10MB)`);
+        continue;
+      }
+
+      try {
+        // For images: create preview URL
+        let previewUrl: string | undefined;
+        if (file.type.startsWith('image/')) {
+          previewUrl = URL.createObjectURL(file);
+        }
+
+        const attachment: FileAttachment = {
+          id: uuidv4(),
+          file: file,
+          type: file.type,
+          previewUrl
+        };
+
+        newAttachments.push(attachment);
+      } catch (error) {
+        console.error(`Error processing file ${file.name}:`, error);
+      }
+    }
+
+    if (newAttachments.length > 0) {
+      const updatedAttachments = [...attachments, ...newAttachments];
+      onStateUpdate?.({ attachments: updatedAttachments });
+    }
+
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  }, [attachments, onStateUpdate]);
+
+  // Remove attachment
+  const removeAttachment = useCallback((attachmentId: string) => {
+    const attachment = attachments.find(a => a.id === attachmentId);
+    if (attachment?.previewUrl) {
+      URL.revokeObjectURL(attachment.previewUrl);
+    }
+
+    const updatedAttachments = attachments.filter(a => a.id !== attachmentId);
+    onStateUpdate?.({ attachments: updatedAttachments });
+  }, [attachments, onStateUpdate]);
+
   // Send message
   const handleSendMessage = useCallback(async (message?: string) => {
+    // Prevent duplicate calls
+    if (sendingRef.current) {
+      console.log('⚠️ Duplicate send attempt blocked');
+      return;
+    }
+
     // Debug logging
-    console.log('🔍 handleSendMessage debug:', { 
-      message, 
+    console.log('🔍 handleSendMessage debug:', {
+      message,
       messageType: typeof message,
-      input, 
-      inputType: typeof input 
+      input,
+      inputType: typeof input
     });
-    
+
     // Safe string conversion with fallback
     let inputText = "";
     if (typeof message === "string") {
@@ -507,10 +703,56 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenc
     } else if (input !== undefined) {
       inputText = String(input);
     }
-    
+
     console.log('📝 Final inputText:', inputText);
-    
-    if (!inputText.trim() || isStreaming) return;
+
+    if ((!inputText.trim() && attachments.length === 0) || isStreaming) return;
+
+    // Set sending flag
+    sendingRef.current = true;
+
+    // When sending a new message, scroll to bottom and enable auto-scroll
+    setIsNearBottom(true);
+
+    // Check for reset marker or if chat hasn't started yet (hero screen)
+    const RESET_MARKER = "__RESET__:";
+    let shouldReset = false;
+
+    // If hero screen is showing (not started), automatically add reset marker
+    if (!isChatStarted) {
+      inputText = `${RESET_MARKER}${inputText}`;
+      console.log('🔄 Hero screen detected, adding reset marker for backend');
+    }
+
+    if (inputText.startsWith(RESET_MARKER)) {
+      inputText = inputText.substring(RESET_MARKER.length).trim();
+      console.log('🔄 Reset marker detected. New message:', inputText);
+
+      // Only reinitialize if chat has already started (actual reset)
+      // Don't reinitialize on first message from hero screen
+      if (isChatStarted) {
+        console.log('🔄 Reinitializing search API for existing conversation');
+        try {
+          await searchApi.reinitialize();
+          console.log('✅ Search API reinitialized');
+        } catch (error) {
+          console.error('❌ Failed to reinitialize search API:', error);
+          // Continue anyway - backend will handle fresh conversation
+        }
+
+        // Clear local and persistent messages for reset
+        setLocalMessages([]);
+        onStateUpdate?.({
+          messages: [],
+          currentPhase: 'idle',
+          toolCollapsed: {}
+        });
+      } else {
+        console.log('🆕 First message from hero screen - no reinit needed');
+      }
+    }
+
+    const wasNotStarted = !isChatStarted;
 
     if (!isChatStarted) {
       onStateUpdate?.({ isChatStarted: true });
@@ -520,7 +762,8 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenc
       id: Date.now().toString(),
       sender: "user",
       content: inputText.trim(),
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      attachedImages: attachments.length > 0 ? [...attachments] : undefined
     };
 
     const aiMessageId = (Date.now() + 1).toString();
@@ -535,20 +778,27 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenc
     };
 
     // Update local messages for real-time display
-    setLocalMessages(prev => [...prev, userMessage, aiMessage]);
-    
-    // Clear input
-    onStateUpdate?.({ input: "" });
+    // If this is the first message after reset, start with a new array
+    if (wasNotStarted) {
+      setLocalMessages([userMessage, aiMessage]);
+    } else {
+      setLocalMessages(prev => [...prev, userMessage, aiMessage]);
+    }
+
+    // Clear input and attachments
+    onStateUpdate?.({ input: "", attachments: [] });
     setIsStreaming(true);
     onStateUpdate?.({ currentPhase: "planning" });
 
     try {
       const finalIndexId = indexId || "default";
       console.log('📋 ChatAgent sending request with index_id:', finalIndexId);
-      
+      console.log('📎 Attachments:', attachments.length);
+
       const response = await searchApi.chatStream({
         message: userMessage.content,
         index_id: finalIndexId as string, // Type assertion since we ensure it's not undefined
+        files: attachments.length > 0 ? attachments.map(a => a.file) : undefined
       });
 
       if (!response.ok) {
@@ -608,21 +858,23 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenc
 
     } catch (error) {
       console.error('Chat error:', error);
-      setLocalMessages(prev => prev.map(msg => 
-        msg.id === aiMessageId 
+      setLocalMessages(prev => prev.map(msg =>
+        msg.id === aiMessageId
           ? { ...msg, content: `Error: ${error instanceof Error ? error.message : "Unknown error"}`, isStreaming: false }
           : msg
       ));
       setIsStreaming(false);
       onStateUpdate?.({ currentPhase: "idle" });
+    } finally {
+      sendingRef.current = false;
     }
-  }, [input, indexId, isStreaming, onStateUpdate, isChatStarted, processChatEvent]);
+  }, [input, indexId, isStreaming, onStateUpdate, isChatStarted, processChatEvent, attachments]);
 
   // Handle example click with proper async handling
   const handleExampleClick = useCallback((example: string) => {
     // Update input first
     onStateUpdate?.({ input: example });
-    
+
     // Schedule send after state update
     requestAnimationFrame(() => {
       setTimeout(() => {
@@ -639,41 +891,61 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenc
       return <MarkdownRenderer content={content} />;
     }
 
-    // Split content by citation markers and render with clickable citations
     const citationPattern = /\[(\d+)\]/g;
-    const parts = content.split(citationPattern);
-    const elements: React.ReactNode[] = [];
-    
-    for (let i = 0; i < parts.length; i++) {
-      if (i % 2 === 0) {
-        // Regular text part
-        if (parts[i]) {
-          elements.push(<MarkdownRenderer key={`text-${i}`} content={parts[i]} />);
-        }
-      } else {
-        // Citation number
-        const citationNum = parts[i];
-        const refIndex = parseInt(citationNum) - 1;
-        if (refIndex >= 0 && refIndex < references.length) {
-          const ref = references[refIndex];
-          elements.push(
-            <sup key={`citation-${i}`} className="mx-1">
-              <button
-                className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30 transition"
-                title="소스 보기"
-                onClick={() => handleReferenceClick(ref)}
-              >
-                {citationNum}
-              </button>
-            </sup>
-          );
-        } else {
-          elements.push(`[${citationNum}]`);
+    const citationMap: { [key: string]: any } = {};
+
+    // Build citation map
+    content.replace(citationPattern, (match, num) => {
+      const refIndex = parseInt(num) - 1;
+      if (refIndex >= 0 && refIndex < references.length) {
+        citationMap[num] = references[refIndex];
+      }
+      return match;
+    });
+
+    // Convert citations to markdown links (e.g., [[1]](#citation-1))
+    const processedContent = content.replace(citationPattern, (match, num) => {
+      if (citationMap[num]) {
+        return `[[${num}]](#citation-${num})`;
+      }
+      return match;
+    });
+
+    // Handle citation clicks using event delegation
+    const handleClick = (e: React.MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'A' && target.getAttribute('href')?.startsWith('#citation-')) {
+        e.preventDefault();
+        e.stopPropagation();
+        const refNum = target.getAttribute('href')?.replace('#citation-', '');
+        if (refNum && citationMap[refNum]) {
+          handleReferenceClick(citationMap[refNum]);
         }
       }
-    }
-    
-    return <div className="inline">{elements}</div>;
+    };
+
+    return (
+      <div className="citation-container" onClick={handleClick}>
+        <style jsx>{`
+          .citation-container :global(a[href^="#citation-"]) {
+            display: inline;
+            cursor: pointer;
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: rgb(52 211 153) !important;
+            white-space: nowrap;
+            margin-left: 0.125rem;
+            text-decoration: none !important;
+            border: none !important;
+          }
+          .citation-container :global(a[href^="#citation-"]:hover) {
+            color: rgb(110 231 183) !important;
+            text-decoration: none !important;
+          }
+        `}</style>
+        <MarkdownRenderer content={processedContent} />
+      </div>
+    );
   }, [handleReferenceClick]);
 
   // Handle key press
@@ -731,79 +1003,144 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenc
     }
   `;
 
-  // Render plan
-  const renderPlan = (plan: Plan, messageId: string) => (
-    <div className="mt-4 space-y-3">
-      <div className="flex items-center gap-2 mb-3">
-        <Settings className="h-4 w-4 text-purple-400" />
-        <span className="text-sm font-medium text-purple-300">Execution Plan</span>
-      </div>
-      
-      {plan.overview && (
-        <div className="p-3 bg-purple-950/30 border border-purple-500/30 rounded-lg">
-          <div className="text-purple-200 text-sm">{plan.overview}</div>
-        </div>
-      )}
+  // Render plan with enhanced design
+  const renderPlan = (plan: Plan, messageId: string) => {
+    // Determine plan type for display
+    const isDirectResponse = plan.requires_tool === false || (plan.direct_response && (!plan.tasks || plan.tasks.length === 0));
 
-      {plan.direct_response && (
-        <div className="p-3 bg-green-950/30 border border-green-500/30 rounded-lg">
-          <div className="text-green-200 text-sm">
-            <strong>Direct Response Available</strong>
+    return (
+      <div className="mt-4 space-y-4">
+        {/* Plan Header - different for direct response vs tool execution */}
+        <div className={`relative overflow-hidden rounded-2xl border p-4 backdrop-blur-sm ${
+          isDirectResponse
+            ? 'bg-gradient-to-br from-cyan-500/10 via-cyan-500/5 to-transparent border-cyan-500/20'
+            : 'bg-gradient-to-br from-purple-500/10 via-purple-500/5 to-transparent border-purple-500/20'
+        }`}>
+          <div className={`absolute top-0 right-0 w-32 h-32 rounded-full blur-3xl ${
+            isDirectResponse ? 'bg-cyan-500/10' : 'bg-purple-500/10'
+          }`} />
+          <div className="relative flex items-center gap-3">
+            <div className={`flex-shrink-0 w-10 h-10 rounded-xl border flex items-center justify-center ${
+              isDirectResponse
+                ? 'bg-gradient-to-br from-cyan-500/20 to-cyan-600/20 border-cyan-400/30'
+                : 'bg-gradient-to-br from-purple-500/20 to-purple-600/20 border-purple-400/30'
+            }`}>
+              {isDirectResponse ? (
+                <Sparkles className="h-5 w-5 text-cyan-300" />
+              ) : (
+                <Settings className="h-5 w-5 text-purple-300" />
+              )}
+            </div>
+            <div className="flex-1">
+              <div className={`text-sm font-semibold mb-0.5 ${
+                isDirectResponse ? 'text-cyan-200' : 'text-purple-200'
+              }`}>
+                {isDirectResponse ? 'Quick Response' : 'Search Plan'}
+              </div>
+              <div className={`text-xs ${
+                isDirectResponse ? 'text-cyan-300/60' : 'text-purple-300/60'
+              }`}>
+                {isDirectResponse ? 'No tools needed for this request' : 'AI will search through documents'}
+              </div>
+            </div>
           </div>
         </div>
-      )}
 
-      {plan.tasks && plan.tasks.length > 0 && (
-        <div className="space-y-2">
-          {plan.tasks.map((task, index) => (
-            <div key={index} className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-3">
-              <div className="flex items-center gap-3">
-                <div className="flex-shrink-0">
-                  {task.status === 'pending' && (
-                    <div className="w-6 h-6 rounded-full border-2 border-gray-400 flex items-center justify-center">
-                      <Clock className="w-3 h-3 text-gray-400" />
-                    </div>
-                  )}
-                  {task.status === 'executing' && (
-                    <div className="w-6 h-6 rounded-full bg-yellow-500/20 border border-yellow-400 flex items-center justify-center">
-                      <Cog className="w-3 h-3 text-yellow-400 animate-spin-slow" />
-                    </div>
-                  )}
-                  {task.status === 'completed' && (
-                    <div className="w-6 h-6 rounded-full bg-green-500/20 border border-green-400 flex items-center justify-center">
-                      <CheckCircle className="w-3 h-3 text-green-400" />
-                    </div>
-                  )}
-                  {task.status === 'failed' && (
-                    <div className="w-6 h-6 rounded-full bg-red-500/20 border border-red-400 flex items-center justify-center">
-                      <AlertCircle className="w-3 h-3 text-red-400" />
-                    </div>
-                  )}
-                </div>
-                
-                <div className="flex-1">
-                  <p className="text-white text-sm font-medium">{task.title}</p>
-                  <p className="text-white/70 text-xs">{task.description}</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    {task.tool_name && (
-                      <span className="px-2 py-1 bg-cyan-500/20 border border-cyan-400/30 rounded text-xs text-cyan-300">
-                        {task.tool_name}
-                      </span>
+        {/* Plan Overview - only if not a simple greeting */}
+        {plan.overview && !plan.overview.toLowerCase().includes('greeting') && !plan.overview.toLowerCase().includes('simple') && (
+          <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-purple-950/40 to-purple-900/20 border border-purple-500/20 p-4 backdrop-blur-sm">
+            <div className="absolute top-0 left-0 w-24 h-24 bg-purple-500/10 rounded-full blur-2xl" />
+            <div className="relative">
+              <div className="flex items-start gap-2 mb-2">
+                <Brain className="h-4 w-4 text-purple-300 mt-0.5 flex-shrink-0" />
+                <span className="text-xs font-medium text-purple-200 uppercase tracking-wide">Strategy</span>
+              </div>
+              <div className="text-purple-100 text-sm leading-relaxed">{plan.overview}</div>
+            </div>
+          </div>
+        )}
+
+        {/* Tasks Timeline */}
+        {plan.tasks && plan.tasks.length > 0 && (
+          <div className="space-y-2.5">
+            {plan.tasks.map((task, index) => (
+              <div
+                key={index}
+                className="group relative overflow-hidden rounded-xl bg-gradient-to-br from-white/[0.03] to-white/[0.01] border border-white/[0.08] hover:border-white/[0.15] p-4 transition-all duration-300 backdrop-blur-sm"
+              >
+                {/* Status-based gradient overlay */}
+                {task.status === 'executing' && (
+                  <div className="absolute inset-0 bg-gradient-to-r from-yellow-500/5 via-yellow-500/10 to-yellow-500/5 animate-pulse" />
+                )}
+                {task.status === 'completed' && (
+                  <div className="absolute inset-0 bg-gradient-to-r from-green-500/5 to-transparent" />
+                )}
+                {task.status === 'failed' && (
+                  <div className="absolute inset-0 bg-gradient-to-r from-red-500/5 to-transparent" />
+                )}
+
+                <div className="relative flex items-start gap-4">
+                  {/* Status Icon */}
+                  <div className="flex-shrink-0 mt-0.5">
+                    {task.status === 'pending' && (
+                      <div className="w-8 h-8 rounded-xl border-2 border-gray-500/30 bg-gray-500/10 flex items-center justify-center backdrop-blur-sm">
+                        <Clock className="w-4 h-4 text-gray-400" />
+                      </div>
                     )}
-                    {task.execution_time && (
-                      <span className="text-xs text-white/40">
-                        ({task.execution_time.toFixed(2)}s)
-                      </span>
+                    {task.status === 'executing' && (
+                      <div className="relative w-8 h-8 rounded-xl bg-gradient-to-br from-yellow-500/20 to-yellow-600/20 border border-yellow-400/40 flex items-center justify-center backdrop-blur-sm">
+                        <div className="absolute inset-0 rounded-xl bg-yellow-400/20 animate-ping" />
+                        <Cog className="relative w-4 h-4 text-yellow-300 animate-spin-slow" />
+                      </div>
+                    )}
+                    {task.status === 'completed' && (
+                      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-green-500/20 to-green-600/20 border border-green-400/40 flex items-center justify-center backdrop-blur-sm">
+                        <CheckCircle className="w-4 h-4 text-green-300" />
+                      </div>
+                    )}
+                    {task.status === 'failed' && (
+                      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-red-500/20 to-red-600/20 border border-red-400/40 flex items-center justify-center backdrop-blur-sm">
+                        <AlertCircle className="w-4 h-4 text-red-300" />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Task Content */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-3 mb-1.5">
+                      <h4 className="text-white text-sm font-semibold leading-tight">{task.title}</h4>
+                      {task.execution_time && (
+                        <span className="flex-shrink-0 px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-xs text-white/50 font-mono">
+                          {task.execution_time.toFixed(2)}s
+                        </span>
+                      )}
+                    </div>
+
+                    <p className="text-white/60 text-xs leading-relaxed mb-2">{task.description}</p>
+
+                    {/* Tool Badge */}
+                    {task.tool_name && (
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-cyan-500/10 border border-cyan-400/20 backdrop-blur-sm">
+                        <Wrench className="w-3 h-3 text-cyan-300" />
+                        <span className="text-xs font-medium text-cyan-200">{task.tool_name}</span>
+                      </div>
                     )}
                   </div>
                 </div>
+
+                {/* Progress indicator line for executing tasks */}
+                {task.status === 'executing' && (
+                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-yellow-400/50 to-transparent">
+                    <div className="h-full w-1/3 bg-gradient-to-r from-yellow-400/0 via-yellow-400 to-yellow-400/0 animate-pulse" />
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   // Render references
   const renderReferences = (references: Reference[]) => {
@@ -908,8 +1245,8 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenc
             {!isChatStarted && (
               <SearchHero onExampleClick={handleExampleClick} />
             )}
-            
-            {(() => {
+
+            {isChatStarted && (() => {
               // Always use localMessages as primary source since it has the most up-to-date data
               // Fall back to persistent messages only if localMessages is empty
               const displayMessages = localMessages.length > 0 ? localMessages : messages;
@@ -924,6 +1261,27 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenc
               message.sender === "user" ? (
                 <div key={message.id} className="mb-4 flex justify-end">
                   <div className="max-w-[80%] bg-white/[0.08] backdrop-blur-xl rounded-2xl border border-white/[0.1] p-4">
+                    {/* Attached Images */}
+                    {message.attachedImages && message.attachedImages.length > 0 && (
+                      <div className="mb-3 flex flex-wrap gap-2">
+                        {message.attachedImages.map((img) => (
+                          <div key={img.id} className="relative group">
+                            {img.previewUrl && (
+                              <Image
+                                src={img.previewUrl}
+                                alt={img.file.name}
+                                width={120}
+                                height={120}
+                                className="rounded-lg border border-white/20 object-cover"
+                              />
+                            )}
+                            <div className="absolute bottom-0 left-0 right-0 bg-black/70 text-white text-[10px] px-1 py-0.5 rounded-b-lg truncate">
+                              {img.file.name}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <div className="text-white/90 text-sm">
                       <MarkdownRenderer content={message.content} />
                     </div>
@@ -934,26 +1292,173 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenc
                   <div className="flex items-start gap-2">
                     <div className="flex-1 max-w-full">
                       <div className="text-white/90 text-sm break-words overflow-wrap-anywhere max-w-full">
-                        {/* Streaming and no content: show loading */}
-                        {!message.content && !message.planningThought && message.isStreaming && (
-                          <div className="flex items-center justify-center py-3">
-                            <MessageLoading />
-                          </div>
-                        )}
-                        
-                        {/* Show planning thought while planning */}
-                        {message.planningThought && (
-                          <div className="p-3 bg-purple-950/30 border border-purple-500/30 rounded-lg">
-                            <div className="flex items-center gap-2 mb-2">
-                              <Brain className="h-4 w-4 text-purple-400 animate-pulse" />
-                              <span className="text-sm font-medium text-purple-300">Planning your search...</span>
+                        {/* Show image analysis animation */}
+                        {message.isAnalyzingImage && (
+                          <div className="mb-4">
+                            <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-green-500/10 via-green-500/5 to-transparent border border-green-500/20 p-6 backdrop-blur-sm">
+                              <div className="absolute top-0 right-0 w-32 h-32 bg-green-500/10 rounded-full blur-3xl animate-pulse" />
+                              <div className="relative flex items-center gap-3">
+                                <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-green-500/20 to-green-600/20 border border-green-400/30 flex items-center justify-center">
+                                  <Sparkles className="h-5 w-5 text-green-300 animate-pulse" />
+                                </div>
+                                <div className="flex-1">
+                                  <div className="text-sm font-semibold text-green-200 mb-1">이미지 분석 중</div>
+                                  <div className="text-xs text-green-300/60">첨부된 이미지를 분석하여 검색에 활용합니다...</div>
+                                </div>
+                                <div className="flex gap-1">
+                                  <motion.div
+                                    className="w-2 h-2 rounded-full bg-green-400"
+                                    animate={{ opacity: [0.3, 1, 0.3] }}
+                                    transition={{ duration: 1.5, repeat: Infinity, delay: 0 }}
+                                  />
+                                  <motion.div
+                                    className="w-2 h-2 rounded-full bg-green-400"
+                                    animate={{ opacity: [0.3, 1, 0.3] }}
+                                    transition={{ duration: 1.5, repeat: Infinity, delay: 0.2 }}
+                                  />
+                                  <motion.div
+                                    className="w-2 h-2 rounded-full bg-green-400"
+                                    animate={{ opacity: [0.3, 1, 0.3] }}
+                                    transition={{ duration: 1.5, repeat: Infinity, delay: 0.4 }}
+                                  />
+                                </div>
+                              </div>
                             </div>
-                            <p className="text-white/60 text-xs whitespace-pre-wrap font-mono">
-                              {message.planningThought}
-                            </p>
                           </div>
                         )}
-                        
+
+                        {/* Show image analysis result */}
+                        {message.imageAnalysisResult && !message.isAnalyzingImage && (() => {
+                          const isCollapsed = imageAnalysisCollapsed[message.id] ?? true; // Default collapsed
+
+                          return (
+                            <div className="mb-4">
+                              <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-green-950/40 to-green-900/20 border border-green-500/20 backdrop-blur-sm">
+                                <div className="absolute top-0 left-0 w-24 h-24 bg-green-500/10 rounded-full blur-2xl" />
+                                <div className="relative">
+                                  {/* Header - always visible, clickable */}
+                                  <button
+                                    onClick={() => setImageAnalysisCollapsed(prev => ({ ...prev, [message.id]: !isCollapsed }))}
+                                    className="w-full flex items-center justify-between gap-2 p-4 hover:bg-green-500/5 transition-colors rounded-xl"
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <Sparkles className="h-4 w-4 text-green-300 flex-shrink-0" />
+                                      <span className="text-xs font-medium text-green-200 uppercase tracking-wide">이미지 분석 결과</span>
+                                    </div>
+                                    <motion.div
+                                      animate={{ rotate: isCollapsed ? 0 : 180 }}
+                                      transition={{ duration: 0.2 }}
+                                    >
+                                      <ChevronDown className="h-4 w-4 text-green-300" />
+                                    </motion.div>
+                                  </button>
+
+                                  {/* Content - collapsible */}
+                                  <AnimatePresence>
+                                    {!isCollapsed && (
+                                      <motion.div
+                                        initial={{ height: 0, opacity: 0 }}
+                                        animate={{ height: "auto", opacity: 1 }}
+                                        exit={{ height: 0, opacity: 0 }}
+                                        transition={{ duration: 0.2 }}
+                                        className="overflow-hidden"
+                                      >
+                                        <div className="px-4 pb-4">
+                                          <div className="text-green-100 text-sm leading-relaxed whitespace-pre-wrap">
+                                            {message.imageAnalysisResult}
+                                          </div>
+                                        </div>
+                                      </motion.div>
+                                    )}
+                                  </AnimatePresence>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Show planning animation */}
+                        {message.isPlanning && (() => {
+                          const planningSteps = [
+                            { title: "Analyzing Your Request", description: "Understanding your question..." },
+                            { title: "Analyzing Your Request", description: "Evaluating search requirements..." },
+                            { title: "Planning Search Strategy", description: "Designing document search approach..." },
+                            { title: "Planning Search Strategy", description: "Identifying relevant tools and methods..." },
+                            { title: "Finalizing Plan", description: "Optimizing search parameters..." }
+                          ];
+
+                          const step = planningSteps[Math.min(message.planningStep ?? 0, planningSteps.length - 1)];
+                          const preview = message.planningPreview;
+
+                          return (
+                            <div className="space-y-3">
+                              <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-purple-500/10 via-purple-500/5 to-transparent border border-purple-500/20 p-6 backdrop-blur-sm">
+                                <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/10 rounded-full blur-3xl animate-pulse" />
+                                <div className="relative flex items-center gap-3">
+                                  <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500/20 to-purple-600/20 border border-purple-400/30 flex items-center justify-center">
+                                    <Brain className="h-5 w-5 text-purple-300 animate-pulse" />
+                                  </div>
+                                  <div className="flex-1">
+                                    <div className="text-sm font-semibold text-purple-200 mb-1">{step.title}</div>
+                                    <div className="text-xs text-purple-300/60">{step.description}</div>
+                                  </div>
+                                  <div className="flex gap-1">
+                                    <motion.div
+                                      className="w-2 h-2 rounded-full bg-purple-400"
+                                      animate={{ opacity: [0.3, 1, 0.3] }}
+                                      transition={{ duration: 1.5, repeat: Infinity, delay: 0 }}
+                                    />
+                                    <motion.div
+                                      className="w-2 h-2 rounded-full bg-purple-400"
+                                      animate={{ opacity: [0.3, 1, 0.3] }}
+                                      transition={{ duration: 1.5, repeat: Infinity, delay: 0.2 }}
+                                    />
+                                    <motion.div
+                                      className="w-2 h-2 rounded-full bg-purple-400"
+                                      animate={{ opacity: [0.3, 1, 0.3] }}
+                                      transition={{ duration: 1.5, repeat: Infinity, delay: 0.4 }}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Show extracted plan preview */}
+                              {preview && (preview.overview || (preview.tasks && preview.tasks.length > 0)) && (
+                                <motion.div
+                                  initial={{ opacity: 0, y: -10 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  className="relative overflow-hidden rounded-xl bg-gradient-to-br from-indigo-500/5 via-purple-500/5 to-transparent border border-indigo-500/20 p-4 backdrop-blur-sm"
+                                >
+                                  <div className="space-y-2">
+                                    {preview.overview && (
+                                      <div>
+                                        <div className="text-xs font-medium text-indigo-300/80 mb-1 uppercase tracking-wide">Plan Overview</div>
+                                        <div className="text-sm text-indigo-200/90 leading-relaxed">{preview.overview}</div>
+                                      </div>
+                                    )}
+
+                                    {preview.tasks && preview.tasks.length > 0 && (
+                                      <div>
+                                        <div className="text-xs font-medium text-purple-300/80 mb-1 uppercase tracking-wide">Planned Tasks</div>
+                                        <div className="space-y-1">
+                                          {preview.tasks.map((task, idx) => (
+                                            <div key={idx} className="flex items-start gap-2">
+                                              <div className="flex-shrink-0 w-4 h-4 rounded bg-purple-500/20 border border-purple-400/30 flex items-center justify-center mt-0.5">
+                                                <span className="text-[10px] text-purple-300">{idx + 1}</span>
+                                              </div>
+                                              <div className="text-xs text-purple-200/80">{task}</div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                </motion.div>
+                              )}
+                            </div>
+                          );
+                        })()}
+
                         {/* Show plan if available */}
                         {message.plan && renderPlan(message.plan, message.id)}
                         
@@ -1002,31 +1507,67 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenc
         {/* Input area - fixed at bottom */}
         <div className="flex-shrink-0 z-20 px-4 pt-4 pb-6 bg-black/60 backdrop-blur border-t border-white/10">
           <div className="max-w-3xl mx-auto w-full">
+            {/* Attachment Preview - show above input when attachments exist */}
+            {attachments.length > 0 && (
+              <div className="mb-3 flex flex-wrap gap-2">
+                {attachments.map((attachment) => (
+                  <div
+                    key={attachment.id}
+                    className="relative group bg-white/10 border border-white/20 rounded-lg p-2 backdrop-blur-xl"
+                  >
+                    {attachment.previewUrl && (
+                      <Image
+                        src={attachment.previewUrl}
+                        alt="Preview"
+                        width={80}
+                        height={80}
+                        className="rounded object-cover"
+                      />
+                    )}
+                    <button
+                      onClick={() => removeAttachment(attachment.id)}
+                      className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                    <div className="absolute bottom-0 left-0 right-0 bg-black/70 text-white text-[10px] px-1 py-0.5 rounded-b truncate">
+                      {attachment.file.name}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="relative bg-gradient-to-r from-gray-900/90 to-gray-800/90 border border-white/20 rounded-full backdrop-blur-xl shadow-2xl">
               <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/10 via-purple-500/10 to-pink-500/10 rounded-full animate-pulse" />
-              <div className="relative p-4 flex items-center">
-                <div className="flex-shrink-0 mr-3">
+              <div className="relative p-4 flex items-center gap-2">
+                <div className="flex-shrink-0">
                   <div className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-500/20 to-purple-500/20 flex items-center justify-center">
                     <Sparkles className="w-5 h-5 text-cyan-400 animate-pulse" />
                   </div>
                 </div>
-                {/* Reset Button */}
-                {isChatStarted && (
-                  <button 
-                    type="button"
-                    onClick={handleResetClick}
-                    disabled={isResetting}
-                    className="p-2 rounded-full hover:bg-white/5 transition-all group mr-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                    title="Reset Chat"
-                  >
-                    {isResetting ? (
-                      <Loader2 className="w-5 h-5 text-orange-400 animate-spin" />
-                    ) : (
-                      <RotateCcw className="w-5 h-5 text-orange-400 group-hover:text-orange-300 transition-colors" />
-                    )}
-                  </button>
-                )}
-                
+
+                {/* File Attachment Button */}
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isStreaming}
+                  className="p-2 rounded-full hover:bg-white/5 transition-all group mr-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Attach Image"
+                >
+                  <Paperclip className="w-5 h-5 text-green-400 group-hover:text-green-300 transition-colors" />
+                </button>
+
+                {/* Hidden File Input */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+
                 <input
                   ref={inputRef}
                   type="text"
@@ -1038,10 +1579,10 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenc
                   placeholder="What documents would you like to search?"
                   className="bg-transparent flex-1 outline-none text-white placeholder:text-white/50 text-lg font-medium"
                 />
-                
+
                 <button
                   onClick={() => handleSendMessage()}
-                  disabled={!input.trim() || isStreaming}
+                  disabled={(!input.trim() && attachments.length === 0) || isStreaming}
                   className="ml-3 p-2 rounded-full bg-white/10 hover:bg-white/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isStreaming ? (
@@ -1162,32 +1703,6 @@ export function SearchInterface({ indexId, onOpenPdf, onAttachToChat, onReferenc
         </div>
       )}
 
-      {/* Reset Confirmation Dialog */}
-      <ConfirmDialog
-        isOpen={showResetConfirm}
-        onClose={() => setShowResetConfirm(false)}
-        onConfirm={handleChatReset}
-        title="Reset Chat"
-        message="Are you sure you want to reset the chat? This will clear all messages and start over."
-        confirmText="Reset"
-        cancelText="Cancel"
-        variant="destructive"
-      />
-
-      {/* Reset Loading Overlay */}
-      {isResetting && (
-        <div className="fixed inset-0 bg-black/80 z-[9999] flex items-center justify-center">
-          <div className="bg-gray-900/90 border border-white/20 rounded-2xl p-8 shadow-2xl">
-            <div className="flex items-center space-x-4">
-              <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
-              <div>
-                <h3 className="text-white text-lg font-medium">Resetting chat...</h3>
-                <p className="text-white/60 text-sm mt-1">Please wait a moment</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }

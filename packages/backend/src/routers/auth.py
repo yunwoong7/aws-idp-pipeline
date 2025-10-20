@@ -72,11 +72,24 @@ async def get_current_user(request: Request):
     try:
         # OIDC 토큰 디코딩
         user_data = decode_cognito_token(oidc_data)
-        
+
+        # Debug: Log all available fields in the token
+        logger.info(f"🔍 JWT token fields: {list(user_data.keys())}")
+        logger.info(f"🔍 JWT token data: {user_data}")
+
         # 사용자 정보 추출
         email = user_data.get("email")
-        name = user_data.get("name") or user_data.get("given_name")
-        
+        # Try to get name from various Cognito attributes
+        # Priority: name > given_name > preferred_username > username > cognito:username > email prefix
+        name = (
+            user_data.get("name") or
+            user_data.get("given_name") or
+            user_data.get("preferred_username") or
+            user_data.get("username") or
+            user_data.get("cognito:username") or
+            (email.split("@")[0] if email else None)
+        )
+
         # 그룹 정보는 cognito:groups 클레임에서 가져옴
         groups = user_data.get("cognito:groups", [])
         

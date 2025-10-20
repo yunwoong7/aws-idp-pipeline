@@ -27,6 +27,7 @@ export class DynamoDBStack extends cdk.Stack {
   public readonly segmentsTable: dynamodb.Table;
   public readonly indicesTable: dynamodb.Table;
   public readonly webSocketConnectionsTable: dynamodb.Table;
+  public readonly usersTable: dynamodb.Table;
   private readonly vpcId: string;
 
   constructor(scope: Construct, id: string, props: DynamoDBStackProps) {
@@ -49,6 +50,8 @@ export class DynamoDBStack extends cdk.Stack {
     // Create WebSocket Connections Table
     this.webSocketConnectionsTable = this.createWebSocketConnectionsTable();
 
+    // Create Users Table (for RBAC)
+    this.usersTable = this.createUsersTable();
 
     // Create IAM policies for Lambda functions
     this.createDynamoDBAccessPolicies(stage);
@@ -159,6 +162,33 @@ export class DynamoDBStack extends cdk.Stack {
 
 
   /**
+   * Create Users table for RBAC
+   * Fields: user_id(PK), email, name, role, permissions, status, created_at, updated_at, last_login_at
+   */
+  private createUsersTable(): dynamodb.Table {
+    const usersTableConstruct = new SecureDynamoDBTable(this, 'UsersTable', {
+      tableName: 'aws-idp-ai-users',
+      partitionKey: { name: 'user_id', type: dynamodb.AttributeType.STRING },
+      stream: dynamodb.StreamViewType.NEW_AND_OLD_IMAGES,
+    });
+
+    // GSI for email-based queries
+    usersTableConstruct.addGlobalSecondaryIndex({
+      indexName: 'EmailIndex',
+      partitionKey: { name: 'email', type: dynamodb.AttributeType.STRING },
+    });
+
+    // GSI for role-based queries
+    usersTableConstruct.addGlobalSecondaryIndex({
+      indexName: 'RoleIndex',
+      partitionKey: { name: 'role', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'created_at', type: dynamodb.AttributeType.STRING },
+    });
+
+    return usersTableConstruct.table;
+  }
+
+  /**
    * Create WebSocket connection management table
    * Fields: connection_id(PK), index_id, user_id, connected_at, ttl
    */
@@ -215,6 +245,8 @@ export class DynamoDBStack extends cdk.Stack {
               `${this.indicesTable.tableArn}/index/*`,
               this.webSocketConnectionsTable.tableArn,
               `${this.webSocketConnectionsTable.tableArn}/index/*`,
+              this.usersTable.tableArn,
+              `${this.usersTable.tableArn}/index/*`,
             ],
             conditions: {
               StringEquals: {
@@ -256,6 +288,8 @@ export class DynamoDBStack extends cdk.Stack {
               `${this.indicesTable.tableArn}/index/*`,
               this.webSocketConnectionsTable.tableArn,
               `${this.webSocketConnectionsTable.tableArn}/index/*`,
+              this.usersTable.tableArn,
+              `${this.usersTable.tableArn}/index/*`,
             ],
             conditions: {
               StringEquals: {
@@ -287,6 +321,7 @@ export class DynamoDBStack extends cdk.Stack {
             resources: [
               this.documentsTable.tableStreamArn || '',
               this.segmentsTable.tableStreamArn || '',
+              this.usersTable.tableStreamArn || '',
             ],
             conditions: {
               StringEquals: {
@@ -379,6 +414,17 @@ export class DynamoDBStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'WebSocketConnectionsTableArnOutput', {
       value: this.webSocketConnectionsTable.tableArn,
       description: 'AWS IDP AI WebSocket connections table ARN',
+    });
+
+    // Users Table Outputs
+    new cdk.CfnOutput(this, 'UsersTableNameOutput', {
+      value: this.usersTable.tableName,
+      description: 'AWS IDP AI users table name',
+    });
+
+    new cdk.CfnOutput(this, 'UsersTableArnOutput', {
+      value: this.usersTable.tableArn,
+      description: 'AWS IDP AI users table ARN',
     });
   }
 

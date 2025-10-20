@@ -357,16 +357,6 @@ export class DocumentManagementStack extends cdk.Stack {
         path: '/api/segments/{segment_id}/image',
         methods: [apigw.HttpMethod.GET],
       },
-      // GET /api/auth/user - Get current user information
-      {
-        path: '/api/auth/user',
-        methods: [apigw.HttpMethod.GET],
-      },
-      // POST /api/auth/logout - Logout endpoint
-      {
-        path: '/api/auth/logout',
-        methods: [apigw.HttpMethod.POST],
-      },
     ];
 
     // Add routes using ApiGatewayRoutes construct

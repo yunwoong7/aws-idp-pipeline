@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAlert } from "@/components/ui/alert";
 import { motion } from "framer-motion";
+import { useAuth } from "@/contexts/auth-context";
 
 // Import new tab components
 import { DocumentsTab } from "./_components/documents/documents-tab";
@@ -78,10 +79,21 @@ function WorkspacePageContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const selectedIndexId = searchParams.get('index_id') || '';
+    const tabParam = searchParams.get('tab') as 'documents' | 'analysis' | 'search' | 'verification' | null;
     const { showInfo, AlertComponent } = useAlert();
-    
+    const { hasTabAccess } = useAuth();
+
+    // Determine first available tab
+    const getFirstAvailableTab = (): 'documents' | 'analysis' | 'search' | 'verification' => {
+        const tabs: Array<'documents' | 'analysis' | 'search' | 'verification'> = ['documents', 'analysis', 'search', 'verification'];
+        return tabs.find(tab => hasTabAccess(tab)) || 'search';
+    };
+
+    // Initialize tab from URL param or first available tab
+    const initialTab = (tabParam && hasTabAccess(tabParam)) ? tabParam : getFirstAvailableTab();
+
     // Tab state
-    const [activeTab, setActiveTab] = useState<'documents' | 'analysis' | 'search' | 'verification'>('documents');
+    const [activeTab, setActiveTab] = useState<'documents' | 'analysis' | 'search' | 'verification'>(initialTab);
     
     // PDF viewer state
     const [showPdfViewer, setShowPdfViewer] = useState(false);
@@ -326,6 +338,7 @@ function WorkspacePageContent() {
                         <div className="absolute top-0 left-0 right-0 z-[50] flex items-center justify-between px-3 py-3 bg-black/50 backdrop-blur-sm border-b border-white/10">
                             <div className="flex items-center gap-2">
                                 <SidebarTrigger className="hidden md:flex bg-black/40 border border-white/10 hover:bg-white/10" />
+                                {/* Back to Indexes button */}
                                 <Button
                                     variant="ghost"
                                     size="sm"
@@ -340,144 +353,152 @@ function WorkspacePageContent() {
                             {/* Tab Navigation */}
                             <div className="flex bg-black/20 rounded-xl border border-white/10 p-1 backdrop-blur-sm">
                                 {/* Documents Tab */}
-                                <button
-                                    onClick={() => handleTabChange('documents')}
-                                    className={`relative flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-300 group ${
-                                        activeTab === 'documents' 
-                                            ? 'text-white' 
-                                            : 'text-white/60 hover:text-white/80'
-                                    }`}
-                                >
-                                    {/* Active background with animation */}
-                                    {activeTab === 'documents' && (
-                                        <motion.div
-                                            layoutId="activeTab"
-                                            className="absolute inset-0 bg-gradient-to-r from-cyan-500/20 to-sky-500/20 rounded-lg border border-cyan-400/30"
-                                            initial={false}
-                                            transition={{ 
-                                                type: "spring", 
-                                                stiffness: 500, 
-                                                damping: 30 
-                                            }}
-                                        />
-                                    )}
-                                    
-                                    <div className="relative flex items-center gap-2">
-                                        <div className={`p-1 rounded transition-colors duration-300 ${
-                                            activeTab === 'documents' 
-                                                ? 'bg-cyan-500/20 text-cyan-300' 
-                                                : 'bg-white/10 text-white/70 group-hover:bg-white/20'
-                                        }`}>
-                                            <FileText className="h-3 w-3" />
+                                {hasTabAccess('documents') && (
+                                    <button
+                                        onClick={() => handleTabChange('documents')}
+                                        className={`relative flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-300 group ${
+                                            activeTab === 'documents'
+                                                ? 'text-white'
+                                                : 'text-white/60 hover:text-white/80'
+                                        }`}
+                                    >
+                                        {/* Active background with animation */}
+                                        {activeTab === 'documents' && (
+                                            <motion.div
+                                                layoutId="activeTab"
+                                                className="absolute inset-0 bg-gradient-to-r from-cyan-500/20 to-sky-500/20 rounded-lg border border-cyan-400/30"
+                                                initial={false}
+                                                transition={{
+                                                    type: "spring",
+                                                    stiffness: 500,
+                                                    damping: 30
+                                                }}
+                                            />
+                                        )}
+
+                                        <div className="relative flex items-center gap-2">
+                                            <div className={`p-1 rounded transition-colors duration-300 ${
+                                                activeTab === 'documents'
+                                                    ? 'bg-cyan-500/20 text-cyan-300'
+                                                    : 'bg-white/10 text-white/70 group-hover:bg-white/20'
+                                            }`}>
+                                                <FileText className="h-3 w-3" />
+                                            </div>
+                                            <span className="font-medium text-xs">Documents</span>
                                         </div>
-                                        <span className="font-medium text-xs">Documents</span>
-                                    </div>
-                                </button>
+                                    </button>
+                                )}
 
                                 {/* Analysis Tab */}
-                                <button
-                                    onClick={() => handleTabChange('analysis')}
-                                    className={`relative flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-300 group ${
-                                        activeTab === 'analysis' 
-                                            ? 'text-white' 
-                                            : 'text-white/60 hover:text-white/80'
-                                    }`}
-                                >
-                                    {/* Active background with animation */}
-                                    {activeTab === 'analysis' && (
-                                        <motion.div
-                                            layoutId="activeTab"
-                                            className="absolute inset-0 bg-gradient-to-r from-purple-500/20 to-violet-500/20 rounded-lg border border-purple-400/30"
-                                            initial={false}
-                                            transition={{ 
-                                                type: "spring", 
-                                                stiffness: 500, 
-                                                damping: 30 
-                                            }}
-                                        />
-                                    )}
-                                    
-                                    <div className="relative flex items-center gap-2">
-                                        <div className={`p-1 rounded transition-colors duration-300 ${
-                                            activeTab === 'analysis' 
-                                                ? 'bg-purple-500/20 text-purple-300' 
-                                                : 'bg-white/10 text-white/70 group-hover:bg-white/20'
-                                        }`}>
-                                            <BarChart3 className="h-3 w-3" />
+                                {hasTabAccess('analysis') && (
+                                    <button
+                                        onClick={() => handleTabChange('analysis')}
+                                        className={`relative flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-300 group ${
+                                            activeTab === 'analysis'
+                                                ? 'text-white'
+                                                : 'text-white/60 hover:text-white/80'
+                                        }`}
+                                    >
+                                        {/* Active background with animation */}
+                                        {activeTab === 'analysis' && (
+                                            <motion.div
+                                                layoutId="activeTab"
+                                                className="absolute inset-0 bg-gradient-to-r from-purple-500/20 to-violet-500/20 rounded-lg border border-purple-400/30"
+                                                initial={false}
+                                                transition={{
+                                                    type: "spring",
+                                                    stiffness: 500,
+                                                    damping: 30
+                                                }}
+                                            />
+                                        )}
+
+                                        <div className="relative flex items-center gap-2">
+                                            <div className={`p-1 rounded transition-colors duration-300 ${
+                                                activeTab === 'analysis'
+                                                    ? 'bg-purple-500/20 text-purple-300'
+                                                    : 'bg-white/10 text-white/70 group-hover:bg-white/20'
+                                            }`}>
+                                                <BarChart3 className="h-3 w-3" />
+                                            </div>
+                                            <span className="font-medium text-xs">Analysis</span>
                                         </div>
-                                        <span className="font-medium text-xs">Analysis</span>
-                                    </div>
-                                </button>
+                                    </button>
+                                )}
 
                                 {/* Search Tab */}
-                                <button
-                                    onClick={() => handleTabChange('search')}
-                                    className={`relative flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-300 group ${
-                                        activeTab === 'search' 
-                                            ? 'text-white' 
-                                            : 'text-white/60 hover:text-white/80'
-                                    }`}
-                                >
-                                    {/* Active background with animation */}
-                                    {activeTab === 'search' && (
-                                        <motion.div
-                                            layoutId="activeTab"
-                                            className="absolute inset-0 bg-gradient-to-r from-green-500/20 to-emerald-500/20 rounded-lg border border-green-400/30"
-                                            initial={false}
-                                            transition={{ 
-                                                type: "spring", 
-                                                stiffness: 500, 
-                                                damping: 30 
-                                            }}
-                                        />
-                                    )}
-                                    
-                                    <div className="relative flex items-center gap-2">
-                                        <div className={`p-1 rounded transition-colors duration-300 ${
-                                            activeTab === 'search' 
-                                                ? 'bg-green-500/20 text-green-300' 
-                                                : 'bg-white/10 text-white/70 group-hover:bg-white/20'
-                                        }`}>
-                                            <Search className="h-3 w-3" />
+                                {hasTabAccess('search') && (
+                                    <button
+                                        onClick={() => handleTabChange('search')}
+                                        className={`relative flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-300 group ${
+                                            activeTab === 'search'
+                                                ? 'text-white'
+                                                : 'text-white/60 hover:text-white/80'
+                                        }`}
+                                    >
+                                        {/* Active background with animation */}
+                                        {activeTab === 'search' && (
+                                            <motion.div
+                                                layoutId="activeTab"
+                                                className="absolute inset-0 bg-gradient-to-r from-green-500/20 to-emerald-500/20 rounded-lg border border-green-400/30"
+                                                initial={false}
+                                                transition={{
+                                                    type: "spring",
+                                                    stiffness: 500,
+                                                    damping: 30
+                                                }}
+                                            />
+                                        )}
+
+                                        <div className="relative flex items-center gap-2">
+                                            <div className={`p-1 rounded transition-colors duration-300 ${
+                                                activeTab === 'search'
+                                                    ? 'bg-green-500/20 text-green-300'
+                                                    : 'bg-white/10 text-white/70 group-hover:bg-white/20'
+                                            }`}>
+                                                <Search className="h-3 w-3" />
+                                            </div>
+                                            <span className="font-medium text-xs">Search</span>
                                         </div>
-                                        <span className="font-medium text-xs">Search</span>
-                                    </div>
-                                </button>
+                                    </button>
+                                )}
 
                                 {/* Verification Tab */}
-                                <button
-                                    onClick={() => handleTabChange('verification')}
-                                    className={`relative flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-300 group ${
-                                        activeTab === 'verification' 
-                                            ? 'text-white' 
-                                            : 'text-white/60 hover:text-white/80'
-                                    }`}
-                                >
-                                    {/* Active background with animation */}
-                                    {activeTab === 'verification' && (
-                                        <motion.div
-                                            layoutId="activeTab"
-                                            className="absolute inset-0 bg-gradient-to-r from-indigo-500/20 to-purple-500/20 rounded-lg border border-indigo-400/30"
-                                            initial={false}
-                                            transition={{ 
-                                                type: "spring", 
-                                                stiffness: 500, 
-                                                damping: 30 
-                                            }}
-                                        />
-                                    )}
-                                    
-                                    <div className="relative flex items-center gap-2">
-                                        <div className={`p-1 rounded transition-colors duration-300 ${
-                                            activeTab === 'verification' 
-                                                ? 'bg-indigo-500/20 text-indigo-300' 
-                                                : 'bg-white/10 text-white/70 group-hover:bg-white/20'
-                                        }`}>
-                                            <CheckCircle className="h-3 w-3" />
+                                {hasTabAccess('verification') && (
+                                    <button
+                                        onClick={() => handleTabChange('verification')}
+                                        className={`relative flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-300 group ${
+                                            activeTab === 'verification'
+                                                ? 'text-white'
+                                                : 'text-white/60 hover:text-white/80'
+                                        }`}
+                                    >
+                                        {/* Active background with animation */}
+                                        {activeTab === 'verification' && (
+                                            <motion.div
+                                                layoutId="activeTab"
+                                                className="absolute inset-0 bg-gradient-to-r from-indigo-500/20 to-purple-500/20 rounded-lg border border-indigo-400/30"
+                                                initial={false}
+                                                transition={{
+                                                    type: "spring",
+                                                    stiffness: 500,
+                                                    damping: 30
+                                                }}
+                                            />
+                                        )}
+
+                                        <div className="relative flex items-center gap-2">
+                                            <div className={`p-1 rounded transition-colors duration-300 ${
+                                                activeTab === 'verification'
+                                                    ? 'bg-indigo-500/20 text-indigo-300'
+                                                    : 'bg-white/10 text-white/70 group-hover:bg-white/20'
+                                            }`}>
+                                                <CheckCircle className="h-3 w-3" />
+                                            </div>
+                                            <span className="font-medium text-xs">Verification</span>
                                         </div>
-                                        <span className="font-medium text-xs">Verification</span>
-                                    </div>
-                                </button>
+                                    </button>
+                                )}
 
                             </div>
 
@@ -512,43 +533,51 @@ function WorkspacePageContent() {
                                         </div>
                                     ) : (
                                         <>
-                                            <TabsContent value="documents" className="h-full m-0 border-0 rounded-none">
-                                                <DocumentsTab
-                                                    indexId={selectedIndexId}
-                                                    onSelectDocument={handleDocumentSelect}
-                                                    onAttachToChat={handleAttachPage}
-                                                    onAnalyzeDocument={handleAnalyzeDocument}
-                                                />
-                                            </TabsContent>
+                                            {hasTabAccess('documents') && (
+                                                <TabsContent value="documents" className="h-full m-0 border-0 rounded-none">
+                                                    <DocumentsTab
+                                                        indexId={selectedIndexId}
+                                                        onSelectDocument={handleDocumentSelect}
+                                                        onAttachToChat={handleAttachPage}
+                                                        onAnalyzeDocument={handleAnalyzeDocument}
+                                                    />
+                                                </TabsContent>
+                                            )}
 
-                                            <TabsContent value="analysis" className="h-full m-0 border-0 rounded-none">
-                                                <AnalysisTab 
-                                                    indexId={selectedIndexId}
-                                                    persistentState={persistentAnalysisState}
-                                                    onStateUpdate={updateAnalysisState}
-                                                />
-                                            </TabsContent>
+                                            {hasTabAccess('analysis') && (
+                                                <TabsContent value="analysis" className="h-full m-0 border-0 rounded-none">
+                                                    <AnalysisTab
+                                                        indexId={selectedIndexId}
+                                                        persistentState={persistentAnalysisState}
+                                                        onStateUpdate={updateAnalysisState}
+                                                    />
+                                                </TabsContent>
+                                            )}
 
-                                            <TabsContent value="search" className="h-full m-0 border-0 rounded-none">
-                                                <SearchTab
-                                                    indexId={selectedIndexId}
-                                                    onOpenPdf={handlePdfClick}
-                                                    onAttachToChat={handleAttachPage}
-                                                    onReferenceClick={handleReferenceClick}
-                                                    persistentState={persistentSearchState}
-                                                    onStateUpdate={updateSearchState}
-                                                />
-                                            </TabsContent>
+                                            {hasTabAccess('search') && (
+                                                <TabsContent value="search" className="h-full m-0 border-0 rounded-none">
+                                                    <SearchTab
+                                                        indexId={selectedIndexId}
+                                                        onOpenPdf={handlePdfClick}
+                                                        onAttachToChat={handleAttachPage}
+                                                        onReferenceClick={handleReferenceClick}
+                                                        persistentState={persistentSearchState}
+                                                        onStateUpdate={updateSearchState}
+                                                    />
+                                                </TabsContent>
+                                            )}
 
-                                            <TabsContent value="verification" className="h-full m-0 border-0 rounded-none">
-                                                <VerificationTab
-                                                    indexId={selectedIndexId}
-                                                    onOpenPdf={handlePdfClick}
-                                                    onAttachToChat={handleAttachPage}
-                                                    persistentState={persistentVerificationState}
-                                                    onStateUpdate={updateVerificationState}
-                                                />
-                                            </TabsContent>
+                                            {hasTabAccess('verification') && (
+                                                <TabsContent value="verification" className="h-full m-0 border-0 rounded-none">
+                                                    <VerificationTab
+                                                        indexId={selectedIndexId}
+                                                        onOpenPdf={handlePdfClick}
+                                                        onAttachToChat={handleAttachPage}
+                                                        persistentState={persistentVerificationState}
+                                                        onStateUpdate={updateVerificationState}
+                                                    />
+                                                </TabsContent>
+                                            )}
                                         </>
                                     )}
                                 </div>

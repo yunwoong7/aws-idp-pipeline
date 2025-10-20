@@ -25,6 +25,7 @@ export interface EcsStackProps extends cdk.StackProps {
   apiGatewayUrl: string;
   s3BucketName: string;
   documentsTableName: string;
+  usersTableName: string;
   // Cognito configuration
   userPool?: cognito.IUserPool;
   userPoolClient?: cognito.IUserPoolClient;
@@ -43,18 +44,21 @@ export class EcsStack extends cdk.Stack {
   public readonly frontendService: ecsPatterns.ApplicationLoadBalancedFargateService;
   public readonly backendService: ecsPatterns.ApplicationLoadBalancedFargateService;
   public readonly loadBalancer: elbv2.IApplicationLoadBalancer;
+  public readonly cognitoUserPoolDomain?: string;
+  public readonly cognitoClientId?: string;
 
   constructor(scope: Construct, id: string, props: EcsStackProps) {
     super(scope, id, props);
 
-    const { 
-      stage, 
-      vpc, 
-      backendRepository, 
-      frontendRepository, 
+    const {
+      stage,
+      vpc,
+      backendRepository,
+      frontendRepository,
       apiGatewayUrl,
       s3BucketName,
       documentsTableName,
+      usersTableName,
       userPool,
       userPoolClient,
       userPoolDomain,
@@ -66,9 +70,13 @@ export class EcsStack extends cdk.Stack {
       hostedZoneName
     } = props;
 
+    // Assign Cognito properties for export
+    this.cognitoUserPoolDomain = userPoolDomain?.domainName;
+    this.cognitoClientId = userPoolClient?.userPoolClientId;
+
     // Handle certificate - use provided certificate or existing ARN
-    const finalCertificate = certificate || (existingCertificateArn ? 
-      acm.Certificate.fromCertificateArn(this, 'ExistingCertificate', existingCertificateArn) : 
+    const finalCertificate = certificate || (existingCertificateArn ?
+      acm.Certificate.fromCertificateArn(this, 'ExistingCertificate', existingCertificateArn) :
       undefined
     );
 
@@ -195,7 +203,7 @@ export class EcsStack extends cdk.Stack {
     }
 
     // Frontend Fargate Service (ApplicationLoadBalancedFargateService 사용)
-    // Note: openListener must be false when using Cognito authentication
+    // Note: We'll modify the listener actions after creation for Cognito
     this.frontendService = new ecsPatterns.ApplicationLoadBalancedFargateService(this, 'FrontendService', {
       cluster: this.cluster,
       serviceName: `aws-idp-frontend-${stage}`,
@@ -203,7 +211,7 @@ export class EcsStack extends cdk.Stack {
       memoryLimitMiB: 1024,
       desiredCount: 1,
       publicLoadBalancer: true,
-      openListener: true,  // Let the service create the listener, we'll modify it afterwards
+      openListener: true,  // Always create the listener, we'll modify it for Cognito
       taskImageOptions: {
         image: ecs.ContainerImage.fromEcrRepository(frontendRepository, 'latest'),
         containerName: 'frontend',
@@ -268,6 +276,8 @@ export class EcsStack extends cdk.Stack {
         // Document upload related environment variables
         DOCUMENTS_BUCKET_NAME: s3BucketName,
         DOCUMENTS_TABLE_NAME: documentsTableName,
+        // RBAC related environment variables
+        USERS_TABLE_NAME: usersTableName,
         // Cognito configuration for logout (will be added dynamically if Cognito is configured)
         ...(userPool && userPoolClient && userPoolDomain && {
           COGNITO_USER_POOL_DOMAIN: userPoolDomain.domainName,
@@ -321,13 +331,15 @@ export class EcsStack extends cdk.Stack {
 
     // Configure Cognito authentication using the existing listener
     const listener = this.frontendService.listener;
-    
+
     if (userPool && userPoolClient && userPoolDomain) {
       // Modify the existing listener's default action to use Cognito authentication
+      // IMPORTANT: Order matters - authenticate first (order: 1), then forward (order: 2)
       const cfnListener = listener.node.defaultChild as elbv2.CfnListener;
       cfnListener.defaultActions = [
         {
           type: 'authenticate-cognito',
+          order: 1,
           authenticateCognitoConfig: {
             userPoolArn: userPool.userPoolArn,
             userPoolClientId: userPoolClient.userPoolClientId,
@@ -337,12 +349,11 @@ export class EcsStack extends cdk.Stack {
             sessionTimeout: '86400', // 1 day (86400 seconds)
             onUnauthenticatedRequest: 'authenticate',
           },
-          order: 1,
         },
         {
           type: 'forward',
-          targetGroupArn: this.frontendService.targetGroup.targetGroupArn,
           order: 2,
+          targetGroupArn: this.frontendService.targetGroup.targetGroupArn,
         },
       ];
 

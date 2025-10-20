@@ -17,6 +17,7 @@ import { Trash2 } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ChatBackground } from "@/components/ui/chat-background";
 import { PinContainer } from "@/components/ui/3d-pin";
+import { useAuth } from "@/contexts/auth-context";
 
 type IndexItem = {
   index_id: string;
@@ -31,6 +32,7 @@ type IndexItem = {
 
 export default function IndexesPage() {
   const router = useRouter();
+  const { canCreateIndex, canDeleteIndex, canAccessIndex, hasTabAccess, accessibleIndexes } = useAuth();
   const [indexes, setIndexes] = useState<IndexItem[]>([]);
   const [openCreate, setOpenCreate] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -84,6 +86,20 @@ export default function IndexesPage() {
     }
   };
 
+  // Get the first available tab to redirect to
+  const getFirstAvailableTab = (): string => {
+    if (hasTabAccess('documents')) return 'documents';
+    if (hasTabAccess('analysis')) return 'analysis';
+    if (hasTabAccess('search')) return 'search';
+    if (hasTabAccess('verification')) return 'verification';
+    return 'documents'; // fallback
+  };
+
+  // Check if user has access to at least one index
+  const filteredIndexes = indexes.filter(idx => canAccessIndex(idx.index_id));
+  const hasAccessibleIndexes = filteredIndexes.length > 0;
+  const hasAnyTabAccess = hasTabAccess('documents') || hasTabAccess('analysis') || hasTabAccess('search') || hasTabAccess('verification');
+
   return (
     <div className="min-h-screen bg-black text-white">
       <SidebarProvider className="bg-black" defaultOpen>
@@ -101,18 +117,39 @@ export default function IndexesPage() {
               <p className="text-white/60">Create an index and start uploading your media for AI-powered analysis</p>
             </div>
 
+            {/* Insufficient permissions message */}
+            {!loading && !hasAccessibleIndexes && !canCreateIndex && (
+              <div className="mb-8 rounded-xl border border-amber-500/30 bg-amber-500/10 p-6 backdrop-blur-sm">
+                <div className="flex items-start gap-3">
+                  <div className="rounded-full bg-amber-500/20 p-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-amber-400" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-lg font-semibold text-amber-200 mb-1">Insufficient Permissions</h3>
+                    <p className="text-sm text-amber-300/80">
+                      You don't have permission to access any indexes or create new ones. Please contact your administrator to request access.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Card grid (3D pin style) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-12 md:gap-16 mb-8">
               {/* Create card (3D pin) */}
-              <PinContainer title="Create an index" href="#" onClick={(e) => { e.preventDefault(); setOpenCreate(true); }} containerClassName="h-72 relative z-10">
-                <div className="flex flex-col p-4 tracking-tight text-slate-100/80 w-[18rem] h-[18rem] bg-gradient-to-b from-slate-800/50 to-slate-800/0 backdrop-blur-sm border border-slate-700/50 rounded-2xl items-center justify-center">
-                  <div className="w-10 h-10 rounded-full border border-white/20 flex items-center justify-center mb-4">
-                    <PlusCircle className="w-5 h-5 text-white/80" />
+              {canCreateIndex && (
+                <PinContainer title="Create an index" href="#" onClick={(e) => { e.preventDefault(); setOpenCreate(true); }} containerClassName="h-72 relative z-10">
+                  <div className="flex flex-col p-4 tracking-tight text-slate-100/80 w-[18rem] h-[18rem] bg-gradient-to-b from-slate-800/50 to-slate-800/0 backdrop-blur-sm border border-slate-700/50 rounded-2xl items-center justify-center">
+                    <div className="w-10 h-10 rounded-full border border-white/20 flex items-center justify-center mb-4">
+                      <PlusCircle className="w-5 h-5 text-white/80" />
+                    </div>
+                    <div className="text-xl font-semibold text-white mb-2">Create an index</div>
+                    <div className="text-sm text-white/60 text-center max-w-[240px]">By creating an index, you can upload your own videos and start building.</div>
                   </div>
-                  <div className="text-xl font-semibold text-white mb-2">Create an index</div>
-                  <div className="text-sm text-white/60 text-center max-w-[240px]">By creating an index, you can upload your own videos and start building.</div>
-                </div>
-              </PinContainer>
+                </PinContainer>
+              )}
 
               {loading ? (
                 // Loading skeleton cards
@@ -148,20 +185,27 @@ export default function IndexesPage() {
                   </div>
                 </div>
               ) : (
-                // Actual index cards
-                (indexes || []).map((idx) => (
-                  <PinContainer key={idx.index_id} title={idx.index_id} href={`/workspace?index_id=${idx.index_id}`} containerClassName="h-72 relative z-10">
+                // Actual index cards (filtered by canAccessIndex)
+                filteredIndexes.map((idx) => (
+                  <PinContainer
+                    key={idx.index_id}
+                    title={idx.index_id}
+                    href={`/workspace?index_id=${idx.index_id}&tab=${getFirstAvailableTab()}`}
+                    containerClassName="h-72 relative z-10"
+                  >
                     <div className="flex flex-col p-4 tracking-tight text-slate-100/80 w-[18rem] h-[18rem] bg-gradient-to-b from-slate-800/50 to-slate-800/0 backdrop-blur-sm border border-slate-700/50 rounded-2xl">
                       <div className="flex items-center gap-2">
                         <div className="size-3 rounded-full bg-emerald-500" />
                         <div className="text-xs text-slate-400">{idx.status || 'active'}</div>
-                        <button
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDeleteClick(idx.index_id); }}
-                          title="Delete index"
-                          className="ml-auto inline-flex items-center justify-center w-6 h-6 rounded border border-white/10 hover:bg-white/10 text-white/70 hover:text-red-300"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {canDeleteIndex && (
+                          <button
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDeleteClick(idx.index_id); }}
+                            title="Delete index"
+                            className="ml-auto inline-flex items-center justify-center w-6 h-6 rounded border border-white/10 hover:bg-white/10 text-white/70 hover:text-red-300"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                       <div className="flex-1 mt-4 space-y-3">
                         <div className="text-xl font-bold text-slate-100">{idx.index_id}</div>

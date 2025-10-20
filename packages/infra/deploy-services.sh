@@ -137,6 +137,7 @@ get_service_stacks() {
 aws-idp-ai-cognito
 aws-idp-ai-ecr
 aws-idp-ai-ecs
+aws-idp-ai-user-management
 EOF
 }
 
@@ -475,6 +476,44 @@ deploy_ecr_stack() {
   print_success "ECR stack deployment completed"
 }
 
+# ────────────── Deploy User Management stack ──────────────
+deploy_user_management_stack() {
+  local profile="$1"
+  local admin_email="$2"
+  local domain_name="${3:-}"
+  local hosted_zone_id="${4:-}"
+  local hosted_zone_name="${5:-}"
+  local existing_user_pool="${6:-}"
+  local existing_domain="${7:-}"
+
+  print_step "6.5" "Deploying User Management stack with Cognito integration"
+
+  # Prepare CDK context for User Management
+  local cdk_context="-c adminUserEmail=$admin_email"
+
+  if [[ -n "$domain_name" && -n "$hosted_zone_id" && -n "$hosted_zone_name" ]]; then
+    cdk_context="$cdk_context -c useCustomDomain=true"
+    cdk_context="$cdk_context -c domainName=$domain_name"
+    cdk_context="$cdk_context -c hostedZoneId=$hosted_zone_id"
+    cdk_context="$cdk_context -c hostedZoneName=$hosted_zone_name"
+  fi
+
+  if [[ -n "$existing_user_pool" ]]; then
+    cdk_context="$cdk_context -c existingUserPoolId=$existing_user_pool"
+  fi
+
+  if [[ -n "$existing_domain" ]]; then
+    cdk_context="$cdk_context -c existingUserPoolDomain=$existing_domain"
+  fi
+
+  # Deploy User Management stack
+  print_info "Deploying User Management stack..."
+  print_info "CDK Context: $cdk_context"
+  npx cdk deploy aws-idp-ai-user-management $cdk_context --require-approval=never --profile "$profile" --progress=events --rollback=false
+
+  print_success "User Management stack deployment completed"
+}
+
 # ────────────── Deploy ECS stack ──────────────
 deploy_ecs_stack() {
   local profile="$1"
@@ -485,7 +524,7 @@ deploy_ecs_stack() {
   local existing_user_pool="${6:-}"
   local existing_domain="${7:-}"
   local cert_arn="${8:-}"
-  
+
   print_step "6" "Deploying ECS services with Cognito integration"
   
   # Check and clean up existing ALB logs S3 bucket
@@ -852,11 +891,12 @@ main() {
     build_and_push_images "$aws_profile"
   else
     check_base_infrastructure "$aws_profile"
-    # Deploy in sequence: Cognito -> Certificate -> ECR -> ECS
+    # Deploy in sequence: Cognito -> Certificate -> ECR -> ECS -> User Management
     deploy_cognito_stacks "$aws_profile" "$admin_email" "$domain_name" "$hosted_zone_id" "$hosted_zone_name" "$existing_user_pool" "$existing_domain" "$cert_arn"
     deploy_ecr_stack "$aws_profile"
     build_and_push_images "$aws_profile"
     deploy_ecs_stack "$aws_profile" "$admin_email" "$domain_name" "$hosted_zone_id" "$hosted_zone_name" "$existing_user_pool" "$existing_domain" "$cert_arn"
+    deploy_user_management_stack "$aws_profile" "$admin_email" "$domain_name" "$hosted_zone_id" "$hosted_zone_name" "$existing_user_pool" "$existing_domain"
     update_env_file "$aws_profile" "$admin_email" "$domain_name" "$hosted_zone_name"
   fi
   

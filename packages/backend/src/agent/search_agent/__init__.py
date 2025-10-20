@@ -1,19 +1,12 @@
 """
-Advanced Search Agent with Plan-Execute-Respond Pattern
+Search Agent with Strands Agents as Tools Pattern
 """
-
 from .agent import SearchAgent
-from .node import PlannerNode, ExecutorNode, ResponderNode
-from .state.model import SearchState, Plan, Task
-from .workflow import SearchAgentWorkflow
+from .config import config
+from .conversation_manager import ConversationManager
 
 __all__ = [
-    "SearchAgent", 
-    "PlannerNode", 
-    "ExecutorNode", 
-    "ResponderNode",
-    "SearchState", 
-    "Plan", 
-    "Task",
-    "SearchAgentWorkflow"
+    'SearchAgent',
+    'config',
+    'ConversationManager'
 ]

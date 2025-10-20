@@ -358,14 +358,6 @@ export function DocumentsTab({ indexId, onSelectDocument, onAttachToChat, onAnal
               <h2 className="text-xl font-bold text-white bg-gradient-to-r from-cyan-300 to-sky-300 bg-clip-text text-transparent">
                 Documents List
               </h2>
-              {indexId && (
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="text-sm text-white/60">Index:</span>
-                  <span className="px-2 py-1 bg-cyan-500/20  border-cyan-400/30 rounded-lg text-cyan-300 text-sm font-medium">
-                    {indexId}
-                  </span>
-                </div>
-              )}
             </div>
           </div>
           
