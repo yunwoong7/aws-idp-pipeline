@@ -517,68 +517,14 @@ Resources:
                         --context hostedZoneName="$HOSTED_ZONE_NAME"
                     fi
                   else
+                    # Don't pass useCustomDomain context when false - let it default to undefined
+                    # This allows the Custom Resource to run and update Cognito callback URLs
                     if [ "$ENABLE_COGNITO" = "true" ]; then
                       npx cdk deploy aws-idp-ai-ecs --require-approval never \
                         --context adminUserEmail="$ADMIN_USER_EMAIL" \
-                        --context useCustomDomain="false" \
                         --context existingCertificateArn="$CERT_ARN"
                     else
-                      npx cdk deploy aws-idp-ai-ecs --require-approval never \
-                        --context useCustomDomain="false"
-                    fi
-                  fi
-
-                # Update Cognito callback URLs with ALB DNS
-                - echo "Updating Cognito callback URLs with ALB DNS..."
-                - |
-                  if [ "$ENABLE_COGNITO" = "true" ]; then
-                    # Get ALB DNS from ECS stack
-                    ALB_DNS=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-ecs \
-                      --query "Stacks[0].Outputs[?OutputKey=='LoadBalancerDnsName'].OutputValue" \
-                      --output text 2>/dev/null || echo "")
-
-                    if [ -n "$ALB_DNS" ] && [ "$ALB_DNS" != "None" ]; then
-                      echo "ALB DNS: $ALB_DNS"
-
-                      # Get Cognito User Pool ID and Client ID
-                      USER_POOL_ID=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-cognito \
-                        --query "Stacks[0].Outputs[?OutputKey=='UserPoolId'].OutputValue" \
-                        --output text 2>/dev/null || echo "")
-
-                      USER_POOL_CLIENT_ID=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-cognito \
-                        --query "Stacks[0].Outputs[?OutputKey=='UserPoolClientId'].OutputValue" \
-                        --output text 2>/dev/null || echo "")
-
-                      if [ -n "$USER_POOL_ID" ] && [ -n "$USER_POOL_CLIENT_ID" ]; then
-                        echo "Updating Cognito User Pool Client callback URLs..."
-
-                        # Build callback and logout URLs
-                        BASE_URL="https://${ALB_DNS}"
-                        CALLBACK_URL="${BASE_URL}/oauth2/idpresponse"
-                        LOGOUT_URL="${BASE_URL}/logged-out"
-
-                        # Update User Pool Client with new URLs using AWS CLI
-                        # Note: We only update callback/logout URLs and ensure OAuth flows are enabled
-                        aws cognito-idp update-user-pool-client \
-                          --user-pool-id "$USER_POOL_ID" \
-                          --client-id "$USER_POOL_CLIENT_ID" \
-                          --allowed-o-auth-flows "code" \
-                          --allowed-o-auth-scopes "openid" "email" "profile" \
-                          --allowed-o-auth-flows-user-pool-client \
-                          --callback-urls "$CALLBACK_URL" "$BASE_URL" \
-                          --logout-urls "$BASE_URL" "$LOGOUT_URL" \
-                          --supported-identity-providers "COGNITO" || {
-                            echo "Warning: Failed to update Cognito callback URLs via AWS CLI"
-                            echo "Callback URLs may need manual update in Cognito console"
-                          }
-
-                        echo "Successfully updated Cognito callback URLs to: $CALLBACK_URL, $BASE_URL"
-                        echo "Successfully updated Cognito logout URLs to: $BASE_URL, $LOGOUT_URL"
-                      else
-                        echo "Warning: Could not retrieve Cognito User Pool credentials"
-                      fi
-                    else
-                      echo "Warning: Could not retrieve ALB DNS name"
+                      npx cdk deploy aws-idp-ai-ecs --require-approval never
                     fi
                   fi
 
