@@ -552,34 +552,25 @@ Resources:
                       if [ -n "$USER_POOL_ID" ] && [ -n "$USER_POOL_CLIENT_ID" ]; then
                         echo "Updating Cognito User Pool Client callback URLs..."
 
-                        # Get current client configuration
-                        CLIENT_CONFIG=$(aws cognito-idp describe-user-pool-client \
-                          --user-pool-id "$USER_POOL_ID" \
-                          --client-id "$USER_POOL_CLIENT_ID" \
-                          --query 'UserPoolClient' \
-                          --output json)
-
-                        # Extract necessary fields
-                        CLIENT_NAME=$(echo "$CLIENT_CONFIG" | jq -r '.ClientName')
-                        ALLOWED_OAUTH_FLOWS=$(echo "$CLIENT_CONFIG" | jq -r '.AllowedOAuthFlows[]' | tr '\n' ' ')
-                        ALLOWED_OAUTH_SCOPES=$(echo "$CLIENT_CONFIG" | jq -r '.AllowedOAuthScopes[]' | tr '\n' ' ')
-
                         # Build callback and logout URLs
                         BASE_URL="https://${ALB_DNS}"
                         CALLBACK_URL="${BASE_URL}/oauth2/idpresponse"
                         LOGOUT_URL="${BASE_URL}/logged-out"
 
-                        # Update User Pool Client with new URLs
+                        # Update User Pool Client with new URLs using AWS CLI
+                        # Note: We only update callback/logout URLs and ensure OAuth flows are enabled
                         aws cognito-idp update-user-pool-client \
                           --user-pool-id "$USER_POOL_ID" \
                           --client-id "$USER_POOL_CLIENT_ID" \
-                          --client-name "$CLIENT_NAME" \
-                          --allowed-o-auth-flows $(echo $ALLOWED_OAUTH_FLOWS) \
-                          --allowed-o-auth-scopes $(echo $ALLOWED_OAUTH_SCOPES) \
+                          --allowed-o-auth-flows "code" \
+                          --allowed-o-auth-scopes "openid" "email" "profile" \
                           --allowed-o-auth-flows-user-pool-client \
                           --callback-urls "$CALLBACK_URL" "$BASE_URL" \
                           --logout-urls "$BASE_URL" "$LOGOUT_URL" \
-                          --supported-identity-providers "COGNITO" 2>/dev/null || echo "Warning: Failed to update Cognito callback URLs"
+                          --supported-identity-providers "COGNITO" || {
+                            echo "Warning: Failed to update Cognito callback URLs via AWS CLI"
+                            echo "Callback URLs may need manual update in Cognito console"
+                          }
 
                         echo "Successfully updated Cognito callback URLs to: $CALLBACK_URL, $BASE_URL"
                         echo "Successfully updated Cognito logout URLs to: $BASE_URL, $LOGOUT_URL"
