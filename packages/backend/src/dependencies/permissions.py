@@ -46,7 +46,22 @@ def get_current_user_from_request(request: Request) -> Dict[str, Any]:
         raise HTTPException(status_code=401, detail="No authentication data found")
 
     try:
+        # Decode ID token for basic user info
         user_data = decode_cognito_token(oidc_data)
+
+        # Get groups from access token (ID token doesn't include groups)
+        access_token = request.headers.get("x-amzn-oidc-accesstoken")
+        if access_token:
+            try:
+                access_data = decode_cognito_token(access_token)
+                user_data["cognito:groups"] = access_data.get("cognito:groups", [])
+                logger.info(f"👥 Groups from access token: {user_data['cognito:groups']}")
+            except Exception as e:
+                logger.warning(f"Failed to decode access token for groups: {e}")
+                user_data["cognito:groups"] = []
+        else:
+            user_data["cognito:groups"] = []
+
         return user_data
     except Exception as e:
         logger.error(f"Failed to decode Cognito token: {e}")
