@@ -70,12 +70,12 @@ async def get_current_user(request: Request):
         raise HTTPException(status_code=401, detail="No authentication data found")
     
     try:
-        # OIDC 토큰 디코딩
+        # OIDC ID 토큰 디코딩 (기본 사용자 정보)
         user_data = decode_cognito_token(oidc_data)
 
         # Debug: Log all available fields in the token
-        logger.info(f"🔍 JWT token fields: {list(user_data.keys())}")
-        logger.info(f"🔍 JWT token data: {user_data}")
+        logger.info(f"🔍 ID token fields: {list(user_data.keys())}")
+        logger.info(f"🔍 ID token data: {user_data}")
 
         # 사용자 정보 추출
         email = user_data.get("email")
@@ -90,8 +90,25 @@ async def get_current_user(request: Request):
             (email.split("@")[0] if email else None)
         )
 
-        # 그룹 정보는 cognito:groups 클레임에서 가져옴
-        groups = user_data.get("cognito:groups", [])
+        # 그룹 정보는 Access Token에서 가져옴 (ID Token에는 없음)
+        # ALB는 x-amzn-oidc-accesstoken 헤더로 Access Token을 전달
+        access_token = request.headers.get("x-amzn-oidc-accesstoken")
+        groups = []
+
+        if access_token:
+            try:
+                # Access Token 디코딩하여 그룹 정보 추출
+                access_data = decode_cognito_token(access_token)
+                groups = access_data.get("cognito:groups", [])
+                logger.info(f"🔍 Access token fields: {list(access_data.keys())}")
+                logger.info(f"👥 Groups from access token: {groups}")
+            except Exception as e:
+                logger.warning(f"Failed to decode access token for groups: {e}")
+                # Fallback to ID token groups (if any)
+                groups = user_data.get("cognito:groups", [])
+        else:
+            # Fallback to ID token groups (if any)
+            groups = user_data.get("cognito:groups", [])
         
         if not email:
             raise HTTPException(status_code=401, detail="Email not found in token")

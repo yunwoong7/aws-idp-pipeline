@@ -173,17 +173,9 @@ export class CognitoStack extends cdk.Stack {
     const cfnUserPoolClient = userPoolClient.node.defaultChild as cognito.CfnUserPoolClient;
     cfnUserPoolClient.allowedOAuthFlowsUserPoolClient = true;
 
-    // Include cognito:groups in ID token for RBAC
-    // This ensures that user group membership is available in the JWT token from ALB
-    cfnUserPoolClient.readAttributes = [
-      'email',
-      'email_verified',
-      'name',
-      'given_name',
-      'family_name',
-      'preferred_username',
-      'cognito:groups', // Include groups in ID token
-    ];
+    // Note: cognito:groups is automatically included in ID token when using OPENID scope
+    // We don't need to add it to readAttributes (which would cause an error)
+    // ALB will receive the ID token with cognito:groups claim automatically
 
     this.userPoolClient = userPoolClient;
 
