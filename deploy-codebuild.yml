@@ -528,6 +528,69 @@ Resources:
                     fi
                   fi
 
+                # Update Cognito callback URLs with ALB DNS
+                - echo "Updating Cognito callback URLs with ALB DNS..."
+                - |
+                  if [ "$ENABLE_COGNITO" = "true" ]; then
+                    # Get ALB DNS from ECS stack
+                    ALB_DNS=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-ecs \
+                      --query "Stacks[0].Outputs[?OutputKey=='LoadBalancerDnsName'].OutputValue" \
+                      --output text 2>/dev/null || echo "")
+
+                    if [ -n "$ALB_DNS" ] && [ "$ALB_DNS" != "None" ]; then
+                      echo "ALB DNS: $ALB_DNS"
+
+                      # Get Cognito User Pool ID and Client ID
+                      USER_POOL_ID=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-cognito \
+                        --query "Stacks[0].Outputs[?OutputKey=='UserPoolId'].OutputValue" \
+                        --output text 2>/dev/null || echo "")
+
+                      USER_POOL_CLIENT_ID=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-cognito \
+                        --query "Stacks[0].Outputs[?OutputKey=='UserPoolClientId'].OutputValue" \
+                        --output text 2>/dev/null || echo "")
+
+                      if [ -n "$USER_POOL_ID" ] && [ -n "$USER_POOL_CLIENT_ID" ]; then
+                        echo "Updating Cognito User Pool Client callback URLs..."
+
+                        # Get current client configuration
+                        CLIENT_CONFIG=$(aws cognito-idp describe-user-pool-client \
+                          --user-pool-id "$USER_POOL_ID" \
+                          --client-id "$USER_POOL_CLIENT_ID" \
+                          --query 'UserPoolClient' \
+                          --output json)
+
+                        # Extract necessary fields
+                        CLIENT_NAME=$(echo "$CLIENT_CONFIG" | jq -r '.ClientName')
+                        ALLOWED_OAUTH_FLOWS=$(echo "$CLIENT_CONFIG" | jq -r '.AllowedOAuthFlows[]' | tr '\n' ' ')
+                        ALLOWED_OAUTH_SCOPES=$(echo "$CLIENT_CONFIG" | jq -r '.AllowedOAuthScopes[]' | tr '\n' ' ')
+
+                        # Build callback and logout URLs
+                        BASE_URL="https://${ALB_DNS}"
+                        CALLBACK_URL="${BASE_URL}/oauth2/idpresponse"
+                        LOGOUT_URL="${BASE_URL}/logged-out"
+
+                        # Update User Pool Client with new URLs
+                        aws cognito-idp update-user-pool-client \
+                          --user-pool-id "$USER_POOL_ID" \
+                          --client-id "$USER_POOL_CLIENT_ID" \
+                          --client-name "$CLIENT_NAME" \
+                          --allowed-o-auth-flows $(echo $ALLOWED_OAUTH_FLOWS) \
+                          --allowed-o-auth-scopes $(echo $ALLOWED_OAUTH_SCOPES) \
+                          --allowed-o-auth-flows-user-pool-client \
+                          --callback-urls "$CALLBACK_URL" "$BASE_URL" \
+                          --logout-urls "$BASE_URL" "$LOGOUT_URL" \
+                          --supported-identity-providers "COGNITO" 2>/dev/null || echo "Warning: Failed to update Cognito callback URLs"
+
+                        echo "Successfully updated Cognito callback URLs to: $CALLBACK_URL, $BASE_URL"
+                        echo "Successfully updated Cognito logout URLs to: $BASE_URL, $LOGOUT_URL"
+                      else
+                        echo "Warning: Could not retrieve Cognito User Pool credentials"
+                      fi
+                    else
+                      echo "Warning: Could not retrieve ALB DNS name"
+                    fi
+                  fi
+
                 # Deploy User Management stack (requires ECS Cognito info)
                 - echo "Deploying User Management stack..."
                 - npx cdk deploy aws-idp-ai-user-management --require-approval never
