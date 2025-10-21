@@ -578,32 +578,44 @@ export class EcsStack extends cdk.Stack {
           
           try {
             const { UserPoolId, UserPoolClientId, AlbDnsName } = event.ResourceProperties;
-            const baseUrl = \`https://\${AlbDnsName.toLowerCase()}\`;
+
+            // ALB returns DNS names with mixed case, but browsers/ALB may normalize to lowercase
+            // Add both original and lowercase versions to handle case sensitivity in Cognito
+            const baseUrl = \`https://\${AlbDnsName}\`;
+            const baseUrlLower = \`https://\${AlbDnsName.toLowerCase()}\`;
             const callbackUrl = \`\${baseUrl}/oauth2/idpresponse\`;
-            
+            const callbackUrlLower = \`\${baseUrlLower}/oauth2/idpresponse\`;
+            const logoutUrl = \`\${baseUrl}/logged-out\`;
+            const logoutUrlLower = \`\${baseUrlLower}/logged-out\`;
+
             const client = new CognitoIdentityProviderClient({ region: process.env.AWS_REGION });
-            
+
             // Get current client configuration
             const describeCommand = new DescribeUserPoolClientCommand({
               UserPoolId,
               ClientId: UserPoolClientId,
             });
             const describeResponse = await client.send(describeCommand);
-            const userPoolClient = describeResponse.UserPoolClient;
-            
-            // Update with new callback URL and logout URL
-            const logoutUrl = \`\${baseUrl}/logged-out\`;
+            const currentClient = describeResponse.UserPoolClient;
+
+            // Only include necessary fields to avoid read-only property errors
             const updateCommand = new UpdateUserPoolClientCommand({
               UserPoolId,
               ClientId: UserPoolClientId,
-              ...userPoolClient,
-              CallbackURLs: [callbackUrl, baseUrl],
-              LogoutURLs: [baseUrl, logoutUrl],
+              ClientName: currentClient.ClientName,
+              AllowedOAuthFlows: currentClient.AllowedOAuthFlows || ['code'],
+              AllowedOAuthScopes: currentClient.AllowedOAuthScopes || ['openid', 'email', 'profile'],
+              AllowedOAuthFlowsUserPoolClient: true, // Explicitly enable OAuth flows
+              CallbackURLs: [callbackUrl, baseUrl, callbackUrlLower, baseUrlLower],
+              LogoutURLs: [baseUrl, logoutUrl, baseUrlLower, logoutUrlLower],
+              SupportedIdentityProviders: currentClient.SupportedIdentityProviders || ['COGNITO'],
+              ExplicitAuthFlows: currentClient.ExplicitAuthFlows,
+              PreventUserExistenceErrors: currentClient.PreventUserExistenceErrors,
             });
             await client.send(updateCommand);
 
-            console.log('Successfully updated callback URLs to:', callbackUrl);
-            console.log('Successfully updated logout URLs to:', [baseUrl, logoutUrl]);
+            console.log('Successfully updated callback URLs (with case variants):', [callbackUrl, baseUrl, callbackUrlLower, baseUrlLower]);
+            console.log('Successfully updated logout URLs (with case variants):', [baseUrl, logoutUrl, baseUrlLower, logoutUrlLower]);
             return {
               PhysicalResourceId: 'UpdateCallbackResource',
               Data: { CallbackUrl: callbackUrl, BaseUrl: baseUrl, LogoutUrl: logoutUrl }

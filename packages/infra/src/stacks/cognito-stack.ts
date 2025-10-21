@@ -149,7 +149,7 @@ export class CognitoStack extends cdk.Stack {
     this.callbackUrl = `${baseUrl}/oauth2/idpresponse`;
 
     // Create User Pool Client
-    this.userPoolClient = new cognito.UserPoolClient(this, 'UserPoolClient', {
+    const userPoolClient = new cognito.UserPoolClient(this, 'UserPoolClient', {
       userPool: this.userPool,
       userPoolClientName: `aws-idp-ai-alb-client-${stage}`,
       generateSecret: true,
@@ -168,6 +168,12 @@ export class CognitoStack extends cdk.Stack {
         userSrp: true,
       },
     });
+
+    // Explicitly enable OAuth flows at the CloudFormation level
+    const cfnUserPoolClient = userPoolClient.node.defaultChild as cognito.CfnUserPoolClient;
+    cfnUserPoolClient.allowedOAuthFlowsUserPoolClient = true;
+
+    this.userPoolClient = userPoolClient;
 
     // Custom Resource for callback URL update will be handled by ECS stack
 
