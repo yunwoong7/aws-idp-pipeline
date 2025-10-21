@@ -54,7 +54,9 @@ def get_current_user_from_headers(headers: Dict[str, Any]) -> Dict[str, Any]:
         try:
             # Decode the OIDC token from ALB
             cognito_user = decode_cognito_token(oidc_data)
-            logger.info(f"Cognito user from ALB: {cognito_user.get('email')}")
+            logger.info(f"🔍 Decoded Cognito user data: {json.dumps(cognito_user, indent=2)}")
+            logger.info(f"📧 Email: {cognito_user.get('email')}")
+            logger.info(f"👥 Groups: {cognito_user.get('cognito:groups', [])}")
             return cognito_user
         except Exception as e:
             logger.warning(f"Failed to decode Cognito token, using local admin: {e}")
@@ -85,6 +87,12 @@ def create_user_from_cognito(cognito_user: Dict[str, Any]) -> Dict[str, Any]:
     )
     groups = cognito_user.get("cognito:groups", [])
 
+    logger.info(f"🔍 Creating user from Cognito data:")
+    logger.info(f"   - Email: {email}")
+    logger.info(f"   - Name: {name}")
+    logger.info(f"   - Groups: {groups}")
+    logger.info(f"   - Checking if 'aws-idp-ai-admins' in groups: {'aws-idp-ai-admins' in groups}")
+
     # Set initial permissions based on Cognito groups
     if "aws-idp-ai-admins" in groups:
         role = "admin"
@@ -96,6 +104,7 @@ def create_user_from_cognito(cognito_user: Dict[str, Any]) -> Dict[str, Any]:
             "accessible_indexes": "*",
             "available_tabs": ["documents", "analysis", "search", "verification"]
         }
+        logger.info(f"✅ User assigned ADMIN role (found in aws-idp-ai-admins group)")
     else:
         role = "user"
         permissions = {
@@ -106,6 +115,7 @@ def create_user_from_cognito(cognito_user: Dict[str, Any]) -> Dict[str, Any]:
             "accessible_indexes": [],
             "available_tabs": ["search"]
         }
+        logger.info(f"⚠️ User assigned USER role (NOT in aws-idp-ai-admins group)")
 
     timestamp = datetime.utcnow().isoformat()
     user_item = {
@@ -120,7 +130,7 @@ def create_user_from_cognito(cognito_user: Dict[str, Any]) -> Dict[str, Any]:
         "last_login_at": timestamp,
     }
 
-    logger.info(f"Creating new user in DynamoDB: {email} with role {role}")
+    logger.info(f"💾 Saving user to DynamoDB: {email} with role {role}")
     users_table.put_item(Item=user_item)
 
     return user_item
