@@ -173,6 +173,18 @@ export class CognitoStack extends cdk.Stack {
     const cfnUserPoolClient = userPoolClient.node.defaultChild as cognito.CfnUserPoolClient;
     cfnUserPoolClient.allowedOAuthFlowsUserPoolClient = true;
 
+    // Include cognito:groups in ID token for RBAC
+    // This ensures that user group membership is available in the JWT token from ALB
+    cfnUserPoolClient.readAttributes = [
+      'email',
+      'email_verified',
+      'name',
+      'given_name',
+      'family_name',
+      'preferred_username',
+      'cognito:groups', // Include groups in ID token
+    ];
+
     this.userPoolClient = userPoolClient;
 
     // Custom Resource for callback URL update will be handled by ECS stack
