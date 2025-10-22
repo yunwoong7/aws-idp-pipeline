@@ -125,6 +125,7 @@ export function CreateIndexDialog({ isOpen, onClose, onSuccess }: CreateIndexDia
                         value={createForm.index_id}
                         onChange={(e) => {
                           const value = e.target.value;
+
                           // Check for uppercase letters
                           if (/[A-Z]/.test(value)) {
                             showWarning(
@@ -133,14 +134,28 @@ export function CreateIndexDialog({ isOpen, onClose, onSuccess }: CreateIndexDia
                             );
                             // Convert to lowercase automatically
                             setCreateForm({ ...createForm, index_id: value.toLowerCase() });
-                          } else {
-                            setCreateForm({ ...createForm, index_id: value });
+                            return;
                           }
+
+                          // Check for invalid characters (spaces and special characters)
+                          // Only allow: lowercase letters, numbers, hyphens, underscores
+                          if (/[^a-z0-9_-]/.test(value)) {
+                            showWarning(
+                              "Invalid Characters",
+                              "Index names can only contain lowercase letters, numbers, hyphens (-), and underscores (_). Spaces and special characters are not allowed."
+                            );
+                            // Remove invalid characters
+                            const sanitized = value.replace(/[^a-z0-9_-]/g, '');
+                            setCreateForm({ ...createForm, index_id: sanitized });
+                            return;
+                          }
+
+                          setCreateForm({ ...createForm, index_id: value });
                         }}
                         placeholder="e.g. my-first-index"
                         className="bg-white/5 border-gray-600 text-white placeholder:text-gray-400 focus:border-violet-400 focus:ring-violet-400/20 h-12 rounded-xl"
                       />
-                      <p className="text-xs text-white/50">- lowercase only; cannot start with '_' or '-'<br />- no spaces or , : &quot; * + / \\ | ? # &gt; &lt;</p>
+                      <p className="text-xs text-white/50">- lowercase letters, numbers, hyphens (-), underscores (_) only<br />- no spaces or special characters; cannot start with '_' or '-'</p>
                     </div>
                     <div className="space-y-3">
                       <Label htmlFor="description" className="text-gray-200 text-sm font-medium">Description</Label>
