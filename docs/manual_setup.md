@@ -120,30 +120,11 @@ With both servers running, open your browser to **[http://localhost:3000](http:/
 
 This step is for deploying the application to a public-facing environment on AWS using ECS and an Application Load Balancer (ALB). This is useful for sharing access with others or for staging.
 
-**1. Configure IP Whitelist**
+**1. Application Access**
 
-For security, access to the deployed application is restricted by an IP whitelist. You must add your own IP address to this list before deploying.
-
-* **How to find your IP?** Run the following command in your **local machine's terminal** (not the dev container):
-
-  ```bash
-  curl ifconfig.me
-  ```
-
-* **Edit the configuration file:** Open `packages/infra/.toml`.
-
-* **Add your IP address:** Find the `[security]` section and add your IP address to the `whitelist`. It must be in CIDR format. For a single IP, add `/32` at the end.
-
-```toml
-[security]
-# IP Whitelist for ALB access control
-# Add your authorized IP addresses or CIDR blocks here
-whitelist = [
-  "15.248.0.0/16",
-  "219.250.0.0/16",
-  "YOUR_IP_ADDRESS/32"  # <-- Add your IP here
-]
-```
+Users can access the deployed application through the **Frontend URL**.  
+Use the provided `AdminUsername` and `TemporaryPassword` to log in.  
+On first login, you will be prompted to change your temporary password for security purposes.
 
 **2. Deploy the Services**
 
