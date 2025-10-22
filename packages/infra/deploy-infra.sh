@@ -191,6 +191,50 @@ bootstrap_cdk() {
   npx cdk bootstrap --profile "$AWS_PROFILE" || true
 }
 
+# Download Lambda Layers from GitHub if missing
+download_lambda_layers() {
+  print_step "2.5" "Checking Lambda Layer zip files"
+
+  local LAYER_DIR="./src/lambda_layer"
+  local GITHUB_REPO="https://raw.githubusercontent.com/yunwoong7/lambda-layers-assets/main/aws-idp-assets"
+
+  local layers=(
+    "custom_layer_common.zip"
+    "custom_layer_opensearch.zip"
+    "custom_layer_image_processing.zip"
+    "custom_layer_analysis_package.zip"
+  )
+
+  local missing_layers=()
+
+  # Check which layers are missing
+  for layer in "${layers[@]}"; do
+    if [[ ! -f "$LAYER_DIR/$layer" ]]; then
+      missing_layers+=("$layer")
+    fi
+  done
+
+  # Download missing layers
+  if [[ ${#missing_layers[@]} -gt 0 ]]; then
+    print_info "Missing ${#missing_layers[@]} Lambda layer(s), downloading from GitHub..."
+
+    for layer in "${missing_layers[@]}"; do
+      print_info "Downloading $layer..."
+      if curl -L -f -o "$LAYER_DIR/$layer" "$GITHUB_REPO/$layer" 2>/dev/null; then
+        print_success "Downloaded: $layer"
+      else
+        print_error "Failed to download $layer from $GITHUB_REPO/$layer"
+        print_info "Please check if the file exists in the GitHub repository"
+        exit 1
+      fi
+    done
+
+    print_success "All Lambda layers downloaded successfully"
+  else
+    print_info "All Lambda layer zip files already exist ✓"
+  fi
+}
+
 # Build
 build_cdk() {
   print_step "3" "Building CDK app via Nx"
@@ -525,6 +569,7 @@ main() {
 
   setup_config || { handle_deployment_failure $? "Configuration setup"; return 1; }
   bootstrap_cdk || { handle_deployment_failure $? "CDK bootstrap"; return 1; }
+  download_lambda_layers || { handle_deployment_failure $? "Lambda layers download"; return 1; }
   build_cdk || { handle_deployment_failure $? "CDK build"; return 1; }
 
   # Force-remove known conflicting log groups to avoid AlreadyExists

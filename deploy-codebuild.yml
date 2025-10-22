@@ -236,7 +236,50 @@ Resources:
                 # Install infra dependencies
                 - echo "Installing infra dependencies..."
                 - pnpm install
-                
+
+                # Download Lambda Layers from GitHub if missing
+                - echo "Checking Lambda Layer zip files..."
+                - |
+                  LAYER_DIR="./src/lambda_layer"
+                  GITHUB_REPO="https://raw.githubusercontent.com/yunwoong7/lambda-layers-assets/main/aws-idp-assets"
+
+                  # List of required Lambda layers
+                  LAYERS=(
+                    "custom_layer_common.zip"
+                    "custom_layer_opensearch.zip"
+                    "custom_layer_image_processing.zip"
+                    "custom_layer_analysis_package.zip"
+                  )
+
+                  MISSING_LAYERS=()
+
+                  # Check which layers are missing
+                  for layer in "${LAYERS[@]}"; do
+                    if [ ! -f "$LAYER_DIR/$layer" ]; then
+                      MISSING_LAYERS+=("$layer")
+                    fi
+                  done
+
+                  # Download missing layers
+                  if [ ${#MISSING_LAYERS[@]} -gt 0 ]; then
+                    echo "Missing ${#MISSING_LAYERS[@]} Lambda layer(s), downloading from GitHub..."
+
+                    for layer in "${MISSING_LAYERS[@]}"; do
+                      echo "Downloading $layer..."
+                      if curl -L -f -o "$LAYER_DIR/$layer" "$GITHUB_REPO/$layer" 2>/dev/null; then
+                        echo "✅ Downloaded: $layer"
+                      else
+                        echo "❌ Failed to download $layer from $GITHUB_REPO/$layer"
+                        echo "Please check if the file exists in the GitHub repository"
+                        exit 1
+                      fi
+                    done
+
+                    echo "✅ All Lambda layers downloaded successfully"
+                  else
+                    echo "✅ All Lambda layer zip files already exist"
+                  fi
+
                 # Bootstrap CDK if needed
                 - echo "Checking and handling CDK Bootstrap..."
                 - |

@@ -227,9 +227,9 @@ check_base_infrastructure() {
   local profile="$1"
   local region
   region=$(aws configure get region --profile "$profile" 2>/dev/null || echo "us-west-2")
-  
+
   print_step "3" "Checking base infrastructure"
-  
+
   # Check if VPC stack exists
   if ! aws cloudformation describe-stacks --stack-name "aws-idp-ai-vpc" --profile "$profile" --region "$region" >/dev/null 2>&1; then
     print_error "Base infrastructure not found. Please run './deploy-infra.sh $profile' first."
@@ -241,8 +241,52 @@ check_base_infrastructure() {
     print_info "  • .env file for local development"
     exit 1
   fi
-  
+
   print_success "Base infrastructure found"
+}
+
+# ────────────── Download Lambda Layers from GitHub ──────────────
+download_lambda_layers() {
+  print_step "3.5" "Checking Lambda Layer zip files"
+
+  local LAYER_DIR="./src/lambda_layer"
+  local GITHUB_REPO="https://raw.githubusercontent.com/yunwoong7/lambda-layers-assets/main/aws-idp-assets"
+
+  local layers=(
+    "custom_layer_common.zip"
+    "custom_layer_opensearch.zip"
+    "custom_layer_image_processing.zip"
+    "custom_layer_analysis_package.zip"
+  )
+
+  local missing_layers=()
+
+  # Check which layers are missing
+  for layer in "${layers[@]}"; do
+    if [[ ! -f "$LAYER_DIR/$layer" ]]; then
+      missing_layers+=("$layer")
+    fi
+  done
+
+  # Download missing layers
+  if [[ ${#missing_layers[@]} -gt 0 ]]; then
+    print_info "Missing ${#missing_layers[@]} Lambda layer(s), downloading from GitHub..."
+
+    for layer in "${missing_layers[@]}"; do
+      print_info "Downloading $layer..."
+      if curl -L -f -o "$LAYER_DIR/$layer" "$GITHUB_REPO/$layer" 2>/dev/null; then
+        print_success "Downloaded: $layer"
+      else
+        print_error "Failed to download $layer from $GITHUB_REPO/$layer"
+        print_info "Please check if the file exists in the GitHub repository"
+        exit 1
+      fi
+    done
+
+    print_success "All Lambda layers downloaded successfully"
+  else
+    print_info "All Lambda layer zip files already exist ✓"
+  fi
 }
 
 # ────────────── Build and push individual Docker image ──────────────
@@ -881,16 +925,20 @@ main() {
     destroy_service_stacks "$aws_profile"
   elif [[ "$build_frontend" == "true" ]]; then
     check_base_infrastructure "$aws_profile"
+    download_lambda_layers
     build_and_push_single_image "$aws_profile" "frontend"
   elif [[ "$build_backend" == "true" ]]; then
     check_base_infrastructure "$aws_profile"
+    download_lambda_layers
     build_and_push_single_image "$aws_profile" "backend"
   elif [[ "$build_only" == "true" ]]; then
     check_base_infrastructure "$aws_profile"
+    download_lambda_layers
     deploy_ecr_stack "$aws_profile"
     build_and_push_images "$aws_profile"
   else
     check_base_infrastructure "$aws_profile"
+    download_lambda_layers
     # Deploy in sequence: Cognito -> Certificate -> ECR -> ECS -> User Management
     deploy_cognito_stacks "$aws_profile" "$admin_email" "$domain_name" "$hosted_zone_id" "$hosted_zone_name" "$existing_user_pool" "$existing_domain" "$cert_arn"
     deploy_ecr_stack "$aws_profile"
