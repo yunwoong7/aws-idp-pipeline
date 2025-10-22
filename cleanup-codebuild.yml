@@ -153,6 +153,8 @@ Resources:
                   "echo 'Step 3 Checking CDK Bootstrap before destroy'",
                   "cd packages/infra",
                   "pnpm install",
+                  "echo 'Downloading Lambda Layer zip files if missing...'",
+                  "LAYER_DIR=./src/lambda_layer; GITHUB_REPO=https://raw.githubusercontent.com/yunwoong7/lambda-layers-assets/main/aws-idp-assets; LAYERS='custom_layer_common.zip custom_layer_opensearch.zip custom_layer_image_processing.zip custom_layer_analysis_package.zip'; for layer in $LAYERS; do if [ ! -f $LAYER_DIR/$layer ]; then echo Downloading $layer...; curl -L -f -o $LAYER_DIR/$layer $GITHUB_REPO/$layer 2>/dev/null && echo Downloaded: $layer || (echo Failed to download $layer; exit 1); else echo $layer already exists; fi; done; echo Lambda layer check completed",
                   "echo 'Checking if CDK Bootstrap exists...'",
                   "if ! aws iam get-role --role-name cdk-hnb659fds-deploy-role-${ACCOUNT_ID}-${AWS_DEFAULT_REGION} >/dev/null 2>&1; then echo 'CDK Bootstrap not found, re-bootstrapping...'; npx cdk bootstrap aws://${ACCOUNT_ID}/${AWS_DEFAULT_REGION} --require-approval never; else echo 'CDK Bootstrap found, proceeding with destroy'; fi",
                   "echo 'Step 4 Destroying CDK stacks'",
