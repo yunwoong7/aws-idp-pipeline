@@ -26,10 +26,10 @@ export interface EcsStackProps extends cdk.StackProps {
   s3BucketName: string;
   documentsTableName: string;
   usersTableName: string;
-  // Cognito configuration
-  userPool?: cognito.IUserPool;
-  userPoolClient?: cognito.IUserPoolClient;
-  userPoolDomain?: cognito.IUserPoolDomain;
+  // Cognito configuration (using IDs to avoid cross-stack exports)
+  userPoolId?: string;
+  userPoolClientId?: string;
+  userPoolDomainName?: string;
   certificate?: acm.ICertificate;
   existingCertificateArn?: string;
   // Domain configuration
@@ -59,9 +59,9 @@ export class EcsStack extends cdk.Stack {
       s3BucketName,
       documentsTableName,
       usersTableName,
-      userPool,
-      userPoolClient,
-      userPoolDomain,
+      userPoolId,
+      userPoolClientId,
+      userPoolDomainName,
       certificate,
       existingCertificateArn,
       useCustomDomain,
@@ -70,9 +70,14 @@ export class EcsStack extends cdk.Stack {
       hostedZoneName
     } = props;
 
+    // Import Cognito resources from IDs to avoid cross-stack exports
+    const userPool = userPoolId ? cognito.UserPool.fromUserPoolId(this, 'ImportedUserPool', userPoolId) : undefined;
+    const userPoolClient = userPoolClientId ? cognito.UserPoolClient.fromUserPoolClientId(this, 'ImportedUserPoolClient', userPoolClientId) : undefined;
+    const userPoolDomain = userPoolDomainName ? cognito.UserPoolDomain.fromDomainName(this, 'ImportedUserPoolDomain', userPoolDomainName) : undefined;
+
     // Assign Cognito properties for export
-    this.cognitoUserPoolDomain = userPoolDomain?.domainName;
-    this.cognitoClientId = userPoolClient?.userPoolClientId;
+    this.cognitoUserPoolDomain = userPoolDomainName;
+    this.cognitoClientId = userPoolClientId;
 
     // Handle certificate - use provided certificate or existing ARN
     const finalCertificate = certificate || (existingCertificateArn ?

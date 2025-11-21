@@ -205,23 +205,20 @@ export class CognitoStack extends cdk.Stack {
       true
     );
 
-    // Output values
+    // Output values (without exports to avoid cross-stack dependencies)
     new cdk.CfnOutput(this, 'UserPoolId', {
       value: this.userPool.userPoolId,
       description: 'Cognito User Pool ID',
-      exportName: `aws-idp-ai-user-pool-id-${stage}`,
     });
 
     new cdk.CfnOutput(this, 'UserPoolClientId', {
       value: this.userPoolClient.userPoolClientId,
       description: 'Cognito User Pool Client ID',
-      exportName: `aws-idp-ai-user-pool-client-id-${stage}`,
     });
 
     new cdk.CfnOutput(this, 'UserPoolDomain', {
       value: this.userPoolDomain.domainName,
       description: 'Cognito User Pool Domain',
-      exportName: `aws-idp-ai-user-pool-domain-${stage}`,
     });
 
     new cdk.CfnOutput(this, 'AdminUsername', {

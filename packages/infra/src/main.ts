@@ -312,10 +312,10 @@ const ecsStack = new EcsStack(app, getFullStackName('ecs'), {
   s3BucketName: s3Stack.documentsBucket.bucketName,
   documentsTableName: dynamoDBStack.documentsTable.tableName,
   usersTableName: dynamoDBStack.usersTable.tableName,
-  // Cognito integration - use existing stack if available, otherwise use provided stack
-  userPool: cognitoStack?.userPool || (adminUserEmail ? cognito.UserPool.fromUserPoolId(app, 'ExistingUserPool', 'us-west-2_8168J9lr5') : undefined),
-  userPoolClient: cognitoStack?.userPoolClient || (adminUserEmail ? cognito.UserPoolClient.fromUserPoolClientId(app, 'ExistingUserPoolClient', 'a5ka4aaqivdqdgj1f5ds9e6m9') : undefined),
-  userPoolDomain: cognitoStack?.userPoolDomain || (adminUserEmail ? cognito.UserPoolDomain.fromDomainName(app, 'ExistingUserPoolDomain', 'idp-dev-0130') : undefined),
+  // Cognito integration - pass IDs to avoid cross-stack exports
+  userPoolId: cognitoStack?.userPool.userPoolId || (adminUserEmail ? 'us-west-2_8168J9lr5' : undefined),
+  userPoolClientId: cognitoStack?.userPoolClient.userPoolClientId || (adminUserEmail ? 'a5ka4aaqivdqdgj1f5ds9e6m9' : undefined),
+  userPoolDomainName: cognitoStack?.userPoolDomain.domainName || (adminUserEmail ? 'idp-dev-0130' : undefined),
   certificate: certificateStack?.certificate,
   existingCertificateArn,
   // Domain configuration
