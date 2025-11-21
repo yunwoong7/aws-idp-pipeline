@@ -165,6 +165,14 @@ export class UserManagementStack extends cdk.Stack {
             'Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole',
           ],
         },
+        {
+          id: 'AwsSolutions-L1',
+          reason: [
+            'Lambda function uses Python 3.13 runtime.',
+            'Maintaining Python 3.13 for stability and consistency across customer deployments.',
+            'Will be updated to Python 3.14 after thorough testing and customer environment considerations.',
+          ].join(' '),
+        },
       ],
       true,
     );
