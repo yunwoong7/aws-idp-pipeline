@@ -236,10 +236,12 @@ export class EcsStack extends cdk.Stack {
       redirectHTTP: finalCertificate ? true : false,
     });
 
-    // ALB DNS 이름을 기반으로 백엔드 URL 생성 및 API Gateway URL과 함께 프론트엔드 환경변수에 추가
+    // ALB DNS 또는 커스텀 도메인을 기반으로 백엔드 URL 생성 및 API Gateway URL과 함께 프론트엔드 환경변수에 추가
     const albDnsName = this.frontendService.loadBalancer.loadBalancerDnsName;
-    const backendUrl = finalCertificate ? `https://${albDnsName}/api` : `http://${albDnsName}/api`;
-    
+    // 커스텀 도메인이 있으면 우선 사용, 없으면 ALB DNS 사용
+    const actualDomain = fullDomainName || albDnsName;
+    const backendUrl = finalCertificate ? `https://${actualDomain}` : `http://${actualDomain}`;
+
     // 프론트엔드 태스크 정의의 컨테이너에 동적 URL 환경변수 추가
     const frontendContainer = this.frontendService.taskDefinition.defaultContainer;
     if (frontendContainer) {
@@ -247,6 +249,7 @@ export class EcsStack extends cdk.Stack {
       frontendContainer.addEnvironment('NEXT_PUBLIC_API_BASE_URL', apiGatewayUrl);
       // 디버깅을 위한 로그
       console.log(`Frontend container env vars: API_BASE_URL=${apiGatewayUrl}, ECS_BACKEND_URL=${backendUrl}`);
+      console.log(`Using domain: ${actualDomain} (custom domain: ${fullDomainName || 'none'})`);
     }
 
     // Backend Fargate Service (별도 ALB 대신 Frontend ALB에 리스너 규칙 추가)

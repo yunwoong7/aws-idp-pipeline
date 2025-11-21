@@ -63,15 +63,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       // Auth API는 ALB를 통해 호출 (Cognito 헤더를 위해)
-      const isEcsEnvironment = typeof window !== 'undefined' && 
-                               window.location.hostname.includes('elb.amazonaws.com');
-      
+      // ECS 환경 판단: ALB 도메인 OR 현재 도메인이 BACKEND_URL과 일치
+      const isEcsEnvironment = typeof window !== 'undefined' && (
+        window.location.hostname.includes('elb.amazonaws.com') ||
+        (process.env.NEXT_PUBLIC_ECS_BACKEND_URL &&
+         process.env.NEXT_PUBLIC_ECS_BACKEND_URL.includes(window.location.hostname))
+      );
+
       let authEndpoint;
       if (isEcsEnvironment) {
-        // ECS 환경: 현재 호스트를 사용하여 ALB 통해 호출
+        // ECS/ALB/커스텀 도메인 환경: 현재 호스트를 사용하여 ALB 통해 호출 (Cognito 헤더 포함)
         authEndpoint = `${window.location.protocol}//${window.location.host}/api/auth/user`;
       } else {
-        // 로컬/다른 환경: API Gateway 또는 로컬 서버 호출
+        // 로컬 개발 환경: API Gateway 또는 로컬 서버 직접 호출
         const authApiUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
         authEndpoint = `${authApiUrl}/api/auth/user`;
       }
