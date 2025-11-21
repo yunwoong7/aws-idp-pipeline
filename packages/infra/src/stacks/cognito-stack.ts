@@ -257,6 +257,14 @@ export class CognitoStack extends cdk.Stack {
           'Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole',
         ],
       },
+      {
+        id: 'AwsSolutions-L1',
+        reason: [
+          'CDK auto-generated custom resource Lambda functions use framework-managed runtimes.',
+          'These Lambda functions are created by CDK for CloudFormation custom resources.',
+          'Runtime versions are managed by the CDK framework and updated with CDK upgrades.',
+        ].join(' '),
+      },
     ]);
   }
 }
