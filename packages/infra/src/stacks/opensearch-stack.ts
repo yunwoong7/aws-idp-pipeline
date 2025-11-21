@@ -122,6 +122,14 @@ export class OpensearchStack extends cdk.Stack {
           'This is a limitation of static analysis tools with dynamic infrastructure.',
         ].join(' '),
       },
+      {
+        id: 'AwsSolutions-L1',
+        reason: [
+          'CDK auto-generated custom resource Lambda functions use framework-managed runtimes.',
+          'These Lambda functions are created by CDK for CloudFormation custom resources.',
+          'Runtime versions are managed by the CDK framework and updated with CDK upgrades.',
+        ].join(' '),
+      },
     ]);
   }
 
