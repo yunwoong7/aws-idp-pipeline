@@ -41,7 +41,12 @@ Parameters:
     Type: String
     Default: ''
     Description: Route53 hosted zone name (required if UseCustomDomain is true)
-  
+
+  HostedZoneId:
+    Type: String
+    Default: ''
+    Description: Route53 hosted zone ID (auto-discovered from HostedZoneName)
+
   RepoUrl:
     Type: String
     Default: 'https://github.com/yunwoong7/aws-idp-pipeline.git'
@@ -136,6 +141,8 @@ Resources:
             Value: !Ref DomainName
           - Name: HOSTED_ZONE_NAME
             Value: !Ref HostedZoneName
+          - Name: HOSTED_ZONE_ID
+            Value: !Ref HostedZoneId
           - Name: REPO_URL
             Value: !Ref RepoUrl
           - Name: VERSION
@@ -536,12 +543,14 @@ Resources:
                         --context useCustomDomain="true" \
                         --context domainName="$DOMAIN_NAME" \
                         --context hostedZoneName="$HOSTED_ZONE_NAME" \
+                        --context hostedZoneId="$HOSTED_ZONE_ID" \
                         --context existingCertificateArn="$CERT_ARN"
                     else
                       npx cdk deploy aws-idp-ai-ecs --require-approval never \
                         --context useCustomDomain="true" \
                         --context domainName="$DOMAIN_NAME" \
-                        --context hostedZoneName="$HOSTED_ZONE_NAME"
+                        --context hostedZoneName="$HOSTED_ZONE_NAME" \
+                        --context hostedZoneId="$HOSTED_ZONE_ID"
                     fi
                   else
                     # Don't pass useCustomDomain context when false - let it default to undefined

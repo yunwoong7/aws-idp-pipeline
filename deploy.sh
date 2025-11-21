@@ -109,6 +109,20 @@ if [[ "$USE_CUSTOM_DOMAIN" == "false" && -z "$DOMAIN_NAME" ]]; then
     prompt_for_custom_domain
 fi
 
+# Auto-discover Hosted Zone ID if custom domain is enabled
+if [[ "$USE_CUSTOM_DOMAIN" == "true" && -n "$HOSTED_ZONE_NAME" ]]; then
+    echo "Looking up Hosted Zone ID for ${HOSTED_ZONE_NAME}..."
+    HOSTED_ZONE_ID=$(aws route53 list-hosted-zones --query "HostedZones[?Name=='${HOSTED_ZONE_NAME}.'].Id" --output text 2>/dev/null | cut -d'/' -f3)
+
+    if [[ -z "$HOSTED_ZONE_ID" ]]; then
+        echo "❌ Could not find Hosted Zone for ${HOSTED_ZONE_NAME}"
+        echo "Please ensure the hosted zone exists in Route53"
+        exit 1
+    fi
+
+    echo "✓ Found Hosted Zone ID: ${HOSTED_ZONE_ID}"
+fi
+
 # Display configuration
 echo ""
 echo "Configuration:"
@@ -120,6 +134,7 @@ echo "Custom Domain: $USE_CUSTOM_DOMAIN"
 if [[ "$USE_CUSTOM_DOMAIN" == "true" ]]; then
     echo "Domain Name: $DOMAIN_NAME"
     echo "Hosted Zone: $HOSTED_ZONE_NAME"
+    echo "Hosted Zone ID: $HOSTED_ZONE_ID"
 fi
 echo "Repository: $REPO_URL"
 echo "Version: $VERSION"
@@ -166,6 +181,7 @@ aws cloudformation deploy \
     UseCustomDomain="$USE_CUSTOM_DOMAIN" \
     DomainName="$DOMAIN_NAME" \
     HostedZoneName="$HOSTED_ZONE_NAME" \
+    HostedZoneId="$HOSTED_ZONE_ID" \
     RepoUrl="$REPO_URL" \
     Version="$VERSION"
 
