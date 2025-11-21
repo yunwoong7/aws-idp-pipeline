@@ -125,9 +125,10 @@ export class OpensearchStack extends cdk.Stack {
       {
         id: 'AwsSolutions-L1',
         reason: [
-          'CDK auto-generated custom resource Lambda functions use framework-managed runtimes.',
-          'These Lambda functions are created by CDK for CloudFormation custom resources.',
-          'Runtime versions are managed by the CDK framework and updated with CDK upgrades.',
+          'CDK auto-generated custom resource Lambda uses framework-managed runtime.',
+          'Lambda layer uses Python 3.13 runtime.',
+          'Maintaining Python 3.13 for stability and consistency across customer deployments.',
+          'Will be updated to Python 3.14 after thorough testing and customer environment considerations.',
         ].join(' '),
       },
     ]);

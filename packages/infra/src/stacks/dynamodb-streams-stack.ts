@@ -275,6 +275,14 @@ export class DynamoDBStreamsStack extends cdk.Stack {
         ].join(' '),
         appliesTo: ['Resource::*'],
       },
+      {
+        id: 'AwsSolutions-L1',
+        reason: [
+          'Lambda function uses Python 3.13 runtime.',
+          'Maintaining Python 3.13 for stability and consistency across customer deployments.',
+          'Will be updated to Python 3.14 after thorough testing and customer environment considerations.',
+        ].join(' '),
+      },
     ]);
   }
 }

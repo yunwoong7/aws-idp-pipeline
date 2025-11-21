@@ -260,9 +260,8 @@ export class CognitoStack extends cdk.Stack {
       {
         id: 'AwsSolutions-L1',
         reason: [
-          'CDK auto-generated custom resource Lambda functions use framework-managed runtimes.',
-          'These Lambda functions are created by CDK for CloudFormation custom resources.',
-          'Runtime versions are managed by the CDK framework and updated with CDK upgrades.',
+          'CDK auto-generated custom resource Lambda uses framework-managed runtime.',
+          'This is a CDK internal resource that cannot be configured to use different runtime versions.',
         ].join(' '),
       },
     ]);

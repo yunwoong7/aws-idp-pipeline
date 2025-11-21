@@ -292,6 +292,14 @@ export class WebSocketApiStack extends cdk.Stack {
           'Wildcard permissions are necessary for CDK internal CloudFormation operations.',
         ].join(' '),
       },
+      {
+        id: 'AwsSolutions-L1',
+        reason: [
+          'Lambda function uses Python 3.13 runtime.',
+          'Maintaining Python 3.13 for stability and consistency across customer deployments.',
+          'Will be updated to Python 3.14 after thorough testing and customer environment considerations.',
+        ].join(' '),
+      },
     ]);
   }
 }
