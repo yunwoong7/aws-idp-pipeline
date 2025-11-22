@@ -547,8 +547,9 @@ Resources:
                 - |
                   if [ "$USE_CUSTOM_DOMAIN" = "true" ]; then
                     # Use ALB URL for API when using custom domain (for Cognito auth)
-                    FRONTEND_API_URL="https://${DOMAIN_NAME}.${HOSTED_ZONE_NAME}/api"
-                    echo "Using ALB API URL for custom domain: $FRONTEND_API_URL"
+                    # Note: Frontend will append /api path, so just provide base URL
+                    FRONTEND_API_URL="https://${DOMAIN_NAME}.${HOSTED_ZONE_NAME}"
+                    echo "Using ALB base URL for custom domain: $FRONTEND_API_URL"
                   else
                     # Use direct API Gateway URL when not using custom domain
                     FRONTEND_API_URL="$API_GATEWAY_URL"
