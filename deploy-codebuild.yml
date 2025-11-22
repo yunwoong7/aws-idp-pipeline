@@ -375,21 +375,21 @@ Resources:
                 - echo "Installing Nori plugin to OpenSearch..."
                 - |
                   # Get OpenSearch domain name
-                  DOMAIN_NAME=$(aws opensearch list-domain-names --query "DomainNames[0].DomainName" --output text 2>/dev/null | head -1)
-                  
-                  if [ -z "$DOMAIN_NAME" ] || [ "$DOMAIN_NAME" == "None" ]; then
+                  OPENSEARCH_DOMAIN_NAME=$(aws opensearch list-domain-names --query "DomainNames[0].DomainName" --output text 2>/dev/null | head -1)
+
+                  if [ -z "$OPENSEARCH_DOMAIN_NAME" ] || [ "$OPENSEARCH_DOMAIN_NAME" == "None" ]; then
                     echo "No OpenSearch domain found, skipping Nori installation"
                   else
-                    echo "Found OpenSearch domain: $DOMAIN_NAME"
-                    
+                    echo "Found OpenSearch domain: $OPENSEARCH_DOMAIN_NAME"
+
                     # Check if domain is still processing
-                    PROCESSING=$(aws opensearch describe-domain --domain-name "$DOMAIN_NAME" --query "DomainStatus.Processing" --output text 2>/dev/null || echo "true")
-                    
+                    PROCESSING=$(aws opensearch describe-domain --domain-name "$OPENSEARCH_DOMAIN_NAME" --query "DomainStatus.Processing" --output text 2>/dev/null || echo "true")
+
                     if [ "$PROCESSING" == "true" ]; then
                       echo "Domain is still processing, skipping Nori installation for now"
                     else
                       echo "Installing Nori plugin package..."
-                      if aws opensearch associate-package --domain-name "$DOMAIN_NAME" --package-id G256321959 >/dev/null 2>&1; then
+                      if aws opensearch associate-package --domain-name "$OPENSEARCH_DOMAIN_NAME" --package-id G256321959 >/dev/null 2>&1; then
                         echo "Nori plugin installation requested successfully. It may take several minutes to complete."
                       else
                         echo "Nori plugin installation failed or unsupported in this region. Install manually if needed."
