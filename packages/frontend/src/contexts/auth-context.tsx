@@ -115,16 +115,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // ECS 환경 체크 (ALB DNS 이름 감지)
-    const isEcsEnvironment = typeof window !== 'undefined' &&
-                             (window.location.hostname.includes('elb.amazonaws.com') ||
-                              window.location.hostname.includes('cloudfront.net'));
+    // 프로덕션 환경 체크 (localhost가 아닌 모든 환경)
+    const isProductionEnvironment = typeof window !== 'undefined' &&
+                                    !['localhost', '127.0.0.1'].includes(window.location.hostname);
 
-    console.log('🔍 isEcsEnvironment:', isEcsEnvironment);
+    console.log('🔍 isProductionEnvironment:', isProductionEnvironment);
 
     try {
-      if (isEcsEnvironment) {
-        console.log('🔧 ECS environment detected - calling backend logout API');
+      if (isProductionEnvironment) {
+        console.log('🔧 Production environment detected - calling backend logout API');
 
         // 백엔드 로그아웃 API 호출 (ALB를 통해)
         const logoutEndpoint = `${window.location.protocol}//${window.location.host}/api/auth/logout`;
@@ -160,7 +159,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           window.location.href = '/';
         }
       } else {
-        console.log('🔧 Non-ECS environment - redirecting to home');
+        console.log('🔧 Local development environment - redirecting to home');
         window.location.href = '/';
       }
     } catch (error) {

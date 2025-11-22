@@ -256,6 +256,7 @@ if (adminUserEmail) {
     useCustomDomain,
     domainName,
     hostedZoneName,
+    usersTable: dynamoDBStack.usersTable,
   });
 
   // Add Cognito configuration to Document Management Lambda for logout functionality

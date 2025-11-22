@@ -1,5 +1,6 @@
 import * as cdk from 'aws-cdk-lib';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as cr from 'aws-cdk-lib/custom-resources';
 import { Construct } from 'constructs';
 import { NagSuppressions } from 'cdk-nag';
@@ -12,6 +13,7 @@ export interface CognitoStackProps extends cdk.StackProps {
   readonly useCustomDomain?: boolean;
   readonly domainName?: string;
   readonly hostedZoneName?: string;
+  readonly usersTable?: dynamodb.ITable;
 }
 
 /**
@@ -80,6 +82,7 @@ export class CognitoStack extends cdk.Stack {
         cognitoDomain: {
           domainPrefix: domainPrefix,
         },
+        managedLoginVersion: cognito.ManagedLoginVersion.NEWER_MANAGED_LOGIN,
       });
     }
 
@@ -138,6 +141,91 @@ export class CognitoStack extends cdk.Stack {
       }),
     });
 
+    // Create or update admin user in DynamoDB users table
+    if (props.usersTable) {
+      const currentTimestamp = new Date().toISOString();
+
+      new cr.AwsCustomResource(this, 'CreateAdminUserInDynamoDB', {
+        onCreate: {
+          service: 'DynamoDB',
+          action: 'putItem',
+          parameters: {
+            TableName: props.usersTable.tableName,
+            Item: {
+              user_id: { S: props.adminUserEmail },
+              email: { S: props.adminUserEmail },
+              name: { S: this.adminUser.username },
+              role: { S: 'admin' },
+              permissions: {
+                M: {
+                  can_delete_documents: { BOOL: true },
+                  accessible_indexes: { S: '*' },
+                  can_create_index: { BOOL: true },
+                  can_upload_documents: { BOOL: true },
+                  can_delete_index: { BOOL: true },
+                  available_tabs: {
+                    L: [
+                      { S: 'search' },
+                      { S: 'documents' },
+                      { S: 'analysis' },
+                      { S: 'verification' },
+                    ],
+                  },
+                },
+              },
+              status: { S: 'active' },
+              created_at: { S: currentTimestamp },
+              updated_at: { S: currentTimestamp },
+            },
+          },
+          physicalResourceId: cr.PhysicalResourceId.of(`admin-user-${props.adminUserEmail}`),
+        },
+        onUpdate: {
+          service: 'DynamoDB',
+          action: 'updateItem',
+          parameters: {
+            TableName: props.usersTable.tableName,
+            Key: {
+              user_id: { S: props.adminUserEmail },
+            },
+            UpdateExpression: 'SET #role = :role, #permissions = :permissions, #status = :status, #updated_at = :updated_at',
+            ExpressionAttributeNames: {
+              '#role': 'role',
+              '#permissions': 'permissions',
+              '#status': 'status',
+              '#updated_at': 'updated_at',
+            },
+            ExpressionAttributeValues: {
+              ':role': { S: 'admin' },
+              ':permissions': {
+                M: {
+                  can_delete_documents: { BOOL: true },
+                  accessible_indexes: { S: '*' },
+                  can_create_index: { BOOL: true },
+                  can_upload_documents: { BOOL: true },
+                  can_delete_index: { BOOL: true },
+                  available_tabs: {
+                    L: [
+                      { S: 'search' },
+                      { S: 'documents' },
+                      { S: 'analysis' },
+                      { S: 'verification' },
+                    ],
+                  },
+                },
+              },
+              ':status': { S: 'active' },
+              ':updated_at': { S: currentTimestamp },
+            },
+          },
+          physicalResourceId: cr.PhysicalResourceId.of(`admin-user-${props.adminUserEmail}`),
+        },
+        policy: cr.AwsCustomResourcePolicy.fromSdkCalls({
+          resources: [props.usersTable.tableArn],
+        }),
+      });
+    }
+
     // Add NAG suppression for the custom resource at the stack level
     this.addNagSuppressionsForCustomResource();
 
@@ -181,7 +269,7 @@ export class CognitoStack extends cdk.Stack {
 
     // Custom Resource for callback URL update will be handled by ECS stack
 
-    // Add Cognito branding
+    // Add Cognito managed login branding
     new cognito.CfnManagedLoginBranding(this, 'ManagedLoginBranding', {
       userPoolId: this.userPool.userPoolId,
       clientId: this.userPoolClient.userPoolClientId,
