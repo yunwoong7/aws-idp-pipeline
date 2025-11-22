@@ -368,7 +368,7 @@ export class EcsStack extends cdk.Stack {
       // Add public routes (no authentication required)
       // - /logged-out: Post-logout landing page
       // - /_next/*: Next.js static assets (CSS, JS chunks, images)
-      listener.addAction('PublicRoutesAction', {
+      listener.addAction('LoggedOutPageAction', {
         priority: 10,
         conditions: [
           elbv2.ListenerCondition.pathPatterns([
