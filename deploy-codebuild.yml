@@ -543,12 +543,24 @@ Resources:
                 - docker tag aws-idp-backend-${STAGE}:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/aws-idp-backend-${STAGE}:latest
                 - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/aws-idp-backend-${STAGE}:latest
                 
+                # Determine API URL based on custom domain usage
+                - |
+                  if [ "$USE_CUSTOM_DOMAIN" = "true" ]; then
+                    # Use ALB URL for API when using custom domain (for Cognito auth)
+                    FRONTEND_API_URL="https://${DOMAIN_NAME}.${HOSTED_ZONE_NAME}/api"
+                    echo "Using ALB API URL for custom domain: $FRONTEND_API_URL"
+                  else
+                    # Use direct API Gateway URL when not using custom domain
+                    FRONTEND_API_URL="$API_GATEWAY_URL"
+                    echo "Using API Gateway URL: $FRONTEND_API_URL"
+                  fi
+
                 # Build frontend container with environment variables (from project root)
                 - echo "Building frontend container..."
                 - |
                   docker build --platform linux/amd64 \
                     -f packages/frontend/Dockerfile \
-                    --build-arg NEXT_PUBLIC_API_BASE_URL="$API_GATEWAY_URL" \
+                    --build-arg NEXT_PUBLIC_API_BASE_URL="$FRONTEND_API_URL" \
                     --build-arg NEXT_PUBLIC_WEBSOCKET_URL="$WEBSOCKET_URL" \
                     -t aws-idp-frontend-${STAGE}:latest \
                     .
