@@ -365,11 +365,17 @@ export class EcsStack extends cdk.Stack {
         },
       ];
 
-      // Add logged-out page routing (no authentication required)
-      listener.addAction('LoggedOutPageAction', {
+      // Add public routes (no authentication required)
+      // - /logged-out: Post-logout landing page
+      // - /_next/*: Next.js static assets (CSS, JS chunks, images)
+      listener.addAction('PublicRoutesAction', {
         priority: 10,
         conditions: [
-          elbv2.ListenerCondition.pathPatterns(['/logged-out', '/logged-out/*']),
+          elbv2.ListenerCondition.pathPatterns([
+            '/logged-out',
+            '/logged-out/*',
+            '/_next/*',
+          ]),
         ],
         action: elbv2.ListenerAction.forward([this.frontendService.targetGroup]),
       });
