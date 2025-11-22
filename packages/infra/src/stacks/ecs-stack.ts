@@ -659,6 +659,18 @@ export class EcsStack extends cdk.Stack {
       onEventHandler: updateCallbackLambda,
     });
 
+    // Add NAG suppressions for the Provider's framework Lambda
+    NagSuppressions.addResourceSuppressionsByPath(
+      this,
+      '/aws-idp-ai-ecs/UpdateCallbackProvider/framework-onEvent/Resource',
+      [
+        {
+          id: 'AwsSolutions-L1',
+          reason: 'CDK-generated custom resource framework Lambda uses CDK-managed runtime version',
+        },
+      ]
+    );
+
     // Create custom resource
     new cdk.CustomResource(this, 'UpdateCallbackResource', {
       serviceToken: provider.serviceToken,
