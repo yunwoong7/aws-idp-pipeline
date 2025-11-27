@@ -182,25 +182,15 @@ Resources:
           phases:
             pre_build:
               commands:
-                - echo "Installing dependencies..."
-                - npm install -g aws-cdk@latest
-                - npm install -g pnpm
-                - echo "Cloning repository..."
+                - npm install -g aws-cdk@latest pnpm
                 - git clone $REPO_URL /tmp/aws-idp-pipeline
                 - cd /tmp/aws-idp-pipeline
                 - git checkout $VERSION
             build:
               commands:
-                - echo "Starting deployment..."
                 - cd /tmp/aws-idp-pipeline
                 - pnpm install
-                
-                # Deploy CDK stacks
-                - echo "Deploying CDK stacks..."
                 - cd packages/infra
-                
-                # Create .toml config file first
-                - echo "Creating .toml configuration..."
                 - |
                   cat > .toml << EOF
                   [app]
@@ -263,346 +253,106 @@ Resources:
                   sqsBatchSize = 1
                   reservedConcurrency = 1
                   EOF
-                
-                # Install infra dependencies
-                - echo "Installing infra dependencies..."
                 - pnpm install
-
-                # Download Lambda Layers from GitHub if missing
-                - echo "Checking Lambda Layer zip files..."
                 - |
                   LAYER_DIR="./src/lambda_layer"
                   GITHUB_REPO="https://raw.githubusercontent.com/yunwoong7/lambda-layers-assets/main/aws-idp-assets"
-
-                  # List of required Lambda layers (space-separated)
                   LAYERS="custom_layer_common.zip custom_layer_opensearch.zip custom_layer_image_processing.zip custom_layer_analysis_package.zip"
-
-                  # Check and download missing layers
                   for layer in $LAYERS; do
-                    if [ ! -f "$LAYER_DIR/$layer" ]; then
-                      echo "Downloading $layer..."
-                      if curl -L -f -o "$LAYER_DIR/$layer" "$GITHUB_REPO/$layer" 2>/dev/null; then
-                        echo "✅ Downloaded: $layer"
-                      else
-                        echo "❌ Failed to download $layer from $GITHUB_REPO/$layer"
-                        echo "Please check if the file exists in the GitHub repository"
-                        exit 1
-                      fi
-                    else
-                      echo "✅ $layer already exists"
-                    fi
+                    [ ! -f "$LAYER_DIR/$layer" ] && curl -Lf -o "$LAYER_DIR/$layer" "$GITHUB_REPO/$layer" || true
                   done
 
-                  echo "✅ Lambda layer check completed"
-
-                # Bootstrap CDK if needed
-                - echo "Checking and handling CDK Bootstrap..."
                 - |
-                  # Check if CDKToolkit stack exists
                   STACK_STATUS=$(aws cloudformation describe-stacks --stack-name CDKToolkit --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "STACK_NOT_FOUND")
-                  
-                  if [ "$STACK_STATUS" = "STACK_NOT_FOUND" ]; then
-                    echo "CDKToolkit stack not found. Performing fresh bootstrap..."
-                    npx cdk bootstrap aws://$AWS_ACCOUNT_ID/$AWS_DEFAULT_REGION --require-approval never
-                  elif [ "$STACK_STATUS" = "CREATE_COMPLETE" ] || [ "$STACK_STATUS" = "UPDATE_COMPLETE" ]; then
-                    echo "CDKToolkit stack already exists and is healthy (Status: $STACK_STATUS)"
-                    echo "Skipping bootstrap - using existing CDKToolkit stack"
-                  elif [ "$STACK_STATUS" = "ROLLBACK_COMPLETE" ] || [ "$STACK_STATUS" = "DELETE_FAILED" ] || [ "$STACK_STATUS" = "CREATE_FAILED" ]; then
-                    echo "CDKToolkit stack exists but in failed state: $STACK_STATUS"
-                    echo "Attempting to delete and re-create..."
-                    
-                    # Delete the failed stack
-                    aws cloudformation delete-stack --stack-name CDKToolkit
-                    echo "Waiting for stack deletion..."
-                    aws cloudformation wait stack-delete-complete --stack-name CDKToolkit --no-paginate 2>/dev/null || true
-                    
-                    # Check if S3 bucket exists and clean it up if needed
+                  if [ "$STACK_STATUS" = "STACK_NOT_FOUND" ] || [ "$STACK_STATUS" = "ROLLBACK_COMPLETE" ] || [ "$STACK_STATUS" = "CREATE_FAILED" ]; then
+                    aws cloudformation delete-stack --stack-name CDKToolkit 2>/dev/null || true
+                    aws cloudformation wait stack-delete-complete --stack-name CDKToolkit 2>/dev/null || true
                     BUCKET_NAME="cdk-hnb659fds-assets-${AWS_ACCOUNT_ID}-${AWS_DEFAULT_REGION}"
-                    if aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
-                      echo "Found existing CDK assets bucket: $BUCKET_NAME"
-                      echo "Emptying and deleting bucket..."
-                      aws s3 rm s3://$BUCKET_NAME --recursive 2>/dev/null || true
-                      aws s3api delete-bucket --bucket $BUCKET_NAME 2>/dev/null || true
-                    fi
-                    
-                    # Re-bootstrap
-                    echo "Re-bootstrapping CDK..."
+                    aws s3 rm s3://$BUCKET_NAME --recursive 2>/dev/null || true
+                    aws s3api delete-bucket --bucket $BUCKET_NAME 2>/dev/null || true
                     npx cdk bootstrap aws://$AWS_ACCOUNT_ID/$AWS_DEFAULT_REGION --require-approval never
-                  else
-                    echo "CDKToolkit stack in unexpected state: $STACK_STATUS"
-                    echo "Proceeding with bootstrap attempt..."
-                    npx cdk bootstrap aws://$AWS_ACCOUNT_ID/$AWS_DEFAULT_REGION --require-approval never || echo "Bootstrap failed - will try to continue with existing resources"
                   fi
-                
-                # Deploy ECR stack first (needed for container images)
-                - echo "Deploying ECR stack..."
                 - npx cdk deploy aws-idp-ai-ecr --require-approval never
-
-                # Deploy Lambda Layer stack (needed for Lambda functions)
-                - echo "Deploying Lambda Layer stack..."
                 - npx cdk deploy aws-idp-ai-lambda-layer --require-approval never
-
-                # Deploy infrastructure stacks
-                - echo "Pre-cleaning existing VPC log groups..."
-                - aws logs delete-log-group --log-group-name "/aws-idp-ai/vpc/flowlogs" 2>/dev/null || echo "VPC flow logs group does not exist or already deleted"
-                - echo "Deploying VPC stack..."
+                - aws logs delete-log-group --log-group-name "/aws-idp-ai/vpc/flowlogs" 2>/dev/null || true
                 - npx cdk deploy aws-idp-ai-vpc --require-approval never
-                
-                - echo "Deploying DynamoDB stack..."
                 - npx cdk deploy aws-idp-ai-dynamodb --require-approval never
-                
-                - echo "Deploying S3 stack..."
                 - npx cdk deploy aws-idp-ai-s3 --require-approval never
-                
-                # Create OpenSearch Service-Linked Role before deploying OpenSearch
-                - echo "Checking OpenSearch Service-Linked Role..."
                 - |
-                  # Check if the service-linked role already exists
-                  if aws iam get-role --role-name AWSServiceRoleForAmazonOpenSearchService >/dev/null 2>&1; then
-                    echo "OpenSearch Service-Linked Role already exists"
-                  else
-                    echo "Creating OpenSearch Service-Linked Role..."
-                    if aws iam create-service-linked-role --aws-service-name opensearch.amazonaws.com >/dev/null 2>&1; then
-                      echo "OpenSearch Service-Linked Role created successfully"
-                      # Wait a moment for role propagation
-                      sleep 10
-                    else
-                      echo "Warning: Failed to create OpenSearch Service-Linked Role, but deployment will continue"
-                    fi
-                  fi
-                
-                - echo "Deploying OpenSearch stack..."
+                  aws iam get-role --role-name AWSServiceRoleForAmazonOpenSearchService >/dev/null 2>&1 || aws iam create-service-linked-role --aws-service-name opensearch.amazonaws.com >/dev/null 2>&1 && sleep 10
                 - |
-                  # Try OpenSearch deployment with retry logic
-                  OPENSEARCH_RETRY_COUNT=0
-                  OPENSEARCH_MAX_RETRIES=2
-                  
-                  while [ $OPENSEARCH_RETRY_COUNT -le $OPENSEARCH_MAX_RETRIES ]; do
-                    echo "OpenSearch deployment attempt $((OPENSEARCH_RETRY_COUNT + 1))/$((OPENSEARCH_MAX_RETRIES + 1))"
-                    
-                    if npx cdk deploy aws-idp-ai-opensearch --require-approval never; then
-                      echo "OpenSearch stack deployed successfully"
-                      break
-                    else
-                      OPENSEARCH_RETRY_COUNT=$((OPENSEARCH_RETRY_COUNT + 1))
-                      if [ $OPENSEARCH_RETRY_COUNT -le $OPENSEARCH_MAX_RETRIES ]; then
-                        echo "OpenSearch deployment failed, retrying in 30 seconds..."
-                        sleep 30
-                      else
-                        echo "OpenSearch deployment failed after $((OPENSEARCH_MAX_RETRIES + 1)) attempts"
-                        exit 1
-                      fi
-                    fi
+                  for i in 1 2 3; do
+                    npx cdk deploy aws-idp-ai-opensearch --require-approval never && break || sleep 30
                   done
-                
-                # Install Nori plugin after OpenSearch deployment
-                - echo "Installing Nori plugin to OpenSearch..."
                 - |
-                  # Get OpenSearch domain name
                   OPENSEARCH_DOMAIN_NAME=$(aws opensearch list-domain-names --query "DomainNames[0].DomainName" --output text 2>/dev/null | head -1)
-
-                  if [ -z "$OPENSEARCH_DOMAIN_NAME" ] || [ "$OPENSEARCH_DOMAIN_NAME" == "None" ]; then
-                    echo "No OpenSearch domain found, skipping Nori installation"
-                  else
-                    echo "Found OpenSearch domain: $OPENSEARCH_DOMAIN_NAME"
-
-                    # Check if domain is still processing
-                    PROCESSING=$(aws opensearch describe-domain --domain-name "$OPENSEARCH_DOMAIN_NAME" --query "DomainStatus.Processing" --output text 2>/dev/null || echo "true")
-
-                    if [ "$PROCESSING" == "true" ]; then
-                      echo "Domain is still processing, skipping Nori installation for now"
-                    else
-                      echo "Installing Nori plugin package..."
-                      if aws opensearch associate-package --domain-name "$OPENSEARCH_DOMAIN_NAME" --package-id G256321959 >/dev/null 2>&1; then
-                        echo "Nori plugin installation requested successfully. It may take several minutes to complete."
-                      else
-                        echo "Nori plugin installation failed or unsupported in this region. Install manually if needed."
-                      fi
-                    fi
-                  fi
+                  [ -n "$OPENSEARCH_DOMAIN_NAME" ] && [ "$OPENSEARCH_DOMAIN_NAME" != "None" ] && aws opensearch associate-package --domain-name "$OPENSEARCH_DOMAIN_NAME" --package-id G256321959 2>/dev/null || true
                 
-                # Check for existing certificate or create new one if enabled (only for non-custom domains)
                 - |
                   if [ "$ENABLE_COGNITO" = "true" ] && [ "$USE_CUSTOM_DOMAIN" != "true" ]; then
-                    echo "Checking for existing self-signed certificate..."
-                    
-                    # Check for existing aws-idp-ai.internal certificates
                     EXISTING_CERTS=$(aws acm list-certificates --query 'CertificateSummaryList[?DomainName==`aws-idp-ai.internal`].CertificateArn' --output text 2>/dev/null || true)
-                    
-                    # Count number of certificates
                     CERT_COUNT=$(echo "$EXISTING_CERTS" | wc -w)
-                    
                     if [ "$CERT_COUNT" -gt 1 ]; then
-                      echo "Found $CERT_COUNT certificates for aws-idp-ai.internal, using the first one"
                       CERT_ARN=$(echo "$EXISTING_CERTS" | awk '{print $1}')
-                      echo "Using certificate: $CERT_ARN"
-                      
-                      # Optional: Clean up extra certificates
-                      echo "Cleaning up duplicate certificates..."
                       for EXTRA_CERT in $(echo "$EXISTING_CERTS" | awk '{for(i=2;i<=NF;i++) print $i}'); do
-                        echo "Deleting duplicate certificate: $EXTRA_CERT"
-                        aws acm delete-certificate --certificate-arn "$EXTRA_CERT" 2>/dev/null || echo "Could not delete $EXTRA_CERT (may be in use)"
+                        aws acm delete-certificate --certificate-arn "$EXTRA_CERT" 2>/dev/null || true
                       done
                     elif [ -n "$EXISTING_CERTS" ]; then
                       CERT_ARN="$EXISTING_CERTS"
-                      echo "Found existing certificate: $CERT_ARN"
                     else
-                      echo "No existing certificate found. Generating new self-signed certificate..."
-                      
-                      # Clean up existing certificate files
                       rm -rf certs/ 2>/dev/null || true
-                      
-                      # Create certs directory
                       mkdir -p certs
-                      
-                      # Generate self-signed certificate
-                      openssl req -x509 -newkey rsa:2048 -sha256 -days 365 -nodes \
-                        -keyout "certs/private.key" \
-                        -out "certs/certificate.pem" \
-                        -subj "/CN=aws-idp-ai.internal" \
-                        -addext "subjectAltName=DNS:aws-idp-ai.internal"
-                      
-                      # Ensure certificate is in PEM format
+                      openssl req -x509 -newkey rsa:2048 -sha256 -days 365 -nodes -keyout "certs/private.key" -out "certs/certificate.pem" -subj "/CN=aws-idp-ai.internal" -addext "subjectAltName=DNS:aws-idp-ai.internal"
                       openssl x509 -in "certs/certificate.pem" -out "certs/certificate.pem" -outform PEM >/dev/null 2>&1
-                      
-                      # Import certificate to ACM
-                      CERT_ARN=$(aws acm import-certificate \
-                        --certificate fileb://certs/certificate.pem \
-                        --private-key fileb://certs/private.key \
-                        --output text \
-                        --query 'CertificateArn')
-                      
-                      echo "New certificate imported with ARN: $CERT_ARN"
+                      CERT_ARN=$(aws acm import-certificate --certificate fileb://certs/certificate.pem --private-key fileb://certs/private.key --output text --query 'CertificateArn')
                     fi
-                    
-                    echo "Deploying Cognito stack..."
-                    if [ "$USE_CUSTOM_DOMAIN" = "true" ]; then
-                      # For custom domain, deploy without certificate (will be added by Certificate stack)
-                      npx cdk deploy aws-idp-ai-cognito --require-approval never \
-                        --context adminUserEmail="$ADMIN_USER_EMAIL" \
-                        --context useCustomDomain="false"
-                    else
-                      # For ALB DNS, use self-signed certificate
-                      npx cdk deploy aws-idp-ai-cognito --require-approval never \
-                        --context adminUserEmail="$ADMIN_USER_EMAIL" \
-                        --context useCustomDomain="false" \
-                        --context existingCertificateArn="$CERT_ARN"
-                    fi
+                    npx cdk deploy aws-idp-ai-cognito --require-approval never --context adminUserEmail="$ADMIN_USER_EMAIL" --context useCustomDomain="false" --context existingCertificateArn="$CERT_ARN"
                   else
                     CERT_ARN=""
                   fi
 
-                # Deploy Certificate Stack if using custom domain with Route 53
                 - |
                   if [ "$USE_CUSTOM_DOMAIN" = "true" ] && [ "$ENABLE_COGNITO" = "true" ]; then
                     if [ "$USE_ROUTE53" = "true" ]; then
-                      echo "Deploying Certificate stack for custom domain with Route 53..."
-                      npx cdk deploy aws-idp-ai-certificate --require-approval never \
-                        --context adminUserEmail="$ADMIN_USER_EMAIL" \
-                        --context useCustomDomain="true" \
-                        --context domainName="$DOMAIN_NAME" \
-                        --context hostedZoneId="$HOSTED_ZONE_ID" \
-                        --context hostedZoneName="$HOSTED_ZONE_NAME"
-
-                      # Get the certificate ARN from Certificate stack
+                      npx cdk deploy aws-idp-ai-certificate --require-approval never --context adminUserEmail="$ADMIN_USER_EMAIL" --context useCustomDomain="true" --context domainName="$DOMAIN_NAME" --context hostedZoneId="$HOSTED_ZONE_ID" --context hostedZoneName="$HOSTED_ZONE_NAME"
                       CERT_ARN=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-certificate --query 'Stacks[0].Outputs[?OutputKey==`CertificateArn`].OutputValue' --output text)
-                      echo "Using Certificate ARN: $CERT_ARN"
                     else
-                      echo "Using external DNS management - skipping Certificate stack deployment"
                       CERT_ARN="$EXISTING_CERT_ARN"
-                      echo "Using existing Certificate ARN: $CERT_ARN"
-
-                      # Verify certificate exists
-                      if ! aws acm describe-certificate --certificate-arn "$CERT_ARN" >/dev/null 2>&1; then
-                        echo "❌ Error: Certificate ARN $CERT_ARN not found or not accessible"
-                        exit 1
-                      fi
-                      echo "✓ Certificate verified successfully"
+                      aws acm describe-certificate --certificate-arn "$CERT_ARN" >/dev/null 2>&1 || exit 1
                     fi
                   fi
 
-                # Deploy service stacks
-                - echo "Deploying Workflow stack..."
                 - npx cdk deploy aws-idp-ai-workflow --require-approval never
-
-                - echo "Deploying Document Management stack..."
                 - npx cdk deploy aws-idp-ai-document-management --require-approval never
-
-                - echo "Deploying Indices Management stack..."
                 - npx cdk deploy aws-idp-ai-indices-management --require-approval never
-
-                - echo "Deploying API Gateway stack..."
                 - npx cdk deploy aws-idp-ai-api-gateway --require-approval never
-                
-                - echo "Deploying WebSocket API stack..."
-                - echo "Cleaning up existing WebSocket Lambda log groups..."
-                - aws logs delete-log-group --log-group-name "/aws/lambda/aws-idp-ai-websocket-connect-${STAGE}" 2>/dev/null || echo "Connect log group does not exist or already deleted"
-                - aws logs delete-log-group --log-group-name "/aws/lambda/aws-idp-ai-websocket-disconnect-${STAGE}" 2>/dev/null || echo "Disconnect log group does not exist or already deleted"
+                - aws logs delete-log-group --log-group-name "/aws/lambda/aws-idp-ai-websocket-connect-${STAGE}" 2>/dev/null || true
+                - aws logs delete-log-group --log-group-name "/aws/lambda/aws-idp-ai-websocket-disconnect-${STAGE}" 2>/dev/null || true
                 - npx cdk deploy aws-idp-ai-websocket-api --require-approval never
-                
-                - echo "Deploying DynamoDB Streams stack..."
-                - echo "Cleaning up existing DynamoDB streams Lambda log groups..."
-                - aws logs delete-log-group --log-group-name "/aws/lambda/aws-idp-ai-documents-stream-handler-${STAGE}" 2>/dev/null || echo "Documents stream handler log group does not exist or already deleted"
+                - aws logs delete-log-group --log-group-name "/aws/lambda/aws-idp-ai-documents-stream-handler-${STAGE}" 2>/dev/null || true
                 - npx cdk deploy aws-idp-ai-dynamodb-streams --require-approval never
-                
-                # Get API URLs for frontend build
                 - |
-                  echo "Getting API Gateway and WebSocket URLs..."
                   API_GATEWAY_URL=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-api-gateway --query 'Stacks[0].Outputs[?OutputKey==`ApiGatewayEndpoint`].OutputValue' --output text)
                   WEBSOCKET_BASE_URL=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-websocket-api --query 'Stacks[0].Outputs[?OutputKey==`WebSocketApiEndpointOutput`].OutputValue' --output text)
                   WEBSOCKET_STAGE=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-websocket-api --query 'Stacks[0].Outputs[?OutputKey==`WebSocketStageNameOutput`].OutputValue' --output text)
-                  
-                  # Construct full WebSocket URL with stage (matching deploy-infra.sh pattern)
                   if [ -n "$WEBSOCKET_BASE_URL" ] && [ -n "$WEBSOCKET_STAGE" ]; then
-                    # Check if stage is already included in the base URL
-                    if [[ "$WEBSOCKET_BASE_URL" == *"/$WEBSOCKET_STAGE" ]]; then
-                      WEBSOCKET_URL="$WEBSOCKET_BASE_URL"
-                    else
-                      WEBSOCKET_URL="${WEBSOCKET_BASE_URL}/${WEBSOCKET_STAGE}"
-                    fi
+                    [[ "$WEBSOCKET_BASE_URL" == *"/$WEBSOCKET_STAGE" ]] && WEBSOCKET_URL="$WEBSOCKET_BASE_URL" || WEBSOCKET_URL="${WEBSOCKET_BASE_URL}/${WEBSOCKET_STAGE}"
                   else
                     WEBSOCKET_URL="$WEBSOCKET_BASE_URL"
                   fi
-                  
-                  echo "API Gateway URL: $API_GATEWAY_URL"
-                  echo "WebSocket Base URL: $WEBSOCKET_BASE_URL"
-                  echo "WebSocket Stage: $WEBSOCKET_STAGE"
-                  echo "WebSocket Full URL: $WEBSOCKET_URL"
-                
-                # Build and push Docker images to ECR
-                - echo "Building and pushing container images..."
                 - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
-                
-                # Build backend container (from project root)
-                - echo "Building backend container..."
                 - cd /tmp/aws-idp-pipeline
                 - docker build --platform linux/amd64 -f packages/backend/Dockerfile -t aws-idp-backend-${STAGE}:latest .
                 - docker tag aws-idp-backend-${STAGE}:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/aws-idp-backend-${STAGE}:latest
                 - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/aws-idp-backend-${STAGE}:latest
-                
-                # Determine API URLs based on custom domain usage
                 - |
                   if [ "$USE_CUSTOM_DOMAIN" = "true" ]; then
-                    # When using custom domain:
-                    # - Backend API (auth, etc) goes through ALB for Cognito auth
-                    # - Lambda API (indices, users, etc) still uses API Gateway directly
-                    if [ "$USE_ROUTE53" = "true" ]; then
-                      FRONTEND_BACKEND_URL="https://${DOMAIN_NAME}.${HOSTED_ZONE_NAME}"
-                    else
-                      FRONTEND_BACKEND_URL="https://${CUSTOM_DOMAIN_FULL}"
-                    fi
+                    [ "$USE_ROUTE53" = "true" ] && FRONTEND_BACKEND_URL="https://${DOMAIN_NAME}.${HOSTED_ZONE_NAME}" || FRONTEND_BACKEND_URL="https://${CUSTOM_DOMAIN_FULL}"
                     FRONTEND_API_URL="$API_GATEWAY_URL"
-                    echo "Using ALB for backend: $FRONTEND_BACKEND_URL"
-                    echo "Using API Gateway for Lambda APIs: $FRONTEND_API_URL"
                   else
-                    # When not using custom domain, both use API Gateway
                     FRONTEND_API_URL="$API_GATEWAY_URL"
                     FRONTEND_BACKEND_URL="$API_GATEWAY_URL"
-                    echo "Using API Gateway for all APIs: $FRONTEND_API_URL"
                   fi
-
-                # Build frontend container with environment variables (from project root)
-                - echo "Building frontend container..."
                 - |
                   docker build --platform linux/amd64 \
                     -f packages/frontend/Dockerfile \
@@ -613,138 +363,42 @@ Resources:
                     .
                 - docker tag aws-idp-frontend-${STAGE}:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/aws-idp-frontend-${STAGE}:latest
                 - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/aws-idp-frontend-${STAGE}:latest
-                
-                # Return to infra directory
                 - cd packages/infra
-                
-                - echo "Deploying ECS stack..."
                 - |
                   if [ "$USE_CUSTOM_DOMAIN" = "true" ]; then
                     if [ "$USE_ROUTE53" = "true" ]; then
-                      # Route 53 managed DNS
-                      if [ "$ENABLE_COGNITO" = "true" ]; then
-                        npx cdk deploy aws-idp-ai-ecs --require-approval never \
-                          --context adminUserEmail="$ADMIN_USER_EMAIL" \
-                          --context useCustomDomain="true" \
-                          --context domainName="$DOMAIN_NAME" \
-                          --context hostedZoneName="$HOSTED_ZONE_NAME" \
-                          --context hostedZoneId="$HOSTED_ZONE_ID" \
-                          --context existingCertificateArn="$CERT_ARN"
-                      else
-                        npx cdk deploy aws-idp-ai-ecs --require-approval never \
-                          --context useCustomDomain="true" \
-                          --context domainName="$DOMAIN_NAME" \
-                          --context hostedZoneName="$HOSTED_ZONE_NAME" \
-                          --context hostedZoneId="$HOSTED_ZONE_ID"
-                      fi
+                      [ "$ENABLE_COGNITO" = "true" ] && npx cdk deploy aws-idp-ai-ecs --require-approval never --context adminUserEmail="$ADMIN_USER_EMAIL" --context useCustomDomain="true" --context domainName="$DOMAIN_NAME" --context hostedZoneName="$HOSTED_ZONE_NAME" --context hostedZoneId="$HOSTED_ZONE_ID" --context existingCertificateArn="$CERT_ARN" || npx cdk deploy aws-idp-ai-ecs --require-approval never --context useCustomDomain="true" --context domainName="$DOMAIN_NAME" --context hostedZoneName="$HOSTED_ZONE_NAME" --context hostedZoneId="$HOSTED_ZONE_ID"
                     else
-                      # External DNS management (non-Route53)
-                      echo "Using external DNS with custom domain: $CUSTOM_DOMAIN_FULL"
-                      if [ "$ENABLE_COGNITO" = "true" ]; then
-                        npx cdk deploy aws-idp-ai-ecs --require-approval never \
-                          --context adminUserEmail="$ADMIN_USER_EMAIL" \
-                          --context useCustomDomain="external" \
-                          --context customDomainFull="$CUSTOM_DOMAIN_FULL" \
-                          --context existingCertificateArn="$CERT_ARN"
-                      else
-                        npx cdk deploy aws-idp-ai-ecs --require-approval never \
-                          --context useCustomDomain="external" \
-                          --context customDomainFull="$CUSTOM_DOMAIN_FULL" \
-                          --context existingCertificateArn="$CERT_ARN"
-                      fi
+                      [ "$ENABLE_COGNITO" = "true" ] && npx cdk deploy aws-idp-ai-ecs --require-approval never --context adminUserEmail="$ADMIN_USER_EMAIL" --context useCustomDomain="external" --context customDomainFull="$CUSTOM_DOMAIN_FULL" --context existingCertificateArn="$CERT_ARN" || npx cdk deploy aws-idp-ai-ecs --require-approval never --context useCustomDomain="external" --context customDomainFull="$CUSTOM_DOMAIN_FULL" --context existingCertificateArn="$CERT_ARN"
                     fi
                   else
-                    # Don't pass useCustomDomain context when false - let it default to undefined
-                    # This allows the Custom Resource to run and update Cognito callback URLs
-                    if [ "$ENABLE_COGNITO" = "true" ]; then
-                      npx cdk deploy aws-idp-ai-ecs --require-approval never \
-                        --context adminUserEmail="$ADMIN_USER_EMAIL" \
-                        --context existingCertificateArn="$CERT_ARN"
-                    else
-                      npx cdk deploy aws-idp-ai-ecs --require-approval never
-                    fi
+                    [ "$ENABLE_COGNITO" = "true" ] && npx cdk deploy aws-idp-ai-ecs --require-approval never --context adminUserEmail="$ADMIN_USER_EMAIL" --context existingCertificateArn="$CERT_ARN" || npx cdk deploy aws-idp-ai-ecs --require-approval never
                   fi
-
-                # Deploy User Management stack (requires ECS Cognito info)
-                - echo "Deploying User Management stack..."
                 - npx cdk deploy aws-idp-ai-user-management --require-approval never
-
-                # Force ECS service update to use new Docker images (after all infrastructure is ready)
-                - echo "Forcing ECS service update to use new Docker images..."
-                - aws ecs update-service --cluster aws-idp-cluster-${STAGE} --service aws-idp-frontend-${STAGE} --force-new-deployment || echo "Frontend service update failed or not found"
-                - aws ecs update-service --cluster aws-idp-cluster-${STAGE} --service aws-idp-backend-${STAGE} --force-new-deployment || echo "Backend service update failed or not found"
-                - echo "ECS service updates initiated"
-
-                # Update Cognito callback URLs if using custom domain
+                - aws ecs update-service --cluster aws-idp-cluster-${STAGE} --service aws-idp-frontend-${STAGE} --force-new-deployment 2>/dev/null || true
+                - aws ecs update-service --cluster aws-idp-cluster-${STAGE} --service aws-idp-backend-${STAGE} --force-new-deployment 2>/dev/null || true
                 - |
                   if [ "$USE_CUSTOM_DOMAIN" = "true" ] && [ "$ENABLE_COGNITO" = "true" ]; then
-                    echo "Updating Cognito User Pool Client callback URLs for custom domain..."
-
-                    # Get Cognito details
                     USER_POOL_ID=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-cognito --query 'Stacks[0].Outputs[?OutputKey==`UserPoolId`].OutputValue' --output text)
                     CLIENT_ID=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-cognito --query 'Stacks[0].Outputs[?OutputKey==`UserPoolClientId`].OutputValue' --output text)
                     ALB_DNS=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-ecs --query 'Stacks[0].Outputs[?OutputKey==`LoadBalancerDnsName`].OutputValue' --output text)
-
-                    # Determine custom domain URL
-                    if [ "$USE_ROUTE53" = "true" ]; then
-                      CUSTOM_URL="https://${DOMAIN_NAME}.${HOSTED_ZONE_NAME}"
-                    else
-                      CUSTOM_URL="https://${CUSTOM_DOMAIN_FULL}"
-                    fi
-
-                    echo "Custom domain URL: $CUSTOM_URL"
-                    echo "ALB DNS: $ALB_DNS"
-
-                    # Update Cognito User Pool Client with both ALB and custom domain URLs
-                    aws cognito-idp update-user-pool-client \
-                      --user-pool-id "$USER_POOL_ID" \
-                      --client-id "$CLIENT_ID" \
-                      --callback-urls \
-                        "https://${ALB_DNS}" \
-                        "https://${ALB_DNS}/oauth2/idpresponse" \
-                        "${CUSTOM_URL}" \
-                        "${CUSTOM_URL}/oauth2/idpresponse" \
-                      --logout-urls \
-                        "https://${ALB_DNS}" \
-                        "https://${ALB_DNS}/logged-out" \
-                        "${CUSTOM_URL}" \
-                        "${CUSTOM_URL}/logged-out" \
-                      --allowed-o-auth-flows "code" \
-                      --allowed-o-auth-scopes "email" "openid" "profile" \
-                      --allowed-o-auth-flows-user-pool-client \
-                      --supported-identity-providers "COGNITO" \
-                      >/dev/null 2>&1
-
-                    echo "✓ Cognito callback URLs updated successfully"
+                    [ "$USE_ROUTE53" = "true" ] && CUSTOM_URL="https://${DOMAIN_NAME}.${HOSTED_ZONE_NAME}" || CUSTOM_URL="https://${CUSTOM_DOMAIN_FULL}"
+                    aws cognito-idp update-user-pool-client --user-pool-id "$USER_POOL_ID" --client-id "$CLIENT_ID" --callback-urls "https://${ALB_DNS}" "https://${ALB_DNS}/oauth2/idpresponse" "${CUSTOM_URL}" "${CUSTOM_URL}/oauth2/idpresponse" --logout-urls "https://${ALB_DNS}" "https://${ALB_DNS}/logged-out" "${CUSTOM_URL}" "${CUSTOM_URL}/logged-out" --allowed-o-auth-flows "code" --allowed-o-auth-scopes "email" "openid" "profile" --allowed-o-auth-flows-user-pool-client --supported-identity-providers "COGNITO" >/dev/null 2>&1
                   fi
-
-                # Get outputs
                 - |
-                  echo "Getting stack outputs..."
                   ALB_URL=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-ecs --query 'Stacks[0].Outputs[?OutputKey==`LoadBalancerDnsName`].OutputValue' --output text)
                   if [ "$USE_CUSTOM_DOMAIN" = "true" ]; then
-                    if [ "$USE_ROUTE53" = "true" ]; then
-                      FRONTEND_URL="https://${DOMAIN_NAME}.${HOSTED_ZONE_NAME}"
-                    else
-                      FRONTEND_URL="https://${CUSTOM_DOMAIN_FULL}"
-                    fi
+                    [ "$USE_ROUTE53" = "true" ] && FRONTEND_URL="https://${DOMAIN_NAME}.${HOSTED_ZONE_NAME}" || FRONTEND_URL="https://${CUSTOM_DOMAIN_FULL}"
                   else
                     FRONTEND_URL="https://${ALB_URL}"
                   fi
                   echo "FrontendURL = $FRONTEND_URL"
-                  
                   if [ "$ENABLE_COGNITO" = "true" ]; then
                     TEMP_PASSWORD=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-cognito --query 'Stacks[0].Outputs[?OutputKey==`TemporaryPassword`].OutputValue' --output text)
                     ADMIN_USERNAME=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-cognito --query 'Stacks[0].Outputs[?OutputKey==`AdminUsername`].OutputValue' --output text)
                     echo "AdminUsername = $ADMIN_USERNAME"
                     echo "TemporaryPassword = $TEMP_PASSWORD"
-                    echo "SSL Certificate ARN = $CERT_ARN"
-                    echo "Note: You must change the password on first login"
-                    echo "Note: The certificate is self-signed and browsers will show a security warning"
                   fi
-            post_build:
-              commands:
-                - echo "Deployment completed successfully!"
       TimeoutInMinutes: 60
 
 Outputs:
