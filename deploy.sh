@@ -307,29 +307,19 @@ buildDetail=$(aws codebuild batch-get-builds --ids $buildId --query 'builds[0].l
 logGroupName=$(echo $buildDetail | jq -r '.groupName')
 logStreamName=$(echo $buildDetail | jq -r '.streamName')
 
-# Extract URLs and credentials from logs
+# Extract URL from logs
 logs=$(aws logs get-log-events --log-group-name $logGroupName --log-stream-name $logStreamName --start-from-head --limit 1000)
 
 frontendUrl=$(echo "$logs" | grep -o 'FrontendURL = [^ ]*' | cut -d' ' -f3 | tr -d '\n,' | head -1)
-adminUsername=$(echo "$logs" | grep -o 'AdminUsername = [^ ]*' | cut -d' ' -f3 | tr -d '\n,' | head -1)
-tempPassword=$(echo "$logs" | grep -o 'TemporaryPassword = [^ ]*' | cut -d' ' -f3 | tr -d '\n,' | head -1)
 
 echo ""
 echo "  🌐 Application URL: $frontendUrl"
-
-if [[ "$ENABLE_COGNITO" == "true" ]]; then
-    echo ""
-    echo "  🔐 Cognito Authentication:"
-    echo "     Username: $adminUsername"
-    echo "     Password: $tempPassword"
-    echo "     ⚠️  You must change the password on first login"
-fi
 
 echo ""
 echo "  📋 Next Steps:"
 echo "     1. Access the application using the URL above"
 if [[ "$ENABLE_COGNITO" == "true" ]]; then
-    echo "     2. Log in with the provided credentials"
+    echo "     2. Log in with Cognito credentials (check CloudFormation outputs)"
     echo "     3. Change your password when prompted"
     echo "     4. Start uploading and analyzing documents"
 else
@@ -347,7 +337,6 @@ echo "{
   \"stackName\": \"$StackName\",
   \"projectName\": \"$projectName\",
   \"frontendUrl\": \"$frontendUrl\",
-  \"adminUsername\": \"$adminUsername\",
   \"stage\": \"$STAGE\",
   \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"
 }" > deployment-info-${STAGE}.json
