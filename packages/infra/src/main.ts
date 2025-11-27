@@ -234,10 +234,12 @@ new DynamoDBStreamsStack(app, getFullStackName('dynamodb-streams'), {
 
 // Get CDK context values for Cognito configuration
 const adminUserEmail = app.node.tryGetContext('adminUserEmail');
-const useCustomDomain = app.node.tryGetContext('useCustomDomain') === 'true';
+const useCustomDomainContext = app.node.tryGetContext('useCustomDomain');
+const useCustomDomain = useCustomDomainContext === 'true' ? true : (useCustomDomainContext === 'external' ? 'external' : false);
 const domainName = app.node.tryGetContext('domainName');
 const hostedZoneId = app.node.tryGetContext('hostedZoneId');
 const hostedZoneName = app.node.tryGetContext('hostedZoneName');
+const customDomainFull = app.node.tryGetContext('customDomainFull');
 const existingUserPoolId = app.node.tryGetContext('existingUserPoolId');
 const existingUserPoolDomain = app.node.tryGetContext('existingUserPoolDomain');
 const existingCertificateArn = app.node.tryGetContext('existingCertificateArn');
@@ -324,6 +326,7 @@ const ecsStack = new EcsStack(app, getFullStackName('ecs'), {
   domainName,
   hostedZoneId,
   hostedZoneName,
+  customDomainFull,
 });
 
 // User Management Stack - User management API for RBAC

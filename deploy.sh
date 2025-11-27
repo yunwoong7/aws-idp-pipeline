@@ -24,8 +24,11 @@ echo ""
 STAGE="dev"
 ENABLE_COGNITO="true"
 USE_CUSTOM_DOMAIN="false"
+USE_ROUTE53="false"
 DOMAIN_NAME=""
 HOSTED_ZONE_NAME=""
+CUSTOM_DOMAIN_FULL=""
+EXISTING_CERT_ARN=""
 REPO_URL="https://github.com/yunwoong7/aws-idp-pipeline.git"
 VERSION="main"
 
@@ -59,11 +62,31 @@ prompt_for_custom_domain() {
     case ${answer:0:1} in
         y|Y )
             USE_CUSTOM_DOMAIN="true"
-            read -p "Enter domain name (e.g., idp-ai): " DOMAIN_NAME
-            read -p "Enter hosted zone name (e.g., example.com): " HOSTED_ZONE_NAME
+            echo ""
+            read -p "Do you use Route 53 for DNS management? (y/N): " route53_answer
+            case ${route53_answer:0:1} in
+                y|Y )
+                    USE_ROUTE53="true"
+                    read -p "Enter domain name (e.g., idp-ai): " DOMAIN_NAME
+                    read -p "Enter hosted zone name (e.g., example.com): " HOSTED_ZONE_NAME
+                    ;;
+                * )
+                    USE_ROUTE53="false"
+                    echo "Using external DNS management (non-Route53)"
+                    read -p "Enter your full custom domain (e.g., askme.ktng.com): " CUSTOM_DOMAIN_FULL
+                    read -p "Enter existing ACM certificate ARN: " EXISTING_CERT_ARN
+
+                    # Validate certificate ARN format
+                    if [[ ! "$EXISTING_CERT_ARN" =~ ^arn:aws:acm:[a-z0-9-]+:[0-9]+:certificate/.+ ]]; then
+                        echo "❌ Invalid certificate ARN format"
+                        exit 1
+                    fi
+                    ;;
+            esac
             ;;
         * )
             USE_CUSTOM_DOMAIN="false"
+            USE_ROUTE53="false"
             echo "Using self-signed certificate with ALB DNS name"
             ;;
     esac
@@ -109,8 +132,8 @@ if [[ "$USE_CUSTOM_DOMAIN" == "false" && -z "$DOMAIN_NAME" ]]; then
     prompt_for_custom_domain
 fi
 
-# Auto-discover Hosted Zone ID if custom domain is enabled
-if [[ "$USE_CUSTOM_DOMAIN" == "true" && -n "$HOSTED_ZONE_NAME" ]]; then
+# Auto-discover Hosted Zone ID if custom domain with Route 53 is enabled
+if [[ "$USE_CUSTOM_DOMAIN" == "true" && "$USE_ROUTE53" == "true" && -n "$HOSTED_ZONE_NAME" ]]; then
     echo "Looking up Hosted Zone ID for ${HOSTED_ZONE_NAME}..."
     HOSTED_ZONE_ID=$(aws route53 list-hosted-zones --query "HostedZones[?Name=='${HOSTED_ZONE_NAME}.'].Id" --output text 2>/dev/null | cut -d'/' -f3)
 
@@ -132,9 +155,15 @@ echo "Stage: $STAGE"
 echo "Cognito: $ENABLE_COGNITO"
 echo "Custom Domain: $USE_CUSTOM_DOMAIN"
 if [[ "$USE_CUSTOM_DOMAIN" == "true" ]]; then
-    echo "Domain Name: $DOMAIN_NAME"
-    echo "Hosted Zone: $HOSTED_ZONE_NAME"
-    echo "Hosted Zone ID: $HOSTED_ZONE_ID"
+    echo "Use Route 53: $USE_ROUTE53"
+    if [[ "$USE_ROUTE53" == "true" ]]; then
+        echo "Domain Name: $DOMAIN_NAME"
+        echo "Hosted Zone: $HOSTED_ZONE_NAME"
+        echo "Hosted Zone ID: $HOSTED_ZONE_ID"
+    else
+        echo "Custom Domain: $CUSTOM_DOMAIN_FULL"
+        echo "Certificate ARN: $EXISTING_CERT_ARN"
+    fi
 fi
 echo "Repository: $REPO_URL"
 echo "Version: $VERSION"
@@ -179,9 +208,12 @@ aws cloudformation deploy \
     Stage="$STAGE" \
     EnableCognito="$ENABLE_COGNITO" \
     UseCustomDomain="$USE_CUSTOM_DOMAIN" \
+    UseRoute53="$USE_ROUTE53" \
     DomainName="$DOMAIN_NAME" \
     HostedZoneName="$HOSTED_ZONE_NAME" \
     HostedZoneId="$HOSTED_ZONE_ID" \
+    CustomDomainFull="$CUSTOM_DOMAIN_FULL" \
+    ExistingCertArn="$EXISTING_CERT_ARN" \
     RepoUrl="$REPO_URL" \
     Version="$VERSION"
 

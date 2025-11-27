@@ -47,6 +47,24 @@ Parameters:
     Default: ''
     Description: Route53 hosted zone ID (auto-discovered from HostedZoneName)
 
+  UseRoute53:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Use Route 53 for DNS management (required if UseCustomDomain is true)
+
+  CustomDomainFull:
+    Type: String
+    Default: ''
+    Description: Full custom domain name (e.g., askme.ktng.com) when not using Route 53
+
+  ExistingCertArn:
+    Type: String
+    Default: ''
+    Description: Existing ACM certificate ARN (required if UseCustomDomain is true and UseRoute53 is false)
+
   RepoUrl:
     Type: String
     Default: 'https://github.com/yunwoong7/aws-idp-pipeline.git'
@@ -143,6 +161,12 @@ Resources:
             Value: !Ref HostedZoneName
           - Name: HOSTED_ZONE_ID
             Value: !Ref HostedZoneId
+          - Name: USE_ROUTE53
+            Value: !Ref UseRoute53
+          - Name: CUSTOM_DOMAIN_FULL
+            Value: !Ref CustomDomainFull
+          - Name: EXISTING_CERT_ARN
+            Value: !Ref ExistingCertArn
           - Name: REPO_URL
             Value: !Ref RepoUrl
           - Name: VERSION
@@ -468,20 +492,33 @@ Resources:
                     CERT_ARN=""
                   fi
 
-                # Deploy Certificate Stack if using custom domain
+                # Deploy Certificate Stack if using custom domain with Route 53
                 - |
                   if [ "$USE_CUSTOM_DOMAIN" = "true" ] && [ "$ENABLE_COGNITO" = "true" ]; then
-                    echo "Deploying Certificate stack for custom domain..."
-                    npx cdk deploy aws-idp-ai-certificate --require-approval never \
-                      --context adminUserEmail="$ADMIN_USER_EMAIL" \
-                      --context useCustomDomain="true" \
-                      --context domainName="$DOMAIN_NAME" \
-                      --context hostedZoneId="$HOSTED_ZONE_ID" \
-                      --context hostedZoneName="$HOSTED_ZONE_NAME"
+                    if [ "$USE_ROUTE53" = "true" ]; then
+                      echo "Deploying Certificate stack for custom domain with Route 53..."
+                      npx cdk deploy aws-idp-ai-certificate --require-approval never \
+                        --context adminUserEmail="$ADMIN_USER_EMAIL" \
+                        --context useCustomDomain="true" \
+                        --context domainName="$DOMAIN_NAME" \
+                        --context hostedZoneId="$HOSTED_ZONE_ID" \
+                        --context hostedZoneName="$HOSTED_ZONE_NAME"
 
-                    # Get the certificate ARN from Certificate stack
-                    CERT_ARN=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-certificate --query 'Stacks[0].Outputs[?OutputKey==`CertificateArn`].OutputValue' --output text)
-                    echo "Using Certificate ARN: $CERT_ARN"
+                      # Get the certificate ARN from Certificate stack
+                      CERT_ARN=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-certificate --query 'Stacks[0].Outputs[?OutputKey==`CertificateArn`].OutputValue' --output text)
+                      echo "Using Certificate ARN: $CERT_ARN"
+                    else
+                      echo "Using external DNS management - skipping Certificate stack deployment"
+                      CERT_ARN="$EXISTING_CERT_ARN"
+                      echo "Using existing Certificate ARN: $CERT_ARN"
+
+                      # Verify certificate exists
+                      if ! aws acm describe-certificate --certificate-arn "$CERT_ARN" >/dev/null 2>&1; then
+                        echo "❌ Error: Certificate ARN $CERT_ARN not found or not accessible"
+                        exit 1
+                      fi
+                      echo "✓ Certificate verified successfully"
+                    fi
                   fi
 
                 # Deploy service stacks
@@ -579,20 +616,38 @@ Resources:
                 - echo "Deploying ECS stack..."
                 - |
                   if [ "$USE_CUSTOM_DOMAIN" = "true" ]; then
-                    if [ "$ENABLE_COGNITO" = "true" ]; then
-                      npx cdk deploy aws-idp-ai-ecs --require-approval never \
-                        --context adminUserEmail="$ADMIN_USER_EMAIL" \
-                        --context useCustomDomain="true" \
-                        --context domainName="$DOMAIN_NAME" \
-                        --context hostedZoneName="$HOSTED_ZONE_NAME" \
-                        --context hostedZoneId="$HOSTED_ZONE_ID" \
-                        --context existingCertificateArn="$CERT_ARN"
+                    if [ "$USE_ROUTE53" = "true" ]; then
+                      # Route 53 managed DNS
+                      if [ "$ENABLE_COGNITO" = "true" ]; then
+                        npx cdk deploy aws-idp-ai-ecs --require-approval never \
+                          --context adminUserEmail="$ADMIN_USER_EMAIL" \
+                          --context useCustomDomain="true" \
+                          --context domainName="$DOMAIN_NAME" \
+                          --context hostedZoneName="$HOSTED_ZONE_NAME" \
+                          --context hostedZoneId="$HOSTED_ZONE_ID" \
+                          --context existingCertificateArn="$CERT_ARN"
+                      else
+                        npx cdk deploy aws-idp-ai-ecs --require-approval never \
+                          --context useCustomDomain="true" \
+                          --context domainName="$DOMAIN_NAME" \
+                          --context hostedZoneName="$HOSTED_ZONE_NAME" \
+                          --context hostedZoneId="$HOSTED_ZONE_ID"
+                      fi
                     else
-                      npx cdk deploy aws-idp-ai-ecs --require-approval never \
-                        --context useCustomDomain="true" \
-                        --context domainName="$DOMAIN_NAME" \
-                        --context hostedZoneName="$HOSTED_ZONE_NAME" \
-                        --context hostedZoneId="$HOSTED_ZONE_ID"
+                      # External DNS management (non-Route53)
+                      echo "Using external DNS with custom domain: $CUSTOM_DOMAIN_FULL"
+                      if [ "$ENABLE_COGNITO" = "true" ]; then
+                        npx cdk deploy aws-idp-ai-ecs --require-approval never \
+                          --context adminUserEmail="$ADMIN_USER_EMAIL" \
+                          --context useCustomDomain="external" \
+                          --context customDomainFull="$CUSTOM_DOMAIN_FULL" \
+                          --context existingCertificateArn="$CERT_ARN"
+                      else
+                        npx cdk deploy aws-idp-ai-ecs --require-approval never \
+                          --context useCustomDomain="external" \
+                          --context customDomainFull="$CUSTOM_DOMAIN_FULL" \
+                          --context existingCertificateArn="$CERT_ARN"
+                      fi
                     fi
                   else
                     # Don't pass useCustomDomain context when false - let it default to undefined
@@ -621,7 +676,11 @@ Resources:
                   echo "Getting stack outputs..."
                   ALB_URL=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-ecs --query 'Stacks[0].Outputs[?OutputKey==`LoadBalancerDnsName`].OutputValue' --output text)
                   if [ "$USE_CUSTOM_DOMAIN" = "true" ]; then
-                    FRONTEND_URL="https://${DOMAIN_NAME}.${HOSTED_ZONE_NAME}"
+                    if [ "$USE_ROUTE53" = "true" ]; then
+                      FRONTEND_URL="https://${DOMAIN_NAME}.${HOSTED_ZONE_NAME}"
+                    else
+                      FRONTEND_URL="https://${CUSTOM_DOMAIN_FULL}"
+                    fi
                   else
                     FRONTEND_URL="https://${ALB_URL}"
                   fi

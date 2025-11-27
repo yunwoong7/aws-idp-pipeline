@@ -33,10 +33,11 @@ export interface EcsStackProps extends cdk.StackProps {
   certificate?: acm.ICertificate;
   existingCertificateArn?: string;
   // Domain configuration
-  useCustomDomain?: boolean;
+  useCustomDomain?: boolean | string;  // true, false, or "external"
   domainName?: string;
   hostedZoneId?: string;
   hostedZoneName?: string;
+  customDomainFull?: string;  // Full domain name for external DNS (e.g., askme.ktng.com)
 }
 
 export class EcsStack extends cdk.Stack {
@@ -67,7 +68,8 @@ export class EcsStack extends cdk.Stack {
       useCustomDomain,
       domainName,
       hostedZoneId,
-      hostedZoneName
+      hostedZoneName,
+      customDomainFull
     } = props;
 
     // Import Cognito resources from IDs to avoid cross-stack exports
@@ -199,12 +201,19 @@ export class EcsStack extends cdk.Stack {
     let domainZone: r53.IHostedZone | undefined;
     let fullDomainName: string | undefined;
 
-    if (useCustomDomain && domainName && hostedZoneId && hostedZoneName) {
+    // Handle custom domain setup
+    if (useCustomDomain === 'external' && customDomainFull) {
+      // External DNS management (no Route 53)
+      fullDomainName = customDomainFull;
+      console.log(`Using external DNS with custom domain: ${fullDomainName}`);
+    } else if (useCustomDomain === true && domainName && hostedZoneId && hostedZoneName) {
+      // Route 53 managed DNS
       domainZone = r53.HostedZone.fromHostedZoneAttributes(this, 'HostedZone', {
         hostedZoneId,
         zoneName: hostedZoneName,
       });
       fullDomainName = `${domainName}.${hostedZoneName}`;
+      console.log(`Using Route 53 managed domain: ${fullDomainName}`);
     }
 
     // Frontend Fargate Service (ApplicationLoadBalancedFargateService 사용)
