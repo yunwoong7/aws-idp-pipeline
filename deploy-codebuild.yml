@@ -58,7 +58,7 @@ Parameters:
   CustomDomainFull:
     Type: String
     Default: ''
-    Description: Full custom domain name (e.g., askme.ktng.com) when not using Route 53
+    Description: Full custom domain name (e.g., idp.demo.com) when not using Route 53
 
   ExistingCertArn:
     Type: String

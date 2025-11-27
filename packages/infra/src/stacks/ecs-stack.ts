@@ -37,7 +37,7 @@ export interface EcsStackProps extends cdk.StackProps {
   domainName?: string;
   hostedZoneId?: string;
   hostedZoneName?: string;
-  customDomainFull?: string;  // Full domain name for external DNS (e.g., askme.ktng.com)
+  customDomainFull?: string;  // Full domain name for external DNS (e.g., idp.demo.com)
 }
 
 export class EcsStack extends cdk.Stack {
@@ -218,7 +218,7 @@ export class EcsStack extends cdk.Stack {
 
     // Frontend Fargate Service (ApplicationLoadBalancedFargateService 사용)
     // Note: We'll modify the listener actions after creation for Cognito
-    this.frontendService = new ecsPatterns.ApplicationLoadBalancedFargateService(this, 'FrontendService', {
+    const frontendServiceProps: any = {
       cluster: this.cluster,
       serviceName: `aws-idp-frontend-${stage}`,
       cpu: 512,
@@ -243,12 +243,19 @@ export class EcsStack extends cdk.Stack {
         },
       },
       certificate: finalCertificate,
-      domainName: fullDomainName,
-      domainZone: domainZone,
       listenerPort: finalCertificate ? 443 : 80,
       protocol: finalCertificate ? elbv2.ApplicationProtocol.HTTPS : elbv2.ApplicationProtocol.HTTP,
       redirectHTTP: finalCertificate ? true : false,
-    });
+    };
+
+    // Only add domainName and domainZone for Route 53 managed domains
+    // For external DNS, we only attach the certificate to ALB without DNS configuration
+    if (domainZone && fullDomainName) {
+      frontendServiceProps.domainName = fullDomainName;
+      frontendServiceProps.domainZone = domainZone;
+    }
+
+    this.frontendService = new ecsPatterns.ApplicationLoadBalancedFargateService(this, 'FrontendService', frontendServiceProps);
 
     // ALB DNS 또는 커스텀 도메인을 기반으로 백엔드 URL 생성 및 API Gateway URL과 함께 프론트엔드 환경변수에 추가
     const albDnsName = this.frontendService.loadBalancer.loadBalancerDnsName;

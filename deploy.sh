@@ -73,7 +73,7 @@ prompt_for_custom_domain() {
                 * )
                     USE_ROUTE53="false"
                     echo "Using external DNS management (non-Route53)"
-                    read -p "Enter your full custom domain (e.g., askme.ktng.com): " CUSTOM_DOMAIN_FULL
+                    read -p "Enter your full custom domain (e.g. idp.demo.com): " CUSTOM_DOMAIN_FULL
                     read -p "Enter existing ACM certificate ARN: " EXISTING_CERT_ARN
 
                     # Validate certificate ARN format
