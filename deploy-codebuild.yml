@@ -586,7 +586,11 @@ Resources:
                     # When using custom domain:
                     # - Backend API (auth, etc) goes through ALB for Cognito auth
                     # - Lambda API (indices, users, etc) still uses API Gateway directly
-                    FRONTEND_BACKEND_URL="https://${DOMAIN_NAME}.${HOSTED_ZONE_NAME}"
+                    if [ "$USE_ROUTE53" = "true" ]; then
+                      FRONTEND_BACKEND_URL="https://${DOMAIN_NAME}.${HOSTED_ZONE_NAME}"
+                    else
+                      FRONTEND_BACKEND_URL="https://${CUSTOM_DOMAIN_FULL}"
+                    fi
                     FRONTEND_API_URL="$API_GATEWAY_URL"
                     echo "Using ALB for backend: $FRONTEND_BACKEND_URL"
                     echo "Using API Gateway for Lambda APIs: $FRONTEND_API_URL"
@@ -670,6 +674,49 @@ Resources:
                 - aws ecs update-service --cluster aws-idp-cluster-${STAGE} --service aws-idp-frontend-${STAGE} --force-new-deployment || echo "Frontend service update failed or not found"
                 - aws ecs update-service --cluster aws-idp-cluster-${STAGE} --service aws-idp-backend-${STAGE} --force-new-deployment || echo "Backend service update failed or not found"
                 - echo "ECS service updates initiated"
+
+                # Update Cognito callback URLs if using custom domain
+                - |
+                  if [ "$USE_CUSTOM_DOMAIN" = "true" ] && [ "$ENABLE_COGNITO" = "true" ]; then
+                    echo "Updating Cognito User Pool Client callback URLs for custom domain..."
+
+                    # Get Cognito details
+                    USER_POOL_ID=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-cognito --query 'Stacks[0].Outputs[?OutputKey==`UserPoolId`].OutputValue' --output text)
+                    CLIENT_ID=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-cognito --query 'Stacks[0].Outputs[?OutputKey==`UserPoolClientId`].OutputValue' --output text)
+                    ALB_DNS=$(aws cloudformation describe-stacks --stack-name aws-idp-ai-ecs --query 'Stacks[0].Outputs[?OutputKey==`LoadBalancerDnsName`].OutputValue' --output text)
+
+                    # Determine custom domain URL
+                    if [ "$USE_ROUTE53" = "true" ]; then
+                      CUSTOM_URL="https://${DOMAIN_NAME}.${HOSTED_ZONE_NAME}"
+                    else
+                      CUSTOM_URL="https://${CUSTOM_DOMAIN_FULL}"
+                    fi
+
+                    echo "Custom domain URL: $CUSTOM_URL"
+                    echo "ALB DNS: $ALB_DNS"
+
+                    # Update Cognito User Pool Client with both ALB and custom domain URLs
+                    aws cognito-idp update-user-pool-client \
+                      --user-pool-id "$USER_POOL_ID" \
+                      --client-id "$CLIENT_ID" \
+                      --callback-urls \
+                        "https://${ALB_DNS}" \
+                        "https://${ALB_DNS}/oauth2/idpresponse" \
+                        "${CUSTOM_URL}" \
+                        "${CUSTOM_URL}/oauth2/idpresponse" \
+                      --logout-urls \
+                        "https://${ALB_DNS}" \
+                        "https://${ALB_DNS}/logged-out" \
+                        "${CUSTOM_URL}" \
+                        "${CUSTOM_URL}/logged-out" \
+                      --allowed-o-auth-flows "code" \
+                      --allowed-o-auth-scopes "email" "openid" "profile" \
+                      --allowed-o-auth-flows-user-pool-client \
+                      --supported-identity-providers "COGNITO" \
+                      >/dev/null 2>&1
+
+                    echo "✓ Cognito callback URLs updated successfully"
+                  fi
 
                 # Get outputs
                 - |
